@@ -1,5 +1,6 @@
 package com.crossdeck.client.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,8 +22,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -47,7 +50,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
-import androidx.compose.foundation.layout.height
 
 @Composable
 fun PairingScreen(
@@ -142,15 +144,21 @@ fun PairingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF080810))
+            .background(Color(0xFF000000))
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(accentColor.copy(alpha = 0.15f), Color.Transparent),
+                    radius = 900f
+                )
+            )
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.5.dp, Color(0xFF1F1F23), RoundedCornerShape(12.dp))
-                .background(Color(0xFF0E0E10), RoundedCornerShape(12.dp))
+                .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                .background(Color(0xE60E0E10), RoundedCornerShape(18.dp))
                 .padding(24.dp),
             verticalArrangement = Arrangement.Center
         ) {
@@ -158,7 +166,7 @@ fun PairingScreen(
             Text(
                 "CrossDeck will scan your WiFi for a PC running the host app.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.LightGray,
+                color = Color.LightGray.copy(alpha = 0.7f),
                 modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
             )
 
@@ -182,7 +190,9 @@ fun PairingScreen(
                     OutlinedButton(
                         onClick = { triggerScan() },
                         enabled = !scanning && !connecting,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor)
+                        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
                         if (scanning) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = accentColor)
@@ -200,7 +210,10 @@ fun PairingScreen(
                         val intent = Intent(context, QrScannerActivity::class.java)
                         qrScannerLauncher.launch(intent)
                     },
-                    enabled = !connecting
+                    border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = !connecting,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                 ) {
                     Text("Scan QR", color = Color.White)
                 }
@@ -217,13 +230,18 @@ fun PairingScreen(
             OutlinedTextField(
                 value = ip,
                 onValueChange = { ip = it },
-                label = { Text("PC IP Address", color = Color.Gray) },
+                label = { Text("PC IP Address") },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     focusedBorderColor = accentColor,
-                    unfocusedBorderColor = Color(0xFF1F1F23)
+                    unfocusedBorderColor = Color(0xFF1F1F23),
+                    focusedLabelColor = accentColor,
+                    unfocusedLabelColor = Color.Gray,
+                    focusedContainerColor = Color(0xFF14141A),
+                    unfocusedContainerColor = Color(0xFF14141A)
                 ),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -232,14 +250,19 @@ fun PairingScreen(
             OutlinedTextField(
                 value = port,
                 onValueChange = { port = it },
-                label = { Text("Port", color = Color.Gray) },
+                label = { Text("Port") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     focusedBorderColor = accentColor,
-                    unfocusedBorderColor = Color(0xFF1F1F23)
+                    unfocusedBorderColor = Color(0xFF1F1F23),
+                    focusedLabelColor = accentColor,
+                    unfocusedLabelColor = Color.Gray,
+                    focusedContainerColor = Color(0xFF14141A),
+                    unfocusedContainerColor = Color(0xFF14141A)
                 ),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -248,14 +271,19 @@ fun PairingScreen(
             OutlinedTextField(
                 value = pin,
                 onValueChange = { pin = it },
-                label = { Text("PIN", color = Color.Gray) },
+                label = { Text("PIN") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
                     unfocusedTextColor = Color.White,
                     focusedBorderColor = accentColor,
-                    unfocusedBorderColor = Color(0xFF1F1F23)
+                    unfocusedBorderColor = Color(0xFF1F1F23),
+                    focusedLabelColor = accentColor,
+                    unfocusedLabelColor = Color.Gray,
+                    focusedContainerColor = Color(0xFF14141A),
+                    unfocusedContainerColor = Color(0xFF14141A)
                 ),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -276,6 +304,7 @@ fun PairingScreen(
                 },
                 enabled = !connecting && !scanning && ip.isNotBlank() && pin.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.Black),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 24.dp)

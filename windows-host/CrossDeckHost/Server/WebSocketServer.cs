@@ -211,6 +211,12 @@ public class WebSocketServer
                     case "dial_adjust":
                         await HandleDialAdjust(webSocket, msg.Value, ct);
                         break;
+                    case "list_apps":
+                        await HandleListApps(webSocket, ct);
+                        break;
+                    case "extract_icon":
+                        await HandleExtractIcon(webSocket, msg.Value, ct);
+                        break;
                     default:
                         // Ignore unknown message types
                         break;
@@ -329,6 +335,52 @@ public class WebSocketServer
         }
 
         await BroadcastDialStateAsync(button.ButtonId, newVal);
+    }
+
+    /// <summary>
+    /// Mirrors the PC editor's "installed apps" dropdown (AppDiscovery.DiscoverApps) for the
+    /// Android client, which has no local way to enumerate Windows Start Menu apps. Deliberately
+    /// name+path only — no icon extraction here, same reasoning as AppPickerWindow's in-memory-only
+    /// previews: don't do per-row disk work for a list the user hasn't picked from yet. See
+    /// HandleExtractIcon for the on-demand icon fetch once an app is actually selected.
+    /// </summary>
+    private async Task HandleListApps(WebSocket webSocket, CancellationToken ct)
+    {
+        var apps = await Task.Run(() => AppDiscovery.DiscoverApps(), ct);
+        var payload = new
+        {
+            type = "app_list",
+            apps = apps.Select(a => new { name = a.Name, path = a.ExePath })
+        };
+        await SendJsonAsync(webSocket, payload, ct);
+    }
+
+    /// <summary>
+    /// On-demand icon extraction for a single exe path — called by Android right after the user
+    /// picks an app from the list_apps dropdown, so only the one app actually used gets its icon
+    /// resized/hashed/saved to disk (same lazy pattern as list_apps above).
+    /// </summary>
+    private async Task HandleExtractIcon(WebSocket webSocket, JsonElement msg, CancellationToken ct)
+    {
+        var path = msg.TryGetProperty("path", out var pathEl) ? pathEl.GetString() : null;
+        string? icon = null;
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                icon = await ProfileStoreService.FetchFaviconIconAsync(path);
+            }
+            else if (path.Contains(".") && !Path.IsPathRooted(path) && !path.EndsWith(".exe") && !path.EndsWith(".lnk"))
+            {
+                icon = await ProfileStoreService.FetchFaviconIconAsync("https://" + path);
+            }
+            else
+            {
+                icon = await Task.Run(() => ProfileStoreService.ExtractAndSaveIcon(path), ct);
+            }
+        }
+        await SendJsonAsync(webSocket, new { type = "icon_extracted", path, icon }, ct);
     }
 
     private async Task BroadcastDialStateAsync(string buttonId, int value)

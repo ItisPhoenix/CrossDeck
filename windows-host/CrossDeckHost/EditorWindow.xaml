@@ -25,12 +25,12 @@
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
                         <TextBlock Text="✦ CrossDeck Host Editor" Foreground="#FFFFFF" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                        <ComboBox x:Name="AccentCombo" Margin="24,0,0,0" Width="100" Height="20" FontSize="10" SelectionChanged="AccentCombo_SelectionChanged" Background="#080810" Foreground="#FFFFFF" BorderBrush="#1F1F23" VerticalAlignment="Center">
-                            <ComboBoxItem Content="#00d4ff"/>
-                            <ComboBoxItem Content="#8b5cf6"/>
-                            <ComboBoxItem Content="#ffb703"/>
-                            <ComboBoxItem Content="#2ec4b6"/>
-                            <ComboBoxItem Content="#e63946"/>
+                        <ComboBox x:Name="AccentCombo" Margin="24,0,0,0" Width="130" Height="20" FontSize="10" SelectionChanged="AccentCombo_SelectionChanged" Background="#080810" Foreground="#FFFFFF" BorderBrush="#1F1F23" VerticalAlignment="Center">
+                            <ComboBoxItem Content="Neon Cyan" Tag="#00d4ff"/>
+                            <ComboBoxItem Content="Neon Purple" Tag="#8b5cf6"/>
+                            <ComboBoxItem Content="Cyberpunk Yellow" Tag="#ffb703"/>
+                            <ComboBoxItem Content="Toxic Green" Tag="#2ec4b6"/>
+                            <ComboBoxItem Content="Crimson Red" Tag="#e63946"/>
                         </ComboBox>
                     </StackPanel>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
@@ -81,15 +81,15 @@
                 
                 <TextBlock Text="Action Type" FontWeight="SemiBold" Margin="0,0,0,4"/>
                 <ComboBox x:Name="ActionTypeCombo" Margin="0,0,0,12" SelectionChanged="ActionTypeCombo_SelectionChanged">
-                    <ComboBoxItem Content="hotkey"/>
-                    <ComboBoxItem Content="launch_app"/>
-                    <ComboBoxItem Content="media_control"/>
-                    <ComboBoxItem Content="open_url"/>
-                    <ComboBoxItem Content="run_command"/>
-                    <ComboBoxItem Content="text_snippet"/>
-                    <ComboBoxItem Content="open_folder"/>
-                    <ComboBoxItem Content="multi_action"/>
-                    <ComboBoxItem Content="dial"/>
+                    <ComboBoxItem Content="Keyboard Shortcut" Tag="hotkey"/>
+                    <ComboBoxItem Content="Launch App" Tag="launch_app"/>
+                    <ComboBoxItem Content="Media Control" Tag="media_control"/>
+                    <ComboBoxItem Content="Open Website" Tag="open_url"/>
+                    <ComboBoxItem Content="Run Command" Tag="run_command"/>
+                    <ComboBoxItem Content="Text Snippet" Tag="text_snippet"/>
+                    <ComboBoxItem Content="Open Folder" Tag="open_folder"/>
+                    <ComboBoxItem Content="Multiple Actions" Tag="multi_action"/>
+                    <ComboBoxItem Content="Dial / Slider" Tag="dial"/>
                 </ComboBox>
                 
                 <!-- Hotkey fields -->
@@ -100,10 +100,11 @@
                 
                 <!-- Launch App fields -->
                 <StackPanel x:Name="LaunchAppPanel" Visibility="Collapsed">
-                    <TextBlock Text="Application Path" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBlock Text="Application Path (pick installed app, or type/browse a custom path)" FontWeight="SemiBold" Margin="0,0,0,4" TextWrapping="Wrap"/>
                     <DockPanel Margin="0,0,0,12">
                         <Button Content="Browse..." DockPanel.Dock="Right" Padding="6,2" Click="BrowseAppButton_Click"/>
-                        <TextBox x:Name="PathInput" Padding="4" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="PathInput" IsEditable="True" Padding="4" Margin="0,0,6,0"
+                                  DisplayMemberPath="Name" SelectionChanged="PathInput_SelectionChanged"/>
                     </DockPanel>
                 </StackPanel>
 
@@ -111,12 +112,12 @@
                 <StackPanel x:Name="MediaControlPanel" Visibility="Collapsed">
                     <TextBlock Text="Media Command" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <ComboBox x:Name="MediaCommandCombo" Margin="0,0,0,12">
-                        <ComboBoxItem Content="PlayPause"/>
-                        <ComboBoxItem Content="NextTrack"/>
-                        <ComboBoxItem Content="PrevTrack"/>
-                        <ComboBoxItem Content="VolumeUp"/>
-                        <ComboBoxItem Content="VolumeDown"/>
-                        <ComboBoxItem Content="VolumeMute"/>
+                        <ComboBoxItem Content="Play / Pause" Tag="PlayPause"/>
+                        <ComboBoxItem Content="Next Track" Tag="NextTrack"/>
+                        <ComboBoxItem Content="Previous Track" Tag="PrevTrack"/>
+                        <ComboBoxItem Content="Volume Up" Tag="VolumeUp"/>
+                        <ComboBoxItem Content="Volume Down" Tag="VolumeDown"/>
+                        <ComboBoxItem Content="Mute" Tag="VolumeMute"/>
                     </ComboBox>
                 </StackPanel>
 
@@ -155,8 +156,8 @@
                 <StackPanel x:Name="DialPanel" Visibility="Collapsed">
                     <TextBlock Text="Dial Target" FontWeight="SemiBold" Margin="0,0,0,4"/>
                     <ComboBox x:Name="DialTargetCombo" Margin="0,0,0,12">
-                        <ComboBoxItem Content="volume"/>
-                        <ComboBoxItem Content="brightness"/>
+                        <ComboBoxItem Content="Volume" Tag="volume"/>
+                        <ComboBoxItem Content="Brightness" Tag="brightness"/>
                     </ComboBox>
                 </StackPanel>
                 

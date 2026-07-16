@@ -3,6 +3,8 @@ package com.crossdeck.client.connection
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.crossdeck.client.model.AppSettings
+import com.crossdeck.client.model.DiscoveredApp
 import com.crossdeck.client.model.Profile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +46,7 @@ class ConnectionManager(context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
     private var webSocket: WebSocket? = null
     private val prefs = context.getSharedPreferences("appname_pairing", Context.MODE_PRIVATE)
+    private val settingsPrefs = context.getSharedPreferences("appname_settings", Context.MODE_PRIVATE)
 
     private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -72,6 +75,13 @@ class ConnectionManager(context: Context) {
 
     private val _connectedHostUrl = MutableStateFlow<String?>(null)
     val connectedHostUrl: StateFlow<String?> = _connectedHostUrl.asStateFlow()
+
+    private val _appList = MutableStateFlow<List<DiscoveredApp>>(emptyList())
+    val appList: StateFlow<List<DiscoveredApp>> = _appList.asStateFlow()
+
+    /** Pair(path, iconHashOrNull) — the most recent response to sendExtractIconRequest(). */
+    private val _extractedIcon = MutableStateFlow<Pair<String, String?>?>(null)
+    val extractedIcon: StateFlow<Pair<String, String?>?> = _extractedIcon.asStateFlow()
 
     private fun emitToast(message: String, success: Boolean) {
         _toastMessage.value = Pair(message, success)
@@ -214,13 +224,13 @@ class ConnectionManager(context: Context) {
                 _connectionState.value = ConnectionState.Error
                 _lastError.value = t.message
                 _connectedHostUrl.value = null
-                if (_currentProfile.value != null) scheduleReconnect()
+                if (_currentProfile.value != null && loadSettings().autoReconnect) scheduleReconnect()
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 _connectionState.value = ConnectionState.Disconnected
                 _connectedHostUrl.value = null
-                if (_currentProfile.value != null) scheduleReconnect()
+                if (_currentProfile.value != null && loadSettings().autoReconnect) scheduleReconnect()
             }
         })
     }
@@ -290,6 +300,20 @@ class ConnectionManager(context: Context) {
                         _dialLevels.value = _dialLevels.value + (btnId to newVal)
                     }
                 }
+                "app_list" -> {
+                    obj["apps"]?.let {
+                        _appList.value = json.decodeFromJsonElement(
+                            kotlinx.serialization.builtins.ListSerializer(DiscoveredApp.serializer()), it
+                        )
+                    }
+                }
+                "icon_extracted" -> {
+                    val path = obj["path"]?.jsonPrimitive?.content
+                    val icon = obj["icon"]?.let { if (it is kotlinx.serialization.json.JsonNull) null else it.jsonPrimitive.content }
+                    if (path != null) {
+                        _extractedIcon.value = path to icon
+                    }
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e("ConnectionManager", "Error parsing message: $text", e)
@@ -342,6 +366,22 @@ class ConnectionManager(context: Context) {
         ws.send(obj.toString())
     }
 
+    /** Requests the installed-apps list from the host — Android has no local way to enumerate
+     * Windows Start Menu apps, unlike the PC editor's own AppDiscovery. Response arrives async via
+     * the appList StateFlow. */
+    fun sendListAppsRequest() {
+        val ws = webSocket ?: return
+        ws.send(buildJsonObject { put("type", "list_apps") }.toString())
+    }
+
+    /** Asks the host to extract+save an icon for one specific exe path — called right after the
+     * user picks an app from the list_apps dropdown, mirroring the PC editor's auto-icon-on-select.
+     * Response arrives async via the extractedIcon StateFlow. */
+    fun sendExtractIconRequest(path: String) {
+        val ws = webSocket ?: return
+        ws.send(buildJsonObject { put("type", "extract_icon"); put("path", path) }.toString())
+    }
+
     fun sendStyleChange(colorHex: String) {
         val ws = webSocket ?: return
         val obj = buildJsonObject {
@@ -355,6 +395,32 @@ class ConnectionManager(context: Context) {
     fun getLastSavedPort(): Int = prefs.getInt(KEY_PORT, 7890)
     fun getLastSavedPin(): String = prefs.getString(KEY_PIN, "") ?: ""
     fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
+
+    /** Clears the saved pairing (ip/port/pin/token) and disconnects — "Forget This PC" setting. */
+    fun forgetPairing() {
+        disconnect()
+        prefs.edit().remove(KEY_IP).remove(KEY_PORT).remove(KEY_PIN).remove(KEY_TOKEN).apply()
+    }
+
+    fun loadSettings(): AppSettings = AppSettings(
+        hapticsEnabled = settingsPrefs.getBoolean("haptics_enabled", true),
+        compactGrid = settingsPrefs.getBoolean("compact_grid", false),
+        keepScreenAwake = settingsPrefs.getBoolean("keep_screen_awake", false),
+        iconOnlyMode = settingsPrefs.getBoolean("icon_only_mode", false),
+        autoReconnect = settingsPrefs.getBoolean("auto_reconnect", true),
+        confirmRunCommand = settingsPrefs.getBoolean("confirm_run_command", false)
+    )
+
+    fun saveSettings(settings: AppSettings) {
+        settingsPrefs.edit()
+            .putBoolean("haptics_enabled", settings.hapticsEnabled)
+            .putBoolean("compact_grid", settings.compactGrid)
+            .putBoolean("keep_screen_awake", settings.keepScreenAwake)
+            .putBoolean("icon_only_mode", settings.iconOnlyMode)
+            .putBoolean("auto_reconnect", settings.autoReconnect)
+            .putBoolean("confirm_run_command", settings.confirmRunCommand)
+            .apply()
+    }
 
     /** Uploads raw image bytes to the host's asset endpoint; returns the hash filename to store
      * in ButtonModel.icon, or null on failure (not connected, no token, or a server/network error). */

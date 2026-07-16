@@ -26,6 +26,7 @@ import com.crossdeck.client.connection.ConnectionState
 import com.crossdeck.client.ui.DeckGridScreen
 import com.crossdeck.client.ui.PairingScreen
 import com.crossdeck.client.ui.ReconnectOverlay
+import java.io.File
 
 private val PremiumDarkColors = darkColorScheme(
     primary = Color(0xFF00F2FE),
@@ -81,6 +82,8 @@ class MainActivity : ComponentActivity() {
                     val toastMessage by connectionManager.toastMessage.collectAsState()
                     val dialLevels by connectionManager.dialLevels.collectAsState()
                     val connectedHostUrl by connectionManager.connectedHostUrl.collectAsState()
+                    val appList by connectionManager.appList.collectAsState()
+                    val extractedIcon by connectionManager.extractedIcon.collectAsState()
 
                     // "Manual Connection" in the reconnect overlay forces PairingScreen even though
                     // we still have a last-known profile; reset once a fresh connection succeeds.
@@ -88,6 +91,11 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(state) {
                         if (state == ConnectionState.Connected) showManualPairing = false
                     }
+
+                    var appSettings by remember { mutableStateOf(connectionManager.loadSettings()) }
+                    val savedIp = connectionManager.getLastSavedIp()
+                    val savedPort = connectionManager.getLastSavedPort()
+                    val hostInfo = if (savedIp.isNotBlank()) "$savedIp:$savedPort" else null
 
                     when {
                         state == ConnectionState.Connected && profile != null -> {
@@ -112,6 +120,10 @@ class MainActivity : ComponentActivity() {
                                 onIconUpload = { bytes ->
                                     connectionManager.uploadIcon(bytes)
                                 },
+                                appList = appList,
+                                onRequestAppList = { connectionManager.sendListAppsRequest() },
+                                extractedIcon = extractedIcon,
+                                onRequestExtractIcon = { path -> connectionManager.sendExtractIconRequest(path) },
                                 onButtonDelete = { buttonId ->
                                     connectionManager.sendProfileEditDelete(profile!!.profileId, buttonId)
                                 },
@@ -129,6 +141,16 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onDialAdjust = { buttonId, value ->
                                     connectionManager.sendDialAdjust(buttonId, value)
+                                },
+                                settings = appSettings,
+                                onSettingsChange = { newSettings ->
+                                    appSettings = newSettings
+                                    connectionManager.saveSettings(newSettings)
+                                },
+                                connectionHostInfo = hostInfo,
+                                onForgetHost = { connectionManager.forgetPairing() },
+                                onClearIconCache = {
+                                    File(applicationContext.cacheDir, "assets").listFiles()?.forEach { it.delete() }
                                 }
                             )
                         }
@@ -150,12 +172,26 @@ class MainActivity : ComponentActivity() {
                                         onButtonTap = {},
                                         onButtonSave = {},
                                         onIconUpload = { null },
+                                        appList = emptyList(),
+                                        onRequestAppList = {},
+                                        extractedIcon = null,
+                                        onRequestExtractIcon = {},
                                         onButtonDelete = {},
                                         onProfileSwitch = {},
                                         onProfileCreate = {},
                                         onProfileDelete = {},
                                         onProfileRename = { _, _ -> },
-                                        onDialAdjust = { _, _ -> }
+                                        onDialAdjust = { _, _ -> },
+                                        settings = appSettings,
+                                        onSettingsChange = { newSettings ->
+                                            appSettings = newSettings
+                                            connectionManager.saveSettings(newSettings)
+                                        },
+                                        connectionHostInfo = hostInfo,
+                                        onForgetHost = { connectionManager.forgetPairing() },
+                                        onClearIconCache = {
+                                            File(applicationContext.cacheDir, "assets").listFiles()?.forEach { it.delete() }
+                                        }
                                     )
                                 }
                                 ReconnectOverlay(

@@ -220,7 +220,7 @@ public class ProfileStoreService
                 ButtonId = "b_001",
                 Position = new Position { Row = 0, Col = 0 },
                 Label = "Google",
-                Icon = ExtractAndSaveIcon("chrome.exe"),
+                Icon = ExtractAndSaveIcon("chrome.exe") ?? "builtin:globe",
                 Action = new ActionModel { Type = "open_url", Url = "https://google.com" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -228,6 +228,7 @@ public class ProfileStoreService
                 ButtonId = "b_002",
                 Position = new Position { Row = 0, Col = 1 },
                 Label = "Lock PC",
+                Icon = "builtin:lock",
                 Action = new ActionModel { Type = "run_command", Command = "rundll32.exe user32.dll,LockWorkStation" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -235,6 +236,7 @@ public class ProfileStoreService
                 ButtonId = "b_003",
                 Position = new Position { Row = 0, Col = 2 },
                 Label = "Volume",
+                Icon = "builtin:volume-2",
                 Action = new ActionModel { Type = "dial", DialTarget = "volume" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -242,6 +244,7 @@ public class ProfileStoreService
                 ButtonId = "b_004",
                 Position = new Position { Row = 0, Col = 3 },
                 Label = "Brightness",
+                Icon = "builtin:sun",
                 Action = new ActionModel { Type = "dial", DialTarget = "brightness" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -249,6 +252,7 @@ public class ProfileStoreService
                 ButtonId = "b_005",
                 Position = new Position { Row = 0, Col = 4 },
                 Label = "Play/Pause",
+                Icon = "builtin:play",
                 Action = new ActionModel { Type = "media_control", MediaCommand = "PlayPause" }
             });
             // Row 2 additions
@@ -257,6 +261,7 @@ public class ProfileStoreService
                 ButtonId = "b_006",
                 Position = new Position { Row = 1, Col = 0 },
                 Label = "Mute Meetings",
+                Icon = "builtin:mic-off",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "F1" } }
             });
             profile.Buttons.Add(new ButtonModel
@@ -264,7 +269,7 @@ public class ProfileStoreService
                 ButtonId = "b_007",
                 Position = new Position { Row = 1, Col = 1 },
                 Label = "Task Manager",
-                Icon = ExtractAndSaveIcon("taskmgr.exe"),
+                Icon = ExtractAndSaveIcon("taskmgr.exe") ?? "builtin:cpu",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "Escape" } }
             });
         }
@@ -275,6 +280,7 @@ public class ProfileStoreService
                 ButtonId = "b_001",
                 Position = new Position { Row = 0, Col = 0 },
                 Label = "Mute",
+                Icon = "builtin:volume-x",
                 Action = new ActionModel { Type = "media_control", MediaCommand = "VolumeMute" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -282,6 +288,7 @@ public class ProfileStoreService
                 ButtonId = "b_002",
                 Position = new Position { Row = 0, Col = 1 },
                 Label = "Volume",
+                Icon = "builtin:volume-2",
                 Action = new ActionModel { Type = "dial", DialTarget = "volume" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -289,7 +296,7 @@ public class ProfileStoreService
                 ButtonId = "b_003",
                 Position = new Position { Row = 0, Col = 2 },
                 Label = "Notepad",
-                Icon = ExtractAndSaveIcon("notepad.exe"),
+                Icon = ExtractAndSaveIcon("notepad.exe") ?? "builtin:file-text",
                 Action = new ActionModel { Type = "launch_app", Path = "notepad.exe" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -297,7 +304,7 @@ public class ProfileStoreService
                 ButtonId = "b_004",
                 Position = new Position { Row = 0, Col = 3 },
                 Label = "Snip Tool",
-                Icon = ExtractAndSaveIcon("SnippingTool.exe"),
+                Icon = ExtractAndSaveIcon("SnippingTool.exe") ?? "builtin:camera",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Win", "Shift", "S" } }
             });
             profile.Buttons.Add(new ButtonModel
@@ -305,6 +312,7 @@ public class ProfileStoreService
                 ButtonId = "b_005",
                 Position = new Position { Row = 0, Col = 4 },
                 Label = "Play/Pause",
+                Icon = "builtin:play",
                 Action = new ActionModel { Type = "media_control", MediaCommand = "PlayPause" }
             });
             // Row 2 additions
@@ -313,7 +321,7 @@ public class ProfileStoreService
                 ButtonId = "b_006",
                 Position = new Position { Row = 1, Col = 0 },
                 Label = "OBS Record",
-                Icon = ExtractAndSaveIcon("obs64.exe"),
+                Icon = ExtractAndSaveIcon("obs64.exe") ?? "builtin:disc",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "F9" } }
             });
             profile.Buttons.Add(new ButtonModel
@@ -321,7 +329,7 @@ public class ProfileStoreService
                 ButtonId = "b_007",
                 Position = new Position { Row = 1, Col = 1 },
                 Label = "OBS Stream",
-                Icon = ExtractAndSaveIcon("obs64.exe"),
+                Icon = ExtractAndSaveIcon("obs64.exe") ?? "builtin:video",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "F10" } }
             });
         }
@@ -441,5 +449,43 @@ public class ProfileStoreService
         }
 
         return exe;
+    }
+
+    private static readonly System.Net.Http.HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+
+    public static async Task<string?> FetchFaviconIconAsync(string url)
+    {
+        string host;
+        try
+        {
+            host = new Uri(url).Host;
+        }
+        catch
+        {
+            return null;
+        }
+
+        string[] candidates =
+        {
+            $"https://{host}/favicon.ico",
+            $"https://www.google.com/s2/favicons?domain={host}&sz=144"
+        };
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var bytes = await _httpClient.GetByteArrayAsync(candidate);
+                if (bytes.Length > 0)
+                {
+                    return SaveIconFromBytes(bytes);
+                }
+            }
+            catch
+            {
+                // try the next candidate
+            }
+        }
+        return null;
     }
 }

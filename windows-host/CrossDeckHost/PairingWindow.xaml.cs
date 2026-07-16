@@ -13,7 +13,9 @@ public partial class PairingWindow : Window
         IpText.Text = ipAddress;
         PortText.Text = port.ToString();
         PinText.Text = pin;
-        ThemeManager.ApplyTheme(this);
+        // ApplyTheme must run after layout (VisualTreeHelper walk is a no-op pre-layout) — Loaded,
+        // not the constructor. See EditorWindow's constructor for the same pattern.
+        Loaded += (s, e) => ThemeManager.ApplyTheme(this);
 
         try
         {

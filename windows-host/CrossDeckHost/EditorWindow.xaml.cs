@@ -34,6 +34,7 @@ public partial class EditorWindow : Window
             ThemeManager.ApplyTheme(this);
             RefreshProfileSelector();
             RefreshGrid();
+            PathInput.ItemsSource = AppDiscovery.DiscoverApps();
         };
         Closed += (s, e) =>
         {
@@ -129,9 +130,9 @@ public partial class EditorWindow : Window
             Height = 150,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = this,
-            ResizeMode = ResizeMode.NoResize,
-            Background = System.Windows.Media.Brushes.LightGray
+            ResizeMode = ResizeMode.NoResize
         };
+        dialog.Loaded += (s, e) => ThemeManager.ApplyTheme(dialog);
 
         var stack = new StackPanel { Margin = new Thickness(12) };
         stack.Children.Add(new TextBlock { Text = "Profile Name:", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
@@ -179,9 +180,9 @@ public partial class EditorWindow : Window
             Height = 150,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = this,
-            ResizeMode = ResizeMode.NoResize,
-            Background = System.Windows.Media.Brushes.LightGray
+            ResizeMode = ResizeMode.NoResize
         };
+        dialog.Loaded += (s, e) => ThemeManager.ApplyTheme(dialog);
 
         var stack = new StackPanel { Margin = new Thickness(12) };
         stack.Children.Add(new TextBlock { Text = "New Profile Name:", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
@@ -300,9 +301,9 @@ public partial class EditorWindow : Window
 
                 int row = r;
                 int col = c;
-                bool isLight = false;
-                var textBrush = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1A202C") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FFFFFF"));
-                var borderBrush = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#DDE1E5") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1F1F23"));
+                // Obsidian dark palette only — this app is dark-only by design (DESIGN.md), no light variant.
+                var textBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FFFFFF"));
+                var borderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1F1F23"));
 
                 if (buttons.TryGetValue((row, col), out var buttonModel))
                 {
@@ -335,15 +336,15 @@ public partial class EditorWindow : Window
                     stack.Children.Add(tbLabel);
                     btn.Content = stack;
 
-                    btn.Background = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#E1F5FE") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0E0E10"));
-                    btn.BorderBrush = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#B3E5FC") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#00F2FE"));
+                    btn.Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0E0E10"));
+                    btn.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#00F2FE"));
                     btn.BorderThickness = new Thickness(2);
                 }
                 else
                 {
                     btn.Content = "+";
                     btn.Foreground = textBrush;
-                    btn.Background = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FFFFFF") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#000000"));
+                    btn.Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0E0E10"));
                     btn.BorderBrush = borderBrush;
                     btn.BorderThickness = new Thickness(1);
                 }
@@ -390,7 +391,7 @@ public partial class EditorWindow : Window
             string mediaCmd = buttonModel.Action.MediaCommand ?? "PlayPause";
             foreach (ComboBoxItem item in MediaCommandCombo.Items)
             {
-                if (item.Content.ToString() == mediaCmd)
+                if (item.Tag?.ToString() == mediaCmd)
                 {
                     MediaCommandCombo.SelectedItem = item;
                     break;
@@ -405,7 +406,7 @@ public partial class EditorWindow : Window
             string dialTgt = buttonModel.Action.DialTarget ?? "volume";
             foreach (ComboBoxItem item in DialTargetCombo.Items)
             {
-                if (item.Content.ToString() == dialTgt)
+                if (item.Tag?.ToString() == dialTgt)
                 {
                     DialTargetCombo.SelectedItem = item;
                     break;
@@ -470,6 +471,27 @@ public partial class EditorWindow : Window
         }
     }
 
+    private void PathInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (PathInput.SelectedItem is not DiscoveredApp app) return;
+
+        PathInput.Text = app.ExePath;
+        if (string.IsNullOrWhiteSpace(LabelInput.Text))
+        {
+            LabelInput.Text = app.Name;
+        }
+        // Auto app-icon (issue 7) — same guarded pattern as the launch_app auto-icon in
+        // SaveButton_Click, just applied at selection time instead of save time.
+        if (string.IsNullOrEmpty(IconPathText.Text))
+        {
+            var extractedHash = ProfileStoreService.ExtractAndSaveIcon(app.ExePath);
+            if (extractedHash != null)
+            {
+                IconPathText.Text = extractedHash;
+            }
+        }
+    }
+
     private void BrowseIcon_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog
@@ -504,7 +526,77 @@ public partial class EditorWindow : Window
         IconPathText.Text = "";
     }
 
-    private void SaveButton_Click(object sender, RoutedEventArgs e)
+    // First outbound HttpClient in the host codebase (everything else is inbound servers —
+    // WebSocketServer.cs's WS listener and asset server). Used only for the favicon fetch below.
+    private static readonly System.Net.Http.HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
+
+    /// <summary>
+    /// Tries the site's own /favicon.ico, then Google's public favicon service, saving whichever
+    /// succeeds through the normal icon pipeline. Returns null if both fail (caller falls back to
+    /// builtin:globe). ponytail: no HTML &lt;link rel="icon"&gt; parsing — upgrade only if this
+    /// comes back wrong in practice.
+    /// </summary>
+    private static async Task<string?> FetchFaviconIconAsync(string url)
+    {
+        string host;
+        try
+        {
+            host = new Uri(url).Host;
+        }
+        catch
+        {
+            return null;
+        }
+
+        string[] candidates =
+        {
+            $"https://{host}/favicon.ico",
+            $"https://www.google.com/s2/favicons?domain={host}&sz=144"
+        };
+
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var bytes = await _httpClient.GetByteArrayAsync(candidate);
+                if (bytes.Length > 0)
+                {
+                    return ProfileStoreService.SaveIconFromBytes(bytes);
+                }
+            }
+            catch
+            {
+                // try the next candidate
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Default builtin: icon for action types that don't already have their own auto-icon logic
+    /// (launch_app extracts the exe icon; open_url fetches a favicon — both handled inline in
+    /// their own switch case). Guarded the same way at the call site: only used when the user
+    /// hasn't already picked an icon.
+    /// </summary>
+    private static string? DefaultIconFor(string actionType, string? subValue) => actionType switch
+    {
+        "hotkey" => "builtin:keyboard",
+        "media_control" => subValue switch
+        {
+            "VolumeMute" => "builtin:volume-x",
+            "VolumeUp" => "builtin:volume-2",
+            "VolumeDown" => "builtin:volume-1",
+            _ => "builtin:play"
+        },
+        "run_command" => "builtin:terminal",
+        "text_snippet" => "builtin:file-text",
+        "open_folder" => "builtin:folder",
+        "multi_action" => "builtin:layers",
+        "dial" => subValue == "brightness" ? "builtin:sun" : "builtin:volume-2",
+        _ => null
+    };
+
+    private async void SaveButton_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedRow == -1 || _selectedCol == -1) return;
 
@@ -518,7 +610,7 @@ public partial class EditorWindow : Window
         var buttonModel = _profileStore.Current.Buttons
             .FirstOrDefault(b => b.Position.Row == _selectedRow && b.Position.Col == _selectedCol && b.ParentFolderId == _currentFolderId);
 
-        var actionType = (ActionTypeCombo.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "hotkey";
+        var actionType = (ActionTypeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "hotkey";
 
         var action = new ActionModel { Type = actionType };
 
@@ -551,7 +643,7 @@ public partial class EditorWindow : Window
                 }
                 break;
             case "media_control":
-                action.MediaCommand = (MediaCommandCombo.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "PlayPause";
+                action.MediaCommand = (MediaCommandCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "PlayPause";
                 break;
             case "open_url":
                 var url = UrlInput.Text.Trim();
@@ -561,6 +653,13 @@ public partial class EditorWindow : Window
                     return;
                 }
                 action.Url = url;
+                if (string.IsNullOrEmpty(IconPathText.Text))
+                {
+                    var faviconUrl = (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                        ? url : "https://" + url;
+                    var favicon = await FetchFaviconIconAsync(faviconUrl);
+                    IconPathText.Text = favicon ?? "builtin:globe";
+                }
                 break;
             case "run_command":
                 var cmd = CommandInput.Text.Trim();
@@ -600,8 +699,21 @@ public partial class EditorWindow : Window
                 action.Delays = delays;
                 break;
             case "dial":
-                action.DialTarget = (DialTargetCombo.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "volume";
+                action.DialTarget = (DialTargetCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "volume";
                 break;
+        }
+
+        // launch_app (icon extracted above) and open_url (favicon fetched above) already handle
+        // their own auto-icon; everything else falls back to a builtin: default if still unset.
+        if (string.IsNullOrEmpty(IconPathText.Text) && actionType != "launch_app" && actionType != "open_url")
+        {
+            string? subValue = actionType switch
+            {
+                "media_control" => action.MediaCommand,
+                "dial" => action.DialTarget,
+                _ => null
+            };
+            IconPathText.Text = DefaultIconFor(actionType, subValue) ?? "";
         }
 
         var newButton = new ButtonModel
@@ -848,7 +960,7 @@ public partial class EditorWindow : Window
     {
         if (sender is System.Windows.Controls.ComboBox combo && combo.SelectedItem is System.Windows.Controls.ComboBoxItem item)
         {
-            var newColor = item.Content.ToString();
+            var newColor = item.Tag?.ToString();
             if (!string.IsNullOrEmpty(newColor))
             {
                 _profileStore.Set.AccentColor = newColor;

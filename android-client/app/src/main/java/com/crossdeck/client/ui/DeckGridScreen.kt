@@ -28,8 +28,23 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.zIndex
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
@@ -72,6 +87,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.platform.LocalView
 import com.crossdeck.client.model.ActionModel
+import com.crossdeck.client.model.AppSettings
 import com.crossdeck.client.model.ButtonModel
 import com.crossdeck.client.model.Position
 import com.crossdeck.client.model.Profile
@@ -95,16 +111,38 @@ fun DeckGridScreen(
     onButtonTap: (ButtonModel) -> Unit,
     onButtonSave: (ButtonModel) -> Unit,
     onIconUpload: suspend (ByteArray) -> String?,
+    appList: List<com.crossdeck.client.model.DiscoveredApp>,
+    onRequestAppList: () -> Unit,
+    extractedIcon: Pair<String, String?>?,
+    onRequestExtractIcon: (String) -> Unit,
     onButtonDelete: (String) -> Unit,
     onProfileSwitch: (String) -> Unit,
     onProfileCreate: (String) -> Unit,
     onProfileDelete: (String) -> Unit,
     onProfileRename: (String, String) -> Unit,
-    onDialAdjust: (String, Int?) -> Unit
+    onDialAdjust: (String, Int?) -> Unit,
+    settings: AppSettings,
+    onSettingsChange: (AppSettings) -> Unit,
+    connectionHostInfo: String?,
+    onForgetHost: () -> Unit,
+    onClearIconCache: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val view = LocalView.current
+
+    // Single gate for every haptic call site below — respects the Haptic Feedback setting
+    // without wrapping each individual view.performHapticFeedback(...) call in an if-check.
+    fun haptic(type: Int = HapticFeedbackConstants.KEYBOARD_TAP) {
+        if (settings.hapticsEnabled) view.performHapticFeedback(type)
+    }
+
+    // Keep Screen Awake setting — View.keepScreenOn needs no Activity/window reference.
+    LaunchedEffect(settings.keepScreenAwake) {
+        view.keepScreenOn = settings.keepScreenAwake
+    }
+
+    var pendingRunCommandButton by remember { mutableStateOf<ButtonModel?>(null) }
 
     val accentColor = try {
         Color(android.graphics.Color.parseColor(accentColorHex))
@@ -174,12 +212,16 @@ fun DeckGridScreen(
     if (showCreateDialog) {
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
-            title = { Text("Create New Profile") },
+            modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
+            containerColor = Color(0xFF0E0E10),
+            shape = RoundedCornerShape(16.dp),
+            title = { Text("Create New Profile", color = Color.White) },
             text = {
-                OutlinedTextField(
+                CrossDeckTextField(
                     value = newProfileName,
                     onValueChange = { newProfileName = it },
-                    label = { Text("Profile Name") }
+                    label = "Profile Name",
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
@@ -197,7 +239,7 @@ fun DeckGridScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel")
+                    Text("Cancel", color = Color.Gray)
                 }
             }
         )
@@ -206,12 +248,16 @@ fun DeckGridScreen(
     if (showRenameDialog) {
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("Rename Profile") },
+            modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
+            containerColor = Color(0xFF0E0E10),
+            shape = RoundedCornerShape(16.dp),
+            title = { Text("Rename Profile", color = Color.White) },
             text = {
-                OutlinedTextField(
+                CrossDeckTextField(
                     value = renameProfileName,
                     onValueChange = { renameProfileName = it },
-                    label = { Text("New Profile Name") }
+                    label = "New Profile Name",
+                    modifier = Modifier.fillMaxWidth()
                 )
             },
             confirmButton = {
@@ -228,7 +274,7 @@ fun DeckGridScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = false }) {
-                    Text("Cancel")
+                    Text("Cancel", color = Color.Gray)
                 }
             }
         )
@@ -249,17 +295,30 @@ fun DeckGridScreen(
             }
         }
     ) { innerPadding ->
+        val bgBrush = remember(accentColor) {
+            Brush.radialGradient(
+                colors = listOf(
+                    accentColor.copy(alpha = 0.08f),
+                    Color(0xFF080810)
+                ),
+                radius = 1200f
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF080810))
+                .background(bgBrush)
                 .padding(innerPadding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(16.dp)
+                        .background(Color(0xFF0E0E10).copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+                        .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -268,15 +327,31 @@ fun DeckGridScreen(
                         expanded = expanded,
                         onExpandedChange = { expanded = !expanded }
                     ) {
-                        OutlinedTextField(
-                            readOnly = true,
-                            value = profile.name,
-                            onValueChange = {},
-                            label = { Text("Profile", color = Color.Gray) },
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                            modifier = Modifier.scale(pulseScale).menuAnchor().width(180.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .menuAnchor()
+                                .scale(pulseScale)
+                                .clickable { expanded = !expanded }
+                                .background(Color(0xFF14141A), RoundedCornerShape(12.dp))
+                                .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = profile.name,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "Select Profile",
+                                    tint = accentColor,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                         ExposedDropdownMenu(
                             expanded = expanded,
                             onDismissRequest = { expanded = false }
@@ -318,30 +393,53 @@ fun DeckGridScreen(
                     }
 
                     // Settings and edit triggers
-                    Row {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Button(
                             onClick = {
-                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                haptic()
                                 isEditMode = !isEditMode
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isEditMode) accentColor else Color(0xFF0E0E10),
+                                containerColor = if (isEditMode) accentColor else Color(0xFF14141A),
                                 contentColor = if (isEditMode) Color.Black else Color.White
                             ),
-                            modifier = Modifier.border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(8.dp))
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.border(1.dp, if (isEditMode) accentColor else Color(0xFF1F1F23), RoundedCornerShape(10.dp))
                         ) {
-                            Text(if (isEditMode) "Done" else "Edit Grid")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = if (isEditMode) Color.Black else accentColor,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (isEditMode) "Done" else "Edit",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
                         Button(
                             onClick = {
-                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                haptic()
                                 showSettingsPanel = !showSettingsPanel
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0E0E10), contentColor = Color.White),
-                            modifier = Modifier.border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(8.dp))
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF14141A),
+                                contentColor = Color.White
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(10.dp))
                         ) {
-                            Text("⚙")
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = "Settings",
+                                tint = accentColor,
+                                modifier = Modifier.size(18.dp)
+                            )
                         }
                     }
                 }
@@ -358,63 +456,147 @@ fun DeckGridScreen(
                         }
                 ) {
                     if (rotationYAngle <= 90f || rotationYAngle >= 270f) {
+                        var draggedIndex by remember { mutableStateOf<Int?>(null) }
+                        var dragOffset by remember { mutableStateOf(Offset.Zero) }
+                        var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+                        val gridSpacing = if (settings.compactGrid) 4.dp else 8.dp
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(cols),
                             contentPadding = PaddingValues(4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxSize()
+                            horizontalArrangement = Arrangement.spacedBy(gridSpacing),
+                            verticalArrangement = Arrangement.spacedBy(gridSpacing),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .onGloballyPositioned { gridCoordinates = it }
                         ) {
                             items(rows * cols) { index ->
                                 val r = index / cols
                                 val c = index % cols
                                 val cellButton = buttonMap[r to c]
+                                val isDraggingThis = draggedIndex == index
 
-                                if (cellButton != null) {
-                                    val dialValue = dialLevels[cellButton.buttonId]
-                                    DeckButton(
-                                        button = cellButton,
-                                        isEditMode = isEditMode,
-                                        connectedHostUrl = connectedHostUrl,
-                                        authToken = authToken,
-                                        accentColor = accentColor,
-                                        onTap = {
-                                            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                            if (isEditMode) {
-                                                editingButton = cellButton
-                                            } else {
-                                                if (cellButton.action.type == "open_folder") {
-                                                    val destFolder = cellButton.action.targetFolderId
-                                                    if (destFolder != null) {
-                                                        folderHistory =
-                                                            folderHistory + ((currentFolderId ?: "") to cellButton.label)
-                                                        currentFolderId = destFolder
+                                val dragModifier = if (isEditMode && cellButton != null) {
+                                    Modifier.pointerInput(index) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = {
+                                                haptic()
+                                                draggedIndex = index
+                                                dragOffset = Offset.Zero
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                dragOffset += dragAmount
+                                            },
+                                            onDragEnd = {
+                                                val coords = gridCoordinates
+                                                val startIdx = draggedIndex
+                                                if (coords != null && startIdx != null) {
+                                                    val cellWidth = coords.size.width / cols
+                                                    val cellHeight = coords.size.height / rows
+                                                    
+                                                    val startR = startIdx / cols
+                                                    val startC = startIdx % cols
+                                                    
+                                                    val startX = startC * cellWidth
+                                                    val startY = startR * cellHeight
+                                                    
+                                                    val touchX = startX + cellWidth / 2 + dragOffset.x
+                                                    val touchY = startY + cellHeight / 2 + dragOffset.y
+                                                    
+                                                    val targetC = (touchX / cellWidth).toInt().coerceIn(0, cols - 1)
+                                                    val targetR = (touchY / cellHeight).toInt().coerceIn(0, rows - 1)
+                                                    val targetIdx = targetR * cols + targetC
+                                                    
+                                                    if (targetIdx != startIdx) {
+                                                        haptic()
+                                                        val draggedBtn = buttonMap[startR to startC]
+                                                        val targetBtn = buttonMap[targetR to targetC]
+                                                        if (draggedBtn != null) {
+                                                            if (targetBtn != null) {
+                                                                onButtonSave(draggedBtn.copy(position = Position(targetR, targetC)))
+                                                                onButtonSave(targetBtn.copy(position = Position(startR, startC)))
+                                                            } else {
+                                                                onButtonSave(draggedBtn.copy(position = Position(targetR, targetC)))
+                                                            }
+                                                        }
                                                     }
-                                                } else if (cellButton.action.type == "dial") {
-                                                    activeDialButton = cellButton
-                                                    onDialAdjust(cellButton.buttonId, null) // fetch current level
-                                                } else {
-                                                    onButtonTap(cellButton)
                                                 }
+                                                draggedIndex = null
+                                                dragOffset = Offset.Zero
+                                            },
+                                            onDragCancel = {
+                                                draggedIndex = null
+                                                dragOffset = Offset.Zero
                                             }
-                                        },
-                                        levelValue = dialValue
-                                    )
-                                } else {
-                                    if (isEditMode) {
-                                        EmptyEditButton(
-                                            onClick = {
-                                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                                creatingAtPosition = Position(r, c)
-                                            }
+                                        )
+                                    }
+                                } else Modifier
+
+                                val visualModifier = if (isDraggingThis) {
+                                    Modifier
+                                        .zIndex(10f)
+                                        .graphicsLayer {
+                                            translationX = dragOffset.x
+                                            translationY = dragOffset.y
+                                            scaleX = 1.08f
+                                            scaleY = 1.08f
+                                            shadowElevation = 8.dp.toPx()
+                                        }
+                                } else Modifier
+
+                                Box(
+                                    modifier = dragModifier.then(visualModifier)
+                                ) {
+                                    if (cellButton != null) {
+                                        val dialValue = dialLevels[cellButton.buttonId]
+                                        DeckButton(
+                                            button = cellButton,
+                                            isEditMode = isEditMode,
+                                            connectedHostUrl = connectedHostUrl,
+                                            authToken = authToken,
+                                            accentColor = accentColor,
+                                            iconOnlyMode = settings.iconOnlyMode,
+                                            onTap = {
+                                                haptic()
+                                                if (isEditMode) {
+                                                    editingButton = cellButton
+                                                } else {
+                                                    if (cellButton.action.type == "open_folder") {
+                                                        val destFolder = cellButton.action.targetFolderId
+                                                        if (destFolder != null) {
+                                                            folderHistory =
+                                                                folderHistory + ((currentFolderId ?: "") to cellButton.label)
+                                                            currentFolderId = destFolder
+                                                        }
+                                                    } else if (cellButton.action.type == "dial") {
+                                                        activeDialButton = cellButton
+                                                        onDialAdjust(cellButton.buttonId, null) // fetch current level
+                                                    } else if (cellButton.action.type == "run_command" && settings.confirmRunCommand) {
+                                                        pendingRunCommandButton = cellButton
+                                                    } else {
+                                                        onButtonTap(cellButton)
+                                                    }
+                                                }
+                                            },
+                                            levelValue = dialValue
                                         )
                                     } else {
-                                        Box(
-                                            modifier = Modifier
-                                                .aspectRatio(1f)
-                                                .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(12.dp))
-                                                .background(Color(0xFF0E0E10), RoundedCornerShape(12.dp))
-                                        )
+                                        if (isEditMode) {
+                                            EmptyEditButton(
+                                                onClick = {
+                                                    haptic()
+                                                    creatingAtPosition = Position(r, c)
+                                                }
+                                            )
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .aspectRatio(1f)
+                                                    .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(12.dp))
+                                                    .background(Color(0xFF0E0E10), RoundedCornerShape(12.dp))
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -423,53 +605,54 @@ fun DeckGridScreen(
                 }
             }
 
-            // Themed Palette Switcher settings panel drawer
+            // Settings drawer — accent picker (pre-existing) + Milestone 4 additions.
             if (showSettingsPanel) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.5f))
-                        .clickable { showSettingsPanel = false }
+                        .clickable { showSettingsPanel = false },
+                    contentAlignment = Alignment.BottomCenter
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .background(Color(0xFF0E0E10), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                            .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                            .padding(24.dp)
-                            .clickable(enabled = false) {}
-                    ) {
-                        Text("Select Theme Accent", style = MaterialTheme.typography.titleMedium, color = Color.White)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        listOf(
-                            "Neon Cyan" to "#00d4ff",
-                            "Neon Purple" to "#8b5cf6",
-                            "Cyberpunk Yellow" to "#ffb703",
-                            "Toxic Green" to "#2ec4b6",
-                            "Crimson Red" to "#e63946"
-                        ).forEach { (name, hex) ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                        onAccentColorChange(hex)
-                                        showSettingsPanel = false
-                                    }
-                                    .padding(vertical = 12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(name, color = Color.White)
-                                Box(
-                                    modifier = Modifier
-                                        .size(20.dp)
-                                        .background(Color(android.graphics.Color.parseColor(hex)), RoundedCornerShape(10.dp))
-                                )
-                            }
-                        }
+                    Box(modifier = Modifier.clickable(enabled = false) {}) {
+                        SettingsPanel(
+                            accentColorHex = accentColorHex,
+                            onAccentColorChange = onAccentColorChange,
+                            settings = settings,
+                            onSettingsChange = onSettingsChange,
+                            connectionHostInfo = connectionHostInfo,
+                            onForgetHost = onForgetHost,
+                            onClearIconCache = onClearIconCache,
+                            haptic = { haptic() }
+                        )
                     }
                 }
+            }
+
+            // Confirm-before-Run-Command safety prompt (Milestone 4 setting)
+            if (pendingRunCommandButton != null) {
+                val button = pendingRunCommandButton!!
+                AlertDialog(
+                    onDismissRequest = { pendingRunCommandButton = null },
+                    modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
+                    containerColor = Color(0xFF0E0E10),
+                    shape = RoundedCornerShape(16.dp),
+                    title = { Text("Run Command?", color = Color.White) },
+                    text = { Text("Run '${button.action.command}'?", color = Color.White.copy(alpha = 0.8f)) },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            onButtonTap(button)
+                            pendingRunCommandButton = null
+                        }) {
+                            Text("Run", color = Color(0xFFE63946))
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingRunCommandButton = null }) {
+                            Text("Cancel", color = Color.Gray)
+                        }
+                    }
+                )
             }
 
             // Thick fluid bottom-sheet touch-bar slider modal for dials
@@ -523,14 +706,14 @@ fun DeckGridScreen(
                                 val distance = Math.abs(newValue.toInt() - lastSentValue)
                                 if (distance >= 5) {
                                     // Trigger subtle haptic detent tick
-                                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    haptic(HapticFeedbackConstants.CLOCK_TICK)
                                     onDialAdjust(button.buttonId, newValue.toInt())
                                     lastSentValue = newValue.toInt()
                                 }
                             },
                             onValueChangeFinished = {
                                 isUserDragging = false
-                                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                haptic()
                                 onDialAdjust(button.buttonId, localSliderValue.toInt())
                                 lastSentValue = localSliderValue.toInt()
                             },
@@ -563,6 +746,10 @@ fun DeckGridScreen(
                     connectedHostUrl = connectedHostUrl,
                     authToken = authToken,
                     onIconUpload = onIconUpload,
+                    appList = appList,
+                    onRequestAppList = onRequestAppList,
+                    extractedIcon = extractedIcon,
+                    onRequestExtractIcon = onRequestExtractIcon,
                     onDismiss = { creatingAtPosition = null },
                     onSave = { savedButton ->
                         onButtonSave(savedButton)
@@ -579,6 +766,10 @@ fun DeckGridScreen(
                     connectedHostUrl = connectedHostUrl,
                     authToken = authToken,
                     onIconUpload = onIconUpload,
+                    appList = appList,
+                    onRequestAppList = onRequestAppList,
+                    extractedIcon = extractedIcon,
+                    onRequestExtractIcon = onRequestExtractIcon,
                     onDismiss = { editingButton = null },
                     onSave = { savedButton ->
                         onButtonSave(savedButton)
@@ -649,6 +840,7 @@ private fun DeckButton(
     connectedHostUrl: String?,
     authToken: String?,
     accentColor: Color,
+    iconOnlyMode: Boolean = false,
     onTap: () -> Unit,
     modifier: Modifier = Modifier,
     levelValue: Int? = null
@@ -692,14 +884,18 @@ private fun DeckButton(
                         modifier = Modifier.size(36.dp).padding(bottom = 4.dp)
                     )
                 }
-                Text(
-                    text = button.label,
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // Icon-Only Buttons setting: hide the label, but only when an icon actually
+                // rendered — otherwise a button with no icon would go completely blank.
+                if (!(iconOnlyMode && imageBitmap != null)) {
+                    Text(
+                        text = button.label,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 levelValue?.let {
                     Text(
                         text = "$it%",
@@ -768,12 +964,43 @@ fun ReconnectOverlay(accentColor: Color, onManualConnect: () -> Unit, modifier: 
             Spacer(modifier = Modifier.height(16.dp))
             Text("Reconnecting…", color = Color.White, style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(24.dp))
-            TextButton(onClick = onManualConnect) {
+            OutlinedButton(
+                onClick = onManualConnect,
+                border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor)
+            ) {
                 Text("Manual Connection", color = accentColor)
             }
         }
     }
 }
+
+// Raw stored values (protocol/persistence) -> friendly display labels. Dropdowns below store the
+// raw value in state but render the friendly label, mirroring EditorWindow.xaml's Content/Tag split.
+private val actionTypeLabels = mapOf(
+    "hotkey" to "Keyboard Shortcut",
+    "launch_app" to "Launch App",
+    "media_control" to "Media Control",
+    "open_url" to "Open Website",
+    "run_command" to "Run Command",
+    "text_snippet" to "Text Snippet",
+    "open_folder" to "Open Folder",
+    "multi_action" to "Multiple Actions",
+    "dial" to "Dial / Slider"
+)
+private val mediaCommandLabels = mapOf(
+    "PlayPause" to "Play / Pause",
+    "NextTrack" to "Next Track",
+    "PrevTrack" to "Previous Track",
+    "VolumeUp" to "Volume Up",
+    "VolumeDown" to "Volume Down",
+    "VolumeMute" to "Mute"
+)
+private val dialTargetLabels = mapOf(
+    "volume" to "Volume",
+    "brightness" to "Brightness"
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -782,6 +1009,10 @@ private fun EditButtonDialog(
     connectedHostUrl: String?,
     authToken: String?,
     onIconUpload: suspend (ByteArray) -> String?,
+    appList: List<com.crossdeck.client.model.DiscoveredApp>,
+    onRequestAppList: () -> Unit,
+    extractedIcon: Pair<String, String?>?,
+    onRequestExtractIcon: (String) -> Unit,
     onDismiss: () -> Unit,
     onSave: (ButtonModel) -> Unit,
     onDelete: (() -> Unit)?
@@ -791,6 +1022,7 @@ private fun EditButtonDialog(
     var iconValue by remember { mutableStateOf(button.icon) }
     var showBuiltinPicker by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
+    var pathDropdownExpanded by remember { mutableStateOf(false) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -825,29 +1057,60 @@ private fun EditButtonDialog(
     var mediaDropdownExpanded by remember { mutableStateOf(false) }
     var dialDropdownExpanded by remember { mutableStateOf(false) }
 
+    var searchQuery by remember { mutableStateOf("") }
+    LaunchedEffect(path, appList) {
+        val matched = appList.find { it.path == path }
+        searchQuery = matched?.name ?: path
+    }
+
+    // Fetch the installed-apps list only once the user is actually on the Launch App type —
+    // mirrors the PC editor's lazy-ish approach (scan cost only paid when relevant).
+    LaunchedEffect(actionType) {
+        if (actionType == "launch_app") onRequestAppList()
+    }
+    // Auto-icon-on-select (mirrors the PC editor): when the host responds to an extract_icon
+    // request for the path currently in the field, and no icon is set yet, use it.
+    LaunchedEffect(extractedIcon) {
+        val (extractedPath, extractedHash) = extractedIcon ?: return@LaunchedEffect
+        if ((extractedPath == path || (actionType == "open_url" && extractedPath == url)) && extractedHash != null && iconValue == null) {
+            iconValue = extractedHash
+        }
+    }
+
+    LaunchedEffect(url, actionType) {
+        if (actionType == "open_url" && url.isNotBlank()) {
+            onRequestExtractIcon(url)
+        }
+    }
+
+    val accentColor = MaterialTheme.colorScheme.primary
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (onDelete == null) "Create Button" else "Edit Button") },
+        modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
+        containerColor = Color(0xFF0E0E10),
+        shape = RoundedCornerShape(16.dp),
+        title = { Text(if (onDelete == null) "Create Button" else "Edit Button", color = Color.White) },
         text = {
             Column {
-                TextField(
+                CrossDeckTextField(
                     value = label,
                     onValueChange = { label = it },
-                    label = { Text("Label") },
+                    label = "Label",
                     modifier = Modifier.fillMaxWidth()
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Text("Icon", style = MaterialTheme.typography.labelMedium)
+                Text("Icon", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                     IconPreview(icon = iconValue, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(40.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    TextButton(onClick = { showBuiltinPicker = true }) { Text("Built-in") }
+                    TextButton(onClick = { showBuiltinPicker = true }) { Text("Built-in", color = accentColor) }
                     TextButton(onClick = { imagePickerLauncher.launch("image/*") }, enabled = !isUploading) {
-                        Text(if (isUploading) "Uploading…" else "Upload")
+                        Text(if (isUploading) "Uploading…" else "Upload", color = accentColor)
                     }
                     if (iconValue != null) {
-                        TextButton(onClick = { iconValue = null }) { Text("Clear") }
+                        TextButton(onClick = { iconValue = null }) { Text("Clear", color = Color.Red) }
                     }
                 }
                 Spacer(modifier = Modifier.height(12.dp))
@@ -856,22 +1119,21 @@ private fun EditButtonDialog(
                     expanded = dropdownExpanded,
                     onExpandedChange = { dropdownExpanded = !dropdownExpanded }
                 ) {
-                    TextField(
+                    CrossDeckTextField(
                         readOnly = true,
-                        value = actionType,
+                        value = actionTypeLabels[actionType] ?: actionType,
                         onValueChange = {},
-                        label = { Text("Action Type") },
+                        label = "Action Type",
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
-                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                         modifier = Modifier.fillMaxWidth().menuAnchor()
                     )
                     ExposedDropdownMenu(
                         expanded = dropdownExpanded,
                         onDismissRequest = { dropdownExpanded = false }
                     ) {
-                        listOf("hotkey", "launch_app", "media_control", "open_url", "run_command", "text_snippet", "open_folder", "multi_action", "dial").forEach { type ->
+                        actionTypeLabels.forEach { (type, friendly) ->
                             DropdownMenuItem(
-                                text = { Text(type) },
+                                text = { Text(friendly) },
                                 onClick = {
                                     actionType = type
                                     dropdownExpanded = false
@@ -884,42 +1146,85 @@ private fun EditButtonDialog(
 
                 when (actionType) {
                     "hotkey" -> {
-                        TextField(
+                        CrossDeckTextField(
                             value = hotkeys,
                             onValueChange = { hotkeys = it },
-                            label = { Text("Keys (comma-separated, e.g. Ctrl,Alt,A)") },
+                            label = "Keys (comma-separated, e.g. Ctrl,Alt,A)",
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                     "launch_app" -> {
-                        TextField(
-                            value = path,
-                            onValueChange = { path = it },
-                            label = { Text("Application Path") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        val filteredApps = remember(searchQuery, path, appList) {
+                            val matched = appList.find { it.path == path }
+                            val isDefaultValue = searchQuery.isBlank() || searchQuery == path || (matched != null && searchQuery == matched.name)
+                            if (isDefaultValue) appList
+                            else appList.filter { 
+                                it.name.contains(searchQuery, ignoreCase = true) || 
+                                it.path.contains(searchQuery, ignoreCase = true) 
+                            }
+                        }
+                        ExposedDropdownMenuBox(
+                            expanded = pathDropdownExpanded && filteredApps.isNotEmpty(),
+                            onExpandedChange = { pathDropdownExpanded = it }
+                        ) {
+                            CrossDeckTextField(
+                                value = searchQuery,
+                                onValueChange = { newValue ->
+                                    searchQuery = newValue
+                                    val matched = appList.find { it.name.equals(newValue, ignoreCase = true) }
+                                    path = matched?.path ?: newValue
+                                    pathDropdownExpanded = true
+                                },
+                                label = "Application Path (pick installed app, or type a custom path)",
+                                modifier = Modifier.fillMaxWidth().menuAnchor()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = pathDropdownExpanded && filteredApps.isNotEmpty(),
+                                onDismissRequest = { pathDropdownExpanded = false }
+                            ) {
+                                filteredApps.forEach { app ->
+                                    DropdownMenuItem(
+                                        text = { Text(app.name) },
+                                        onClick = {
+                                            path = app.path
+                                            searchQuery = app.name
+                                            pathDropdownExpanded = false
+                                            if (iconValue == null) onRequestExtractIcon(app.path)
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        if (path.isNotEmpty() && path != searchQuery) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Target: $path",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
                     }
                     "media_control" -> {
                         ExposedDropdownMenuBox(
                             expanded = mediaDropdownExpanded,
                             onExpandedChange = { mediaDropdownExpanded = !mediaDropdownExpanded }
                         ) {
-                            TextField(
+                            CrossDeckTextField(
                                 readOnly = true,
-                                value = mediaCommand,
+                                value = mediaCommandLabels[mediaCommand] ?: mediaCommand,
                                 onValueChange = {},
-                                label = { Text("Media Command") },
+                                label = "Media Command",
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mediaDropdownExpanded) },
-                                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                                 modifier = Modifier.fillMaxWidth().menuAnchor()
                             )
                             ExposedDropdownMenu(
                                 expanded = mediaDropdownExpanded,
                                 onDismissRequest = { mediaDropdownExpanded = false }
                             ) {
-                                listOf("PlayPause", "NextTrack", "PrevTrack", "VolumeUp", "VolumeDown", "VolumeMute").forEach { cmd ->
+                                mediaCommandLabels.forEach { (cmd, friendly) ->
                                     DropdownMenuItem(
-                                        text = { Text(cmd) },
+                                        text = { Text(friendly) },
                                         onClick = {
                                             mediaCommand = cmd
                                             mediaDropdownExpanded = false
@@ -930,42 +1235,42 @@ private fun EditButtonDialog(
                         }
                     }
                     "open_url" -> {
-                        TextField(
+                        CrossDeckTextField(
                             value = url,
                             onValueChange = { url = it },
-                            label = { Text("URL") },
+                            label = "URL",
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                     "run_command" -> {
-                        TextField(
+                        CrossDeckTextField(
                             value = command,
                             onValueChange = { command = it },
-                            label = { Text("Command") },
+                            label = "Command",
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                     "text_snippet" -> {
-                        TextField(
+                        CrossDeckTextField(
                             value = textValue,
                             onValueChange = { textValue = it },
-                            label = { Text("Text Snippet") },
+                            label = "Text Snippet",
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                     "open_folder" -> {
-                        TextField(
+                        CrossDeckTextField(
                             value = targetFolderId,
                             onValueChange = { targetFolderId = it },
-                            label = { Text("Target Folder ID") },
+                            label = "Target Folder ID",
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                     "multi_action" -> {
-                        TextField(
+                        CrossDeckTextField(
                             value = multiActionText,
                             onValueChange = { multiActionText = it },
-                            label = { Text("Actions (e.g. hotkey:Ctrl,C then delay:500)") },
+                            label = "Actions (e.g. hotkey:Ctrl,C then delay:500)",
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -974,22 +1279,21 @@ private fun EditButtonDialog(
                             expanded = dialDropdownExpanded,
                             onExpandedChange = { dialDropdownExpanded = !dialDropdownExpanded }
                         ) {
-                            TextField(
+                            CrossDeckTextField(
                                 readOnly = true,
-                                value = dialTarget,
+                                value = dialTargetLabels[dialTarget] ?: dialTarget,
                                 onValueChange = {},
-                                label = { Text("Dial Target") },
+                                label = "Dial Target",
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dialDropdownExpanded) },
-                                colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
                                 modifier = Modifier.fillMaxWidth().menuAnchor()
                             )
                             ExposedDropdownMenu(
                                 expanded = dialDropdownExpanded,
                                 onDismissRequest = { dialDropdownExpanded = false }
                             ) {
-                                listOf("volume", "brightness").forEach { target ->
+                                dialTargetLabels.forEach { (target, friendly) ->
                                     DropdownMenuItem(
-                                        text = { Text(target) },
+                                        text = { Text(friendly) },
                                         onClick = {
                                             dialTarget = target
                                             dialDropdownExpanded = false
@@ -1102,6 +1406,7 @@ private fun IconPreview(icon: String?, connectedHostUrl: String?, authToken: Str
 @Composable
 private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) -> Unit) {
     val context = LocalContext.current
+    val accentColor = MaterialTheme.colorScheme.primary
     var names by remember { mutableStateOf<List<String>>(emptyList()) }
 
     LaunchedEffect(Unit) {
@@ -1116,7 +1421,10 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose Built-in Icon") },
+        modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
+        containerColor = Color(0xFF0E0E10),
+        shape = RoundedCornerShape(16.dp),
+        title = { Text("Choose Built-in Icon", color = Color.White) },
         text = {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(5),
@@ -1137,7 +1445,8 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
                         modifier = Modifier
                             .padding(4.dp)
                             .size(48.dp)
-                            .background(Color(0xFF0E0E10), RoundedCornerShape(6.dp))
+                            .background(Color(0xFF14141A), RoundedCornerShape(6.dp))
+                            .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(6.dp))
                             .clickable { onSelect(name) },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1147,7 +1456,7 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text("Cancel", color = Color.Gray) }
         }
     )
 }
@@ -1206,4 +1515,36 @@ private fun parseMultiAction(text: String): Pair<List<ActionModel>, List<Int>> {
         }
     }
     return actions to delays
+}
+
+@Composable
+private fun CrossDeckTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    readOnly: Boolean = false,
+    trailingIcon: @Composable (() -> Unit)? = null,
+    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        readOnly = readOnly,
+        trailingIcon = trailingIcon,
+        keyboardOptions = keyboardOptions,
+        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+            focusedTextColor = Color.White,
+            unfocusedTextColor = Color.White,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = Color(0xFF1F1F23),
+            focusedLabelColor = MaterialTheme.colorScheme.primary,
+            unfocusedLabelColor = Color.Gray,
+            focusedContainerColor = Color(0xFF0E0E10),
+            unfocusedContainerColor = Color(0xFF0E0E10)
+        ),
+        shape = RoundedCornerShape(10.dp),
+        modifier = modifier
+    )
 }
