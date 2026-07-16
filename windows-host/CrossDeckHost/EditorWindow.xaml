@@ -4,28 +4,30 @@
         Title="CrossDeck Profile Editor" Height="520" Width="840"
         WindowStartupLocation="CenterScreen"
         AllowsTransparency="True" WindowStyle="None" Background="Transparent">
-    <Border CornerRadius="12" Background="#080810" BorderBrush="#1F1F23" BorderThickness="1.5">
+    <Border CornerRadius="12" Background="#0C0C0E" BorderBrush="#1F1F24" BorderThickness="1.5">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="32"/>
-                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="3*"/>
-                <ColumnDefinition Width="2*"/>
-            </Grid.ColumnDefinitions>
 
-            <!-- TitleBar Row 0 -->
-            <Border Grid.Row="0" Grid.ColumnSpan="2" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="0,0,0,1.5" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <!-- Custom TitleBar Row 0 -->
+            <Border Grid.Row="0" Background="#0E0E12" BorderBrush="#1F1F24" BorderThickness="0,0,0,1.2" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
-                        <TextBlock Text="✦ CrossDeck Host Editor" Foreground="#FFFFFF" FontWeight="Bold" FontSize="12" VerticalAlignment="Center"/>
-                        <ComboBox x:Name="AccentCombo" Margin="24,0,0,0" Width="130" Height="20" FontSize="10" SelectionChanged="AccentCombo_SelectionChanged" Background="#080810" Foreground="#FFFFFF" BorderBrush="#1F1F23" VerticalAlignment="Center">
+                    <!-- Left: Custom Cyber-themed Outlined Rings -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0">
+                        <Ellipse Width="12" Height="12" Stroke="#FF5F56" StrokeThickness="1.5" Fill="Transparent" Cursor="Hand" MouseLeftButtonDown="CloseButton_Click" ToolTip="Close"/>
+                        <Ellipse Width="12" Height="12" Stroke="#8B5CF6" StrokeThickness="1.5" Fill="Transparent" Margin="8,0,8,0" Cursor="Hand" MouseLeftButtonDown="MinimizeButton_Click" ToolTip="Minimize"/>
+                        <Ellipse Width="12" Height="12" Stroke="#00D4FF" StrokeThickness="1.5" Fill="Transparent" ToolTip="Maximize (Disabled)"/>
+                    </StackPanel>
+
+                    <!-- Center: Window Title Text -->
+                    <TextBlock Text="CrossDeck Host Editor" Foreground="#8A8A93" FontFamily="Segoe UI" FontWeight="SemiBold" FontSize="11.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+
+                    <!-- Right: Accent Selector Combo -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0">
+                        <TextBlock Text="Theme:" Foreground="#8A8A93" FontSize="10.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <ComboBox x:Name="AccentCombo" Width="125" Height="22" FontSize="10.5" SelectionChanged="AccentCombo_SelectionChanged" Background="#121216" Foreground="#FFFFFF" BorderBrush="#25252E" VerticalAlignment="Center">
                             <ComboBoxItem Content="Neon Cyan" Tag="#00d4ff"/>
                             <ComboBoxItem Content="Neon Purple" Tag="#8b5cf6"/>
                             <ComboBoxItem Content="Cyberpunk Yellow" Tag="#ffb703"/>
@@ -33,162 +35,135 @@
                             <ComboBoxItem Content="Crimson Red" Tag="#e63946"/>
                         </ComboBox>
                     </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
-                        <Button Content="—" Width="24" Height="24" Click="MinimizeButton_Click" Background="Transparent" Foreground="#FFFFFF" BorderThickness="0" Margin="0,0,4,0"/>
-                        <Button Content="✕" Width="24" Height="24" Click="CloseButton_Click" Background="Transparent" Foreground="#FFFFFF" BorderThickness="0"/>
+                </Grid>
+            </Border>
+
+            <!-- Main Split Content Area Row 1 -->
+            <Grid Grid.Row="1" Margin="12">
+                <Grid.ColumnDefinitions>
+                    <!-- Column 0: Left Sidebar (width 220) -->
+                    <ColumnDefinition Width="220"/>
+                    <!-- Column 1: Main Button Grid (fills the rest) -->
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- LEFT SIDEBAR -->
+                <Grid Grid.Column="0" Margin="0,0,12,0">
+                    <Grid.RowDefinitions>
+                        <!-- Top: Connection status card -->
+                        <RowDefinition Height="Auto"/>
+                        <!-- Middle: Profiles List -->
+                        <RowDefinition Height="*"/>
+                        <!-- Bottom: Profile tools & Footer -->
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 1. Phone Connection Card -->
+                    <Border Grid.Row="0" Margin="0,0,0,12" Padding="12" Background="#121216" BorderBrush="#1F1F24" BorderThickness="1" CornerRadius="10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="📱" FontSize="24" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <Grid>
+                                    <TextBlock x:Name="DeviceNameText" Text="Offline" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                    <Ellipse x:Name="ConnectionDot" HorizontalAlignment="Right" Width="8" Height="8" Fill="#FF5555" Margin="0,3,0,0" VerticalAlignment="Top"/>
+                                </Grid>
+                                <TextBlock x:Name="ConnectionDetailsText" Text="Waiting for client..." Foreground="#8A8A93" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- 2. Scrollable Profiles List -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="ProfileListContainer">
+                            <!-- Populated dynamically in code-behind -->
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- 3. Sidebar Footer (Profile Control buttons & links) -->
+                    <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                        <!-- Profile creation triggers -->
+                        <Button Content="+ New Profile Page" Click="NewProfileButton_Click" Background="Transparent" BorderBrush="#25252E" BorderThickness="1" Foreground="#8A8A93" Padding="8" Margin="0,0,0,6">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10" Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Content="Rename" Click="RenameProfileButton_Click" Margin="0,0,3,0" Padding="6,4" FontSize="10.5"/>
+                            <Button Grid.Column="1" Content="Delete Page" Click="DeleteProfileButton_Click" Margin="3,0,0,0" Padding="6,4" FontSize="10.5" Background="#3F1616" Foreground="#FFA0A0" BorderBrush="#601A1A"/>
+                        </Grid>
+                        
+                        <Button Content="Add Preset profile..." Click="AddPresetProfileButton_Click" Margin="0,0,0,12" Padding="6" FontSize="10.5"/>
+
+                        <Border BorderBrush="#1F1F24" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,4,0,0">
+                            <Grid>
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                                    <TextBlock Text="About" Foreground="#8A8A93" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" Margin="0,0,12,0" TextDecorations="Underline"/>
+                                    <TextBlock Text="Help &amp; Feedback" Foreground="#8A8A93" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="HelpLink_Click" TextDecorations="Underline"/>
+                                </StackPanel>
+                                <TextBlock Text="v1.0" Foreground="#44444F" FontSize="10.5" HorizontalAlignment="Right"/>
+                            </Grid>
+                        </Border>
                     </StackPanel>
                 </Grid>
-            </Border>
 
-            <!-- Top Row: Profile Management Header (Row 1) -->
-            <Border Grid.Row="1" Grid.ColumnSpan="2" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="0,0,0,1.5" Padding="12,8">
-                <DockPanel>
-                    <TextBlock Text="Active Profile:" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,8,0" Foreground="#FFFFFF"/>
-                    <ComboBox x:Name="ProfileSelectorCombo" Width="180" SelectionChanged="ProfileSelectorCombo_SelectionChanged" DisplayMemberPath="Name" SelectedValuePath="ProfileId" Background="#080810" Foreground="#FFFFFF"/>
-                    <Button Content="New Profile" Margin="8,0,0,0" Padding="8,2" Click="NewProfileButton_Click"/>
-                    <Button Content="Rename Profile" Margin="8,0,0,0" Padding="8,2" Click="RenameProfileButton_Click"/>
-                    <Button x:Name="DeleteProfileButton" Content="Delete Profile" Margin="8,0,0,0" Padding="8,2" Click="DeleteProfileButton_Click" Background="#FFEBEE" Foreground="#C62828"/>
-                    <Button x:Name="AddPresetProfileButton" Content="Add Preset Profile" Margin="8,0,0,0" Padding="8,2" Click="AddPresetProfileButton_Click" Background="#E0F7FA" Foreground="#006064"/>
-                    <TextBlock Text="Associated Process:" VerticalAlignment="Center" FontWeight="Bold" Margin="24,0,8,0" Foreground="#FFFFFF"/>
-                    <TextBox x:Name="TriggerProcessTxt" Width="120" VerticalAlignment="Center" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" ToolTip="e.g. chrome.exe or notepad.exe (auto-switches profile on window focus)"/>
-                </DockPanel>
-            </Border>
-            
-            <!-- Left Side: Interactive 5x3 Grid View (Row 2, Col 0) -->
-            <Border Grid.Row="2" Grid.Column="0" BorderBrush="#1F1F23" BorderThickness="0,0,1.5,0" Margin="12">
-                <DockPanel>
-                    <TextBlock Text="Logical Layout Grid (Click cell to edit or create)" DockPanel.Dock="Top" FontSize="14" FontWeight="Bold" Margin="0,0,0,12" Foreground="#FFFFFF"/>
-                    <DockPanel Margin="0,0,0,12" DockPanel.Dock="Top">
-                        <Button x:Name="BackButton" Content="◀ Go Back" DockPanel.Dock="Left" Padding="8,2" Margin="0,0,10,0" Click="BackButton_Click" Visibility="Collapsed" Background="#E0E0E0" FontWeight="Bold"/>
-                        <TextBlock x:Name="BreadcrumbText" Text="Location: Root" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.8" Foreground="#FFFFFF"/>
-                    </DockPanel>
-                    <UniformGrid x:Name="ButtonGrid" Rows="3" Columns="5" Margin="0">
-                        <!-- Buttons will be dynamically added in code-behind -->
-                    </UniformGrid>
-                </DockPanel>
-            </Border>
-            
-            <!-- Right Side: Button Editor Panel (Row 2, Col 1) -->
-            <Grid Grid.Row="2" Grid.Column="1" Margin="12">
-                <StackPanel x:Name="EditPanel" Visibility="Collapsed">
-                    <TextBlock Text="Edit Button Configuration" FontSize="14" FontWeight="Bold" Margin="0,0,0,16" Foreground="#FFFFFF"/>
-                    
-                    <TextBlock Text="Position" FontWeight="SemiBold" Margin="0,0,0,4" Foreground="#FFFFFF"/>
-                    <TextBlock x:Name="PositionText" Text="Row: 0, Col: 0" Margin="0,0,0,12" FontSize="12" Opacity="0.8" Foreground="#FFFFFF"/>
-                    
-                    <TextBlock Text="Label" FontWeight="SemiBold" Margin="0,0,0,4" Foreground="#FFFFFF"/>
-                <TextBox x:Name="LabelInput" Margin="0,0,0,12" Padding="4"/>
-                
-                <TextBlock Text="Action Type" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                <ComboBox x:Name="ActionTypeCombo" Margin="0,0,0,12" SelectionChanged="ActionTypeCombo_SelectionChanged">
-                    <ComboBoxItem Content="Keyboard Shortcut" Tag="hotkey"/>
-                    <ComboBoxItem Content="Launch App" Tag="launch_app"/>
-                    <ComboBoxItem Content="Media Control" Tag="media_control"/>
-                    <ComboBoxItem Content="Open Website" Tag="open_url"/>
-                    <ComboBoxItem Content="Run Command" Tag="run_command"/>
-                    <ComboBoxItem Content="Text Snippet" Tag="text_snippet"/>
-                    <ComboBoxItem Content="Open Folder" Tag="open_folder"/>
-                    <ComboBoxItem Content="Multiple Actions" Tag="multi_action"/>
-                    <ComboBoxItem Content="Dial / Slider" Tag="dial"/>
-                </ComboBox>
-                
-                <!-- Hotkey fields -->
-                <StackPanel x:Name="HotkeyPanel" Visibility="Visible">
-                    <TextBlock Text="Hotkey Combo (comma-separated keys, e.g. Ctrl,Shift,A)" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox x:Name="HotkeyInput" Margin="0,0,0,12" Padding="4"/>
-                </StackPanel>
-                
-                <!-- Launch App fields -->
-                <StackPanel x:Name="LaunchAppPanel" Visibility="Collapsed">
-                    <TextBlock Text="Application Path (pick installed app, or type/browse a custom path)" FontWeight="SemiBold" Margin="0,0,0,4" TextWrapping="Wrap"/>
-                    <DockPanel Margin="0,0,0,12">
-                        <Button Content="Browse..." DockPanel.Dock="Right" Padding="6,2" Click="BrowseAppButton_Click"/>
-                        <ComboBox x:Name="PathInput" IsEditable="True" Padding="4" Margin="0,0,6,0"
-                                  DisplayMemberPath="Name" SelectionChanged="PathInput_SelectionChanged"/>
-                    </DockPanel>
-                </StackPanel>
+                <!-- RIGHT MAIN GRID AREA -->
+                <Border Grid.Column="1" Background="#121216" BorderBrush="#1F1F24" BorderThickness="1" CornerRadius="12" Padding="12">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <!-- Top: Navigation Header -->
+                            <RowDefinition Height="Auto"/>
+                            <!-- Middle: Buttons Grid canvas -->
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                <!-- Media Control fields -->
-                <StackPanel x:Name="MediaControlPanel" Visibility="Collapsed">
-                    <TextBlock Text="Media Command" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ComboBox x:Name="MediaCommandCombo" Margin="0,0,0,12">
-                        <ComboBoxItem Content="Play / Pause" Tag="PlayPause"/>
-                        <ComboBoxItem Content="Next Track" Tag="NextTrack"/>
-                        <ComboBoxItem Content="Previous Track" Tag="PrevTrack"/>
-                        <ComboBoxItem Content="Volume Up" Tag="VolumeUp"/>
-                        <ComboBoxItem Content="Volume Down" Tag="VolumeDown"/>
-                        <ComboBoxItem Content="Mute" Tag="VolumeMute"/>
-                    </ComboBox>
-                </StackPanel>
+                        <!-- Nav & Info Header -->
+                        <Grid Grid.Row="0" Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                <!-- Open URL fields -->
-                <StackPanel x:Name="OpenUrlPanel" Visibility="Collapsed">
-                    <TextBlock Text="URL" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox x:Name="UrlInput" Margin="0,0,0,12" Padding="4"/>
-                </StackPanel>
+                            <Button x:Name="BackButton" Content="◀ Go Back" VerticalAlignment="Center" Padding="8,4" Click="BackButton_Click" Visibility="Collapsed" Margin="0,0,10,0"/>
+                            <TextBlock x:Name="BreadcrumbText" Grid.Column="1" Text="Folder: Root" VerticalAlignment="Center" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold"/>
 
-                <!-- Run Command fields -->
-                <StackPanel x:Name="RunCommandPanel" Visibility="Collapsed">
-                    <TextBlock Text="Command (CMD / Shell)" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox x:Name="CommandInput" Margin="0,0,0,12" Padding="4"/>
-                </StackPanel>
+                            <!-- Trigger Process picker box -->
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="Trigger Process:" Foreground="#8A8A93" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="TriggerProcessTxt" Width="130" Height="22" VerticalAlignment="Center" Padding="3,1" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" ToolTip="e.g. chrome.exe (auto-switches to this profile)"/>
+                            </StackPanel>
+                        </Grid>
 
-                <!-- Text Snippet fields -->
-                <StackPanel x:Name="TextSnippetPanel" Visibility="Collapsed">
-                    <TextBlock Text="Text Snippet to Paste" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox x:Name="SnippetTextInput" Margin="0,0,0,12" Padding="4" AcceptsReturn="True" TextWrapping="Wrap" Height="60"/>
-                </StackPanel>
+                        <!-- Spacious Grid Canvas -->
+                        <Grid Grid.Row="1">
+                            <UniformGrid x:Name="ButtonGrid" Rows="3" Columns="5">
+                                <!-- Dynamic Squircle Buttons added dynamically in C# -->
+                            </UniformGrid>
 
-                <!-- Folder fields -->
-                <StackPanel x:Name="FolderPanel" Visibility="Collapsed">
-                    <TextBlock Text="Target Folder ID (custom, or empty to auto-generate)" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox x:Name="TargetFolderIdInput" Margin="0,0,0,12" Padding="4"/>
-                    <Button Content="⬇ Enter Folder in Grid" Click="EnterFolderButton_Click" Background="#4CAF50" Foreground="White" FontWeight="Bold" Margin="0,0,0,12" Padding="6"/>
-                </StackPanel>
-                
-                <!-- Multi-Action fields -->
-                <StackPanel x:Name="MultiActionPanel" Visibility="Collapsed">
-                    <TextBlock Text="Action Sequence (e.g. hotkey: Ctrl,C then delay: 500)" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <TextBox x:Name="MultiActionInput" Margin="0,0,0,12" Padding="4" AcceptsReturn="True" TextWrapping="Wrap" Height="100"/>
-                </StackPanel>
-                
-                <!-- Dial fields -->
-                <StackPanel x:Name="DialPanel" Visibility="Collapsed">
-                    <TextBlock Text="Dial Target" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                    <ComboBox x:Name="DialTargetCombo" Margin="0,0,0,12">
-                        <ComboBoxItem Content="Volume" Tag="volume"/>
-                        <ComboBoxItem Content="Brightness" Tag="brightness"/>
-                    </ComboBox>
-                </StackPanel>
-                
-                <!-- Custom Button Icon Field -->
-                <TextBlock Text="Custom Icon (PNG/JPG)" FontWeight="SemiBold" Margin="0,0,0,4"/>
-                <DockPanel Margin="0,0,0,12">
-                    <Button Content="Browse..." DockPanel.Dock="Right" Padding="6,2" Click="BrowseIcon_Click"/>
-                    <Button Content="Built-in..." DockPanel.Dock="Right" Padding="6,2" Margin="6,0,0,0" Click="BuiltinIcon_Click"/>
-                    <Button Content="🗑 Clear" DockPanel.Dock="Right" Padding="6,2" Margin="6,0,0,0" Click="ClearIcon_Click" Background="#FFEBEE" Foreground="#C62828"/>
-                    <TextBox x:Name="IconPathText" Padding="4" IsReadOnly="True" Margin="0,0,6,0"/>
-                </DockPanel>
-
-                <Grid Margin="0,12,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <Button Content="Save" Margin="0,0,6,0" Padding="8" Click="SaveButton_Click" Background="#2196F3" Foreground="White" FontWeight="Bold"/>
-                    <Button Content="Delete" Grid.Column="1" Margin="6,0,0,0" Padding="8" Click="DeleteButton_Click" Background="#E53935" Foreground="White" FontWeight="Bold"/>
-                </Grid>
-                <!-- Status feedback label shown after Save / Delete operations -->
-                <TextBlock x:Name="SaveStatusText"
-                           Margin="0,8,0,0"
-                           FontWeight="SemiBold"
-                           FontSize="12"
-                           Visibility="Collapsed"
-                           TextWrapping="Wrap"/>
-            </StackPanel>
-            
-            <TextBlock x:Name="PlaceholderText" Text="Select a cell on the left to edit or configure a button." VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center" FontSize="13" Opacity="0.6" Margin="12"/>
+                            <!-- Ambient Connection Notifications Toast Overlay in Bottom-Right -->
+                            <Border x:Name="ToastNotificationCard" CornerRadius="8" Background="#1C1C24" BorderBrush="{DynamicResource PrimaryAccentBrush}" BorderThickness="1" Padding="12,8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,16" Visibility="Collapsed">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Ellipse x:Name="ToastStateDot" Width="8" Height="8" Fill="#FF5555" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                    <TextBlock x:Name="ToastMessageText" Text="Device Disconnected" Foreground="#FFFFFF" FontSize="11.5" FontWeight="SemiBold"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
-    </Grid>
-</Border>
+    </Border>
 </Window>

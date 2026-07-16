@@ -37,6 +37,18 @@ public class WebSocketServer
     public int Port => _port;
     public string LocalIpAddress { get; private set; } = "unknown";
     public event Action? ClientAuthenticated;
+    public event Action? ClientDisconnected;
+    public string? ConnectedDeviceName { get; private set; }
+    public bool IsClientConnected
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _activeSockets.Any(ws => ws.State == System.Net.WebSockets.WebSocketState.Open);
+            }
+        }
+    }
 
     public WebSocketServer(int port, PairingManager pairing, ProfileStoreService profileStore, ActionExecutor actionExecutor)
     {
@@ -255,11 +267,18 @@ public class WebSocketServer
 
     private string? HandleAuth(JsonElement authMsg, out object response)
     {
+        string? deviceName = null;
+        if (authMsg.TryGetProperty("deviceName", out var devEl))
+        {
+            deviceName = devEl.GetString();
+        }
+
         if (authMsg.TryGetProperty("token", out var tokenEl))
         {
             var token = tokenEl.GetString() ?? "";
             if (_pairing.ValidateToken(token))
             {
+                ConnectedDeviceName = deviceName ?? "Android Device";
                 response = new { type = "auth_ok", token, hostName = Environment.MachineName };
                 return token;
             }
@@ -273,6 +292,7 @@ public class WebSocketServer
             if (_pairing.ValidatePin(pin))
             {
                 var newToken = _pairing.IssueToken();
+                ConnectedDeviceName = deviceName ?? "Android Device";
                 response = new { type = "auth_ok", token = newToken, hostName = Environment.MachineName };
                 return newToken;
             }
@@ -475,7 +495,17 @@ public class WebSocketServer
 
     private void UnregisterSocket(WebSocket ws)
     {
-        lock (_lock) _activeSockets.Remove(ws);
+        bool wasConnected;
+        lock (_lock)
+        {
+            wasConnected = _activeSockets.Contains(ws);
+            _activeSockets.Remove(ws);
+        }
+        if (wasConnected)
+        {
+            ConnectedDeviceName = null;
+            ClientDisconnected?.Invoke();
+        }
     }
 
     /// <summary>

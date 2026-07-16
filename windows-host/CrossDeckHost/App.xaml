@@ -8,66 +8,27 @@
       We call Application.Current.Shutdown() explicitly from the tray "Exit" menu item.
     -->
     <Application.Resources>
-        <!-- Modern Button Style -->
+        <!-- Modern Premium Button Style -->
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#1E1E22"/>
+            <Setter Property="Background" Value="#18181F"/>
             <Setter Property="Foreground" Value="#E2E8F0"/>
-            <Setter Property="BorderBrush" Value="#2D2D30"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="BorderBrush" Value="#2D2D36"/>
+            <Setter Property="BorderThickness" Value="1.2"/>
+            <Setter Property="Padding" Value="12,6"/>
             <Setter Property="FontFamily" Value="Segoe UI, Inter, Arial"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border CornerRadius="6" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="border" CornerRadius="10" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- Modern TextBox Style -->
-        <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#1E1E22"/>
-            <Setter Property="Foreground" Value="#E2E8F0"/>
-            <Setter Property="BorderBrush" Value="#2D2D30"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border CornerRadius="6" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
-                            <ScrollViewer x:Name="PART_ContentHost" Margin="2"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!--
-          Dark ComboBox + ComboBoxItem. This is the one control ThemeManager's imperative walk
-          (ThemeManager.cs) can't reach — plain Background/Foreground setters don't affect the
-          default template's popup/toggle-arrow chrome, so the dropdown list rendered on the
-          system-default WHITE popup surface even though the closed control looked themed. Real
-          ControlTemplate needed here; everything else stays on the imperative-walk pattern.
-        -->
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Background" Value="#0E0E10"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="Padding" Value="8,6"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBoxItem">
-                        <Border x:Name="Bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter/>
-                        </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#1F1F23"/>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#24242E"/>
+                                <Setter TargetName="border" Property="BorderBrush" Value="#444452"/>
                             </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#1F1F23"/>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#121217"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -75,10 +36,60 @@
             </Setter>
         </Style>
 
-        <Style TargetType="ComboBox">
-            <Setter Property="Background" Value="#0E0E10"/>
+        <!-- Modern Premium TextBox Style -->
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#121216"/>
+            <Setter Property="Foreground" Value="#F1F5F9"/>
+            <Setter Property="BorderBrush" Value="#25252E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,6"/>
+            <Setter Property="CaretBrush" Value="#FFFFFF"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="border" CornerRadius="8" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                            <ScrollViewer x:Name="PART_ContentHost" Margin="4,2"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#00d4ff"/>
+                                <Setter TargetName="border" Property="Background" Value="#161620"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Modern ComboBoxItem Style -->
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="#0E0E12"/>
             <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#1F1F23"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#1C1C24"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#242430"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Modern ComboBox Style -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#121216"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#25252E"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="Template">
@@ -94,11 +105,11 @@
                                           Focusable="False">
                                 <ToggleButton.Template>
                                     <ControlTemplate TargetType="ToggleButton">
-                                        <Border CornerRadius="6" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+                                        <Border CornerRadius="8" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
                                             <Grid>
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="20"/>
+                                                    <ColumnDefinition Width="28"/>
                                                 </Grid.ColumnDefinitions>
                                                 <Path Grid.Column="1" Data="M0,0 L4,4 L8,0 Z" Fill="#9CA3AF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             </Grid>
@@ -110,20 +121,18 @@
                                               Content="{TemplateBinding SelectionBoxItem}"
                                               ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                               ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
-                                              Margin="8,4,24,4"
+                                              Margin="10,4,30,4"
                                               VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                            <!-- Required part name for IsEditable="True" — WPF looks for this exact
-                                 name at runtime. Hidden unless IsEditable (see trigger below). -->
                             <TextBox x:Name="PART_EditableTextBox"
                                      Visibility="Collapsed"
-                                     Margin="8,4,24,4"
+                                     Margin="10,4,30,4"
                                      VerticalAlignment="Center"
                                      Background="Transparent"
                                      Foreground="{TemplateBinding Foreground}"
                                      BorderThickness="0"
                                      Focusable="True"/>
                             <Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}" AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-                                <Border x:Name="DropDownBorder" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="1.5" CornerRadius="6" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                <Border x:Name="DropDownBorder" Background="#0E0E12" BorderBrush="#25252E" BorderThickness="1.2" CornerRadius="8" MinWidth="{TemplateBinding ActualWidth}" MaxHeight="{TemplateBinding MaxDropDownHeight}">
                                     <ScrollViewer SnapsToDevicePixels="True">
                                         <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained"/>
                                     </ScrollViewer>

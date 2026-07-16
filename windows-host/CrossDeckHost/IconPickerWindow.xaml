@@ -13,16 +13,17 @@
             </Grid.RowDefinitions>
 
             <!-- Custom TitleBar Row 0 -->
-            <Border Grid.Row="0" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="0,0,0,1.5" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Border Grid.Row="0" Background="#0E0E12" BorderBrush="#1F1F24" BorderThickness="0,0,0,1.2" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="Choose Built-in Icon" Foreground="#FFFFFF" FontWeight="Bold" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
-                        <Button Content="✕" Width="24" Height="24" Click="CloseButton_Click" Background="Transparent" Foreground="#FFFFFF" BorderThickness="0"/>
+                    <!-- Left: Traffic Lights -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0">
+                        <Ellipse Width="12" Height="12" Fill="#FF5F56" Cursor="Hand" MouseLeftButtonDown="CloseButton_Click" ToolTip="Close"/>
+                        <Ellipse Width="12" Height="12" Fill="#FFBD2E" Margin="8,0,8,0" IsEnabled="False" Opacity="0.5" ToolTip="Minimize (Disabled)"/>
+                        <Ellipse Width="12" Height="12" Fill="#27C93F" ToolTip="Maximize (Disabled)"/>
                     </StackPanel>
+
+                    <!-- Center: Window Title Text -->
+                    <TextBlock Text="Choose Built-in Icon" Foreground="#8A8A93" FontFamily="Segoe UI" FontWeight="SemiBold" FontSize="11.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
             </Border>
 

@@ -93,7 +93,7 @@ public partial class App : System.Windows.Application
             }
         }
 
-        var window = new EditorWindow(_profileStore);
+        var window = new EditorWindow(_profileStore, _server);
         window.Show();
         window.Activate();
     }

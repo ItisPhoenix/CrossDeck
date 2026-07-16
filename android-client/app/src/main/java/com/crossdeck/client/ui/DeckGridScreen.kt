@@ -48,6 +48,12 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -65,6 +71,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -546,7 +553,7 @@ fun DeckGridScreen(
                                 } else Modifier
 
                                 Box(
-                                    modifier = dragModifier.then(visualModifier)
+                                    modifier = Modifier.aspectRatio(1f)
                                 ) {
                                     if (cellButton != null) {
                                         val dialValue = dialLevels[cellButton.buttonId]
@@ -579,6 +586,7 @@ fun DeckGridScreen(
                                                     }
                                                 }
                                             },
+                                            modifier = dragModifier.then(visualModifier),
                                             levelValue = dialValue
                                         )
                                     } else {
@@ -592,7 +600,7 @@ fun DeckGridScreen(
                                         } else {
                                             Box(
                                                 modifier = Modifier
-                                                    .aspectRatio(1f)
+                                                    .fillMaxSize()
                                                     .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(12.dp))
                                                     .background(Color(0xFF0E0E10), RoundedCornerShape(12.dp))
                                             )
@@ -858,51 +866,73 @@ private fun DeckButton(
     val isPressed by interactionSource.collectIsPressedAsState()
     val animatedScale by animateFloatAsState(targetValue = if (isPressed) 0.94f else 1.0f, label = "pressScale")
 
+    val glossyBg = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF2E2E36).copy(alpha = 0.85f),
+            Color(0xFF16161A).copy(alpha = 0.85f)
+        )
+    )
+
+    val glossyBorder = Brush.verticalGradient(
+        colors = listOf(
+            Color.White.copy(alpha = 0.18f),
+            Color.White.copy(alpha = 0.03f)
+        )
+    )
+
+    val activeBorder = if (isPressed) {
+        Brush.verticalGradient(listOf(accentColor, accentColor.copy(alpha = 0.4f)))
+    } else if (isEditMode) {
+        Brush.verticalGradient(listOf(accentColor.copy(alpha = 0.6f), accentColor.copy(alpha = 0.1f)))
+    } else {
+        glossyBorder
+    }
+
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color(0xFF0E0E10),
+        shape = RoundedCornerShape(18.dp),
+        color = Color.Transparent,
         modifier = modifier
             .scale(animatedScale)
             .aspectRatio(1f)
             .clickable(interactionSource = interactionSource, indication = null) { onTap() }
+            .background(glossyBg, RoundedCornerShape(18.dp))
             .border(
-                1.5.dp,
-                if (isPressed) accentColor else if (isEditMode) accentColor.copy(alpha = 0.5f) else Color(0xFF1F1F23),
-                RoundedCornerShape(12.dp)
+                1.2.dp,
+                activeBorder,
+                RoundedCornerShape(18.dp)
             )
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(8.dp)
+                modifier = Modifier.padding(6.dp)
             ) {
                 if (imageBitmap != null) {
                     Image(
                         bitmap = imageBitmap!!,
                         contentDescription = button.label,
-                        modifier = Modifier.size(36.dp).padding(bottom = 4.dp)
+                        modifier = Modifier.size(38.dp).padding(bottom = 2.dp)
                     )
                 }
-                // Icon-Only Buttons setting: hide the label, but only when an icon actually
-                // rendered — otherwise a button with no icon would go completely blank.
                 if (!(iconOnlyMode && imageBitmap != null)) {
                     Text(
                         text = button.label,
                         textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                        color = Color(0xFFE2E2E8),
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 2.dp)
                     )
                 }
                 levelValue?.let {
                     Text(
                         text = "$it%",
                         textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                         color = accentColor,
-                        modifier = Modifier.padding(top = 2.dp)
+                        modifier = Modifier.padding(top = 1.dp)
                     )
                 }
             }
@@ -913,18 +943,28 @@ private fun DeckButton(
 @Composable
 private fun EmptyEditButton(onClick: () -> Unit) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = Color.Transparent,
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFF0C0C0E).copy(alpha = 0.4f),
         modifier = Modifier
             .aspectRatio(1f)
-            .border(1.5.dp, Color(0xFF1F1F23), RoundedCornerShape(12.dp))
+            .border(
+                1.dp,
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.08f),
+                        Color.White.copy(alpha = 0.02f)
+                    )
+                ),
+                RoundedCornerShape(18.dp)
+            )
             .clickable { onClick() }
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-            Text(
-                text = "+",
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color.Gray
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Add Button",
+                tint = Color.White.copy(alpha = 0.2f),
+                modifier = Modifier.size(22.dp)
             )
         }
     }
@@ -1085,291 +1125,348 @@ private fun EditButtonDialog(
 
     val accentColor = MaterialTheme.colorScheme.primary
 
-    AlertDialog(
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
-        containerColor = Color(0xFF0E0E10),
-        shape = RoundedCornerShape(16.dp),
-        title = { Text(if (onDelete == null) "Create Button" else "Edit Button", color = Color.White) },
-        text = {
-            Column {
-                CrossDeckTextField(
-                    value = label,
-                    onValueChange = { label = it },
-                    label = "Label",
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text("Icon", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    IconPreview(icon = iconValue, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(40.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    TextButton(onClick = { showBuiltinPicker = true }) { Text("Built-in", color = accentColor) }
-                    TextButton(onClick = { imagePickerLauncher.launch("image/*") }, enabled = !isUploading) {
-                        Text(if (isUploading) "Uploading…" else "Upload", color = accentColor)
-                    }
-                    if (iconValue != null) {
-                        TextButton(onClick = { iconValue = null }) { Text("Clear", color = Color.Red) }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                ExposedDropdownMenuBox(
-                    expanded = dropdownExpanded,
-                    onExpandedChange = { dropdownExpanded = !dropdownExpanded }
-                ) {
-                    CrossDeckTextField(
-                        readOnly = true,
-                        value = actionTypeLabels[actionType] ?: actionType,
-                        onValueChange = {},
-                        label = "Action Type",
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
-                        modifier = Modifier.fillMaxWidth().menuAnchor()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = dropdownExpanded,
-                        onDismissRequest = { dropdownExpanded = false }
-                    ) {
-                        actionTypeLabels.forEach { (type, friendly) ->
-                            DropdownMenuItem(
-                                text = { Text(friendly) },
-                                onClick = {
-                                    actionType = type
-                                    dropdownExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-
-                when (actionType) {
-                    "hotkey" -> {
-                        CrossDeckTextField(
-                            value = hotkeys,
-                            onValueChange = { hotkeys = it },
-                            label = "Keys (comma-separated, e.g. Ctrl,Alt,A)",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    "launch_app" -> {
-                        val filteredApps = remember(searchQuery, path, appList) {
-                            val matched = appList.find { it.path == path }
-                            val isDefaultValue = searchQuery.isBlank() || searchQuery == path || (matched != null && searchQuery == matched.name)
-                            if (isDefaultValue) appList
-                            else appList.filter { 
-                                it.name.contains(searchQuery, ignoreCase = true) || 
-                                it.path.contains(searchQuery, ignoreCase = true) 
-                            }
-                        }
-                        ExposedDropdownMenuBox(
-                            expanded = pathDropdownExpanded && filteredApps.isNotEmpty(),
-                            onExpandedChange = { pathDropdownExpanded = it }
-                        ) {
-                            CrossDeckTextField(
-                                value = searchQuery,
-                                onValueChange = { newValue ->
-                                    searchQuery = newValue
-                                    val matched = appList.find { it.name.equals(newValue, ignoreCase = true) }
-                                    path = matched?.path ?: newValue
-                                    pathDropdownExpanded = true
-                                },
-                                label = "Application Path (pick installed app, or type a custom path)",
-                                modifier = Modifier.fillMaxWidth().menuAnchor()
-                            )
-                            ExposedDropdownMenu(
-                                expanded = pathDropdownExpanded && filteredApps.isNotEmpty(),
-                                onDismissRequest = { pathDropdownExpanded = false }
-                            ) {
-                                filteredApps.forEach { app ->
-                                    DropdownMenuItem(
-                                        text = { Text(app.name) },
-                                        onClick = {
-                                            path = app.path
-                                            searchQuery = app.name
-                                            pathDropdownExpanded = false
-                                            if (iconValue == null) onRequestExtractIcon(app.path)
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                        if (path.isNotEmpty() && path != searchQuery) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Target: $path",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
-                        }
-                    }
-                    "media_control" -> {
-                        ExposedDropdownMenuBox(
-                            expanded = mediaDropdownExpanded,
-                            onExpandedChange = { mediaDropdownExpanded = !mediaDropdownExpanded }
-                        ) {
-                            CrossDeckTextField(
-                                readOnly = true,
-                                value = mediaCommandLabels[mediaCommand] ?: mediaCommand,
-                                onValueChange = {},
-                                label = "Media Command",
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mediaDropdownExpanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor()
-                            )
-                            ExposedDropdownMenu(
-                                expanded = mediaDropdownExpanded,
-                                onDismissRequest = { mediaDropdownExpanded = false }
-                            ) {
-                                mediaCommandLabels.forEach { (cmd, friendly) ->
-                                    DropdownMenuItem(
-                                        text = { Text(friendly) },
-                                        onClick = {
-                                            mediaCommand = cmd
-                                            mediaDropdownExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    "open_url" -> {
-                        CrossDeckTextField(
-                            value = url,
-                            onValueChange = { url = it },
-                            label = "URL",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    "run_command" -> {
-                        CrossDeckTextField(
-                            value = command,
-                            onValueChange = { command = it },
-                            label = "Command",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    "text_snippet" -> {
-                        CrossDeckTextField(
-                            value = textValue,
-                            onValueChange = { textValue = it },
-                            label = "Text Snippet",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    "open_folder" -> {
-                        CrossDeckTextField(
-                            value = targetFolderId,
-                            onValueChange = { targetFolderId = it },
-                            label = "Target Folder ID",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    "multi_action" -> {
-                        CrossDeckTextField(
-                            value = multiActionText,
-                            onValueChange = { multiActionText = it },
-                            label = "Actions (e.g. hotkey:Ctrl,C then delay:500)",
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    "dial" -> {
-                        ExposedDropdownMenuBox(
-                            expanded = dialDropdownExpanded,
-                            onExpandedChange = { dialDropdownExpanded = !dialDropdownExpanded }
-                        ) {
-                            CrossDeckTextField(
-                                readOnly = true,
-                                value = dialTargetLabels[dialTarget] ?: dialTarget,
-                                onValueChange = {},
-                                label = "Dial Target",
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dialDropdownExpanded) },
-                                modifier = Modifier.fillMaxWidth().menuAnchor()
-                            )
-                            ExposedDropdownMenu(
-                                expanded = dialDropdownExpanded,
-                                onDismissRequest = { dialDropdownExpanded = false }
-                            ) {
-                                dialTargetLabels.forEach { (target, friendly) ->
-                                    DropdownMenuItem(
-                                        text = { Text(friendly) },
-                                        onClick = {
-                                            dialTarget = target
-                                            dialDropdownExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Color(0xFF0C0C0E),
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .width(36.dp)
+                    .height(4.dp)
+                    .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+            )
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    val act = when (actionType) {
-                        "hotkey" -> ActionModel(
-                            type = actionType,
-                            keys = hotkeys.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                        )
-                        "launch_app" -> ActionModel(
-                            type = actionType,
-                            path = path.trim()
-                        )
-                        "media_control" -> ActionModel(
-                            type = actionType,
-                            mediaCommand = mediaCommand
-                        )
-                        "open_url" -> ActionModel(
-                            type = actionType,
-                            url = url.trim()
-                        )
-                        "run_command" -> ActionModel(
-                            type = actionType,
-                            command = command.trim()
-                        )
-                        "text_snippet" -> ActionModel(
-                            type = actionType,
-                            text = textValue
-                        )
-                        "open_folder" -> ActionModel(
-                            type = actionType,
-                            targetFolderId = targetFolderId.trim()
-                        )
-                        "multi_action" -> {
-                            val (parsedActs, parsedDelays) = parseMultiAction(multiActionText)
-                            ActionModel(
-                                type = actionType,
-                                actions = parsedActs,
-                                delays = parsedDelays
-                            )
-                        }
-                        "dial" -> ActionModel(
-                            type = actionType,
-                            dialTarget = dialTarget
-                        )
-                        else -> ActionModel(type = actionType)
-                    }
-                    onSave(button.copy(label = label.trim(), icon = iconValue, action = act))
-                }
+        windowInsets = WindowInsets(0)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            // Header Bar
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            if (onDelete != null) {
-                TextButton(onClick = onDelete) {
-                    Text("Delete", color = Color.Red)
-                }
-            } else {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+                    Text("Cancel", color = Color(0xFF9CA3AF))
+                }
+                Text(
+                    text = if (onDelete == null) "Create Button" else "Edit Button",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
+                )
+                TextButton(
+                    onClick = {
+                        val act = when (actionType) {
+                            "hotkey" -> ActionModel(
+                                type = actionType,
+                                keys = hotkeys.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                            )
+                            "launch_app" -> ActionModel(
+                                type = actionType,
+                                path = path.trim()
+                            )
+                            "media_control" -> ActionModel(
+                                type = actionType,
+                                mediaCommand = mediaCommand
+                            )
+                            "open_url" -> ActionModel(
+                                type = actionType,
+                                url = url.trim()
+                            )
+                            "run_command" -> ActionModel(
+                                type = actionType,
+                                command = command.trim()
+                            )
+                            "text_snippet" -> ActionModel(
+                                type = actionType,
+                                text = textValue
+                            )
+                            "open_folder" -> ActionModel(
+                                type = actionType,
+                                targetFolderId = targetFolderId.trim()
+                            )
+                            "multi_action" -> {
+                                val (parsedActs, parsedDelays) = parseMultiAction(multiActionText)
+                                ActionModel(
+                                    type = actionType,
+                                    actions = parsedActs,
+                                    delays = parsedDelays
+                                )
+                            }
+                            "dial" -> ActionModel(
+                                type = actionType,
+                                dialTarget = dialTarget
+                            )
+                            else -> ActionModel(type = actionType)
+                        }
+                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act))
+                    }
+                ) {
+                    Text("Save", color = accentColor, fontWeight = FontWeight.Bold)
                 }
             }
+
+            CrossDeckTextField(
+                value = label,
+                onValueChange = { label = it },
+                label = "Label",
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text("Icon", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                IconPreview(icon = iconValue, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(40.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(onClick = { showBuiltinPicker = true }) { Text("Built-in", color = accentColor) }
+                TextButton(onClick = { imagePickerLauncher.launch("image/*") }, enabled = !isUploading) {
+                    Text(if (isUploading) "Uploading…" else "Upload", color = accentColor)
+                }
+                if (iconValue != null) {
+                    TextButton(onClick = { iconValue = null }) { Text("Clear", color = Color.Red) }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            ExposedDropdownMenuBox(
+                expanded = dropdownExpanded,
+                onExpandedChange = { dropdownExpanded = !dropdownExpanded }
+            ) {
+                CrossDeckTextField(
+                    readOnly = true,
+                    value = actionTypeLabels[actionType] ?: actionType,
+                    onValueChange = {},
+                    label = "Action Type",
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
+                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                )
+                ExposedDropdownMenu(
+                    expanded = dropdownExpanded,
+                    onDismissRequest = { dropdownExpanded = false }
+                ) {
+                    actionTypeLabels.forEach { (type, friendly) ->
+                        DropdownMenuItem(
+                            text = { Text(friendly) },
+                            onClick = {
+                                actionType = type
+                                dropdownExpanded = false
+                            }
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Action Details Collapsible Panel
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF16161A).copy(alpha = 0.5f),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        1.dp,
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = 0.08f),
+                                Color.White.copy(alpha = 0.02f)
+                            )
+                        ),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(14.dp)
+            ) {
+                Column {
+                    Text(
+                        text = "Action Parameters",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = accentColor,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    when (actionType) {
+                        "hotkey" -> {
+                            CrossDeckTextField(
+                                value = hotkeys,
+                                onValueChange = { hotkeys = it },
+                                label = "Keys (comma-separated, e.g. Ctrl,Alt,A)",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        "launch_app" -> {
+                            val filteredApps = remember(searchQuery, path, appList) {
+                                val matched = appList.find { it.path == path }
+                                val isDefaultValue = searchQuery.isBlank() || searchQuery == path || (matched != null && searchQuery == matched.name)
+                                if (isDefaultValue) appList
+                                else appList.filter { 
+                                    it.name.contains(searchQuery, ignoreCase = true) || 
+                                    it.path.contains(searchQuery, ignoreCase = true) 
+                                }
+                            }
+                            ExposedDropdownMenuBox(
+                                expanded = pathDropdownExpanded && filteredApps.isNotEmpty(),
+                                onExpandedChange = { pathDropdownExpanded = it }
+                            ) {
+                                CrossDeckTextField(
+                                    value = searchQuery,
+                                    onValueChange = { newValue ->
+                                        searchQuery = newValue
+                                        val matched = appList.find { it.name.equals(newValue, ignoreCase = true) }
+                                        path = matched?.path ?: newValue
+                                        pathDropdownExpanded = true
+                                    },
+                                    label = "Application Path (pick or type custom)",
+                                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = pathDropdownExpanded && filteredApps.isNotEmpty(),
+                                    onDismissRequest = { pathDropdownExpanded = false }
+                                ) {
+                                    filteredApps.forEach { app ->
+                                        DropdownMenuItem(
+                                            text = { Text(app.name) },
+                                            onClick = {
+                                                path = app.path
+                                                searchQuery = app.name
+                                                pathDropdownExpanded = false
+                                                if (iconValue == null) onRequestExtractIcon(app.path)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            if (path.isNotEmpty() && path != searchQuery) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Target: $path",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
+                        }
+                        "media_control" -> {
+                            ExposedDropdownMenuBox(
+                                expanded = mediaDropdownExpanded,
+                                onExpandedChange = { mediaDropdownExpanded = !mediaDropdownExpanded }
+                            ) {
+                                CrossDeckTextField(
+                                    readOnly = true,
+                                    value = mediaCommandLabels[mediaCommand] ?: mediaCommand,
+                                    onValueChange = {},
+                                    label = "Media Command",
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mediaDropdownExpanded) },
+                                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = mediaDropdownExpanded,
+                                    onDismissRequest = { mediaDropdownExpanded = false }
+                                ) {
+                                    mediaCommandLabels.forEach { (cmd, friendly) ->
+                                        DropdownMenuItem(
+                                            text = { Text(friendly) },
+                                            onClick = {
+                                                mediaCommand = cmd
+                                                mediaDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        "open_url" -> {
+                            CrossDeckTextField(
+                                value = url,
+                                onValueChange = { url = it },
+                                label = "URL",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        "run_command" -> {
+                            CrossDeckTextField(
+                                value = command,
+                                onValueChange = { command = it },
+                                label = "Command",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        "text_snippet" -> {
+                            CrossDeckTextField(
+                                value = textValue,
+                                onValueChange = { textValue = it },
+                                label = "Text Snippet",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        "open_folder" -> {
+                            CrossDeckTextField(
+                                value = targetFolderId,
+                                onValueChange = { targetFolderId = it },
+                                label = "Target Folder ID",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        "multi_action" -> {
+                            CrossDeckTextField(
+                                value = multiActionText,
+                                onValueChange = { multiActionText = it },
+                                label = "Actions (e.g. hotkey:Ctrl,C then delay:500)",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        "dial" -> {
+                            ExposedDropdownMenuBox(
+                                expanded = dialDropdownExpanded,
+                                onExpandedChange = { dialDropdownExpanded = !dialDropdownExpanded }
+                            ) {
+                                CrossDeckTextField(
+                                    readOnly = true,
+                                    value = dialTargetLabels[dialTarget] ?: dialTarget,
+                                    onValueChange = {},
+                                    label = "Dial Target",
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dialDropdownExpanded) },
+                                    modifier = Modifier.fillMaxWidth().menuAnchor()
+                                )
+                                ExposedDropdownMenu(
+                                    expanded = dialDropdownExpanded,
+                                    onDismissRequest = { dialDropdownExpanded = false }
+                                ) {
+                                    dialTargetLabels.forEach { (target, friendly) ->
+                                        DropdownMenuItem(
+                                            text = { Text(friendly) },
+                                            onClick = {
+                                                dialTarget = target
+                                                dialDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (onDelete != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+                Button(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F1616)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Delete Button", color = Color(0xFFFFA0A0), fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
-    )
+    }
 
     if (showBuiltinPicker) {
         BuiltinIconPickerDialog(
@@ -1421,9 +1518,28 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
-        containerColor = Color(0xFF0E0E10),
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xFF22222A).copy(alpha = 0.95f),
+                        Color(0xFF0E0E12).copy(alpha = 0.95f)
+                    )
+                ),
+                RoundedCornerShape(20.dp)
+            )
+            .border(
+                1.dp,
+                Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = 0.16f),
+                        Color.White.copy(alpha = 0.02f)
+                    )
+                ),
+                RoundedCornerShape(20.dp)
+            ),
+        containerColor = Color.Transparent,
+        shape = RoundedCornerShape(20.dp),
         title = { Text("Choose Built-in Icon", color = Color.White) },
         text = {
             LazyVerticalGrid(

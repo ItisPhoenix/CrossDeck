@@ -240,6 +240,7 @@ class ConnectionManager(context: Context) {
             put("type", "auth")
             pin?.let { put("pin", it) }
             token?.let { put("token", it) }
+            put("deviceName", android.os.Build.MODEL)
         }
         ws.send(obj.toString())
     }

@@ -13,17 +13,17 @@
             </Grid.RowDefinitions>
 
             <!-- Custom TitleBar Row 0 -->
-            <Border Grid.Row="0" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="0,0,0,1.5" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Border Grid.Row="0" Background="#0E0E12" BorderBrush="#1F1F24" BorderThickness="0,0,0,1.2" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Text="✦ Welcome to CrossDeck" Foreground="#FFFFFF" FontWeight="Bold" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center"/>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
-                        <Button Content="—" Width="24" Height="24" Click="MinimizeButton_Click" Background="Transparent" Foreground="#FFFFFF" BorderThickness="0" Margin="0,0,4,0"/>
-                        <Button Content="✕" Width="24" Height="24" Click="CloseButton_Click" Background="Transparent" Foreground="#FFFFFF" BorderThickness="0"/>
+                    <!-- Left: Traffic Lights -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0">
+                        <Ellipse Width="12" Height="12" Fill="#FF5F56" Cursor="Hand" MouseLeftButtonDown="CloseButton_Click" ToolTip="Close"/>
+                        <Ellipse Width="12" Height="12" Fill="#FFBD2E" Margin="8,0,8,0" Cursor="Hand" MouseLeftButtonDown="MinimizeButton_Click" ToolTip="Minimize"/>
+                        <Ellipse Width="12" Height="12" Fill="#27C93F" ToolTip="Maximize (Disabled)"/>
                     </StackPanel>
+
+                    <!-- Center: Window Title Text -->
+                    <TextBlock Text="Welcome to CrossDeck" Foreground="#8A8A93" FontFamily="Segoe UI" FontWeight="SemiBold" FontSize="11.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
             </Border>
 
@@ -46,46 +46,64 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- Card 1: Productivity -->
-                    <Button Grid.Column="0" Margin="8,0" Click="Productivity_Click" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="1.5">
+                    <Button Grid.Column="0" Margin="8,0" Click="Productivity_Click" Background="#121216" BorderBrush="#25252E" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="16">
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="💻" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
                                         <TextBlock Text="Productivity" Foreground="#00d4ff" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
                                         <TextBlock Text="Macros for browser, volume adjustments, lock PC, and office workflows." Foreground="#FFFFFF" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="cardBorder" Property="Background" Value="#1C1C24"/>
+                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="#444452"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
 
                     <!-- Card 2: Streaming -->
-                    <Button Grid.Column="1" Margin="8,0" Click="Streaming_Click" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="1.5">
+                    <Button Grid.Column="1" Margin="8,0" Click="Streaming_Click" Background="#121216" BorderBrush="#25252E" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="16">
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="🎙️" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
                                         <TextBlock Text="Streaming" Foreground="#8b5cf6" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
                                         <TextBlock Text="Macros for media triggers, volume control, mic mute, and stream tools." Foreground="#FFFFFF" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="cardBorder" Property="Background" Value="#1C1C24"/>
+                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="#444452"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>
 
                     <!-- Card 3: Blank -->
-                    <Button Grid.Column="2" Margin="8,0" Click="Blank_Click" Background="#0E0E10" BorderBrush="#1F1F23" BorderThickness="1.5">
+                    <Button Grid.Column="2" Margin="8,0" Click="Blank_Click" Background="#121216" BorderBrush="#25252E" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="16">
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="📄" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
                                         <TextBlock Text="Blank" Foreground="#FFFFFF" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
                                         <TextBlock Text="Start with an empty profile. Add your own buttons and macros from scratch." Foreground="#FFFFFF" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="cardBorder" Property="Background" Value="#1C1C24"/>
+                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="#444452"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
                             </ControlTemplate>
                         </Button.Template>
                     </Button>

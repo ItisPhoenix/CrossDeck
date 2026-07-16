@@ -12,21 +12,25 @@ namespace CrossDeckHost;
 public partial class EditorWindow : Window
 {
     private readonly ProfileStoreService _profileStore;
-    private int _selectedRow = -1;
-    private int _selectedCol = -1;
+    private readonly Server.WebSocketServer? _server;
     private string? _currentFolderId = null;
     private readonly System.Collections.Generic.Stack<(string Id, string Label)> _folderHistory = new();
 
-    private bool _updatingSelector = false;
-
-    public EditorWindow(ProfileStoreService profileStore)
+    public EditorWindow(ProfileStoreService profileStore, Server.WebSocketServer? server)
     {
         InitializeComponent();
         _profileStore = profileStore;
+        _server = server;
 
         // Listen for changes from phone or other sources to keep grid in sync
         _profileStore.ProfileChanged += OnProfileChangedOnThread;
         _profileStore.ProfileSetChanged += OnProfileSetChangedOnThread;
+
+        if (_server != null)
+        {
+            _server.ClientAuthenticated += OnClientConnectionStatusChanged;
+            _server.ClientDisconnected += OnClientConnectionStatusChanged;
+        }
 
         Loaded += (s, e) =>
         {
@@ -34,12 +38,17 @@ public partial class EditorWindow : Window
             ThemeManager.ApplyTheme(this);
             RefreshProfileSelector();
             RefreshGrid();
-            PathInput.ItemsSource = AppDiscovery.DiscoverApps();
+            UpdateConnectionStatusCard();
         };
         Closed += (s, e) =>
         {
             _profileStore.ProfileChanged -= OnProfileChangedOnThread;
             _profileStore.ProfileSetChanged -= OnProfileSetChangedOnThread;
+            if (_server != null)
+            {
+                _server.ClientAuthenticated -= OnClientConnectionStatusChanged;
+                _server.ClientDisconnected -= OnClientConnectionStatusChanged;
+            }
         };
     }
 
@@ -63,39 +72,122 @@ public partial class EditorWindow : Window
 
     private void RefreshProfileSelector()
     {
-        _updatingSelector = true;
-        try
-        {
-            ProfileSelectorCombo.ItemsSource = null;
-            ProfileSelectorCombo.ItemsSource = _profileStore.Set.Profiles;
-            ProfileSelectorCombo.SelectedValue = _profileStore.Set.ActiveProfileId;
+        if (ProfileListContainer == null) return;
+        ProfileListContainer.Children.Clear();
+        var activeProfileId = _profileStore.Set.ActiveProfileId;
 
-            // Update associated process textbox
-            TriggerProcessTxt.Text = _profileStore.Current.TriggerProcess ?? "";
+        // Associated process textbox
+        TriggerProcessTxt.Text = _profileStore.Current.TriggerProcess ?? "";
 
-            // Cannot delete if it is the only profile left
-            DeleteProfileButton.IsEnabled = _profileStore.Set.Profiles.Count > 1;
-        }
-        finally
+        foreach (var profile in _profileStore.Set.Profiles)
         {
-            _updatingSelector = false;
+            var isSelected = profile.ProfileId == activeProfileId;
+
+            // Card container
+            var border = new Border
+            {
+                Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(isSelected ? "#1C1C24" : "#121216")),
+                BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(isSelected ? ThemeManager.AccentColor : "#1F1F24")),
+                BorderThickness = new Thickness(isSelected ? 1.5 : 1),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(10),
+                Margin = new Thickness(0, 0, 0, 8),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+
+            var mainStack = new StackPanel();
+
+            // Name & Capacity header
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var nameTxt = new TextBlock
+            {
+                Text = profile.Name,
+                Foreground = System.Windows.Media.Brushes.White,
+                FontWeight = System.Windows.FontWeights.SemiBold,
+                FontSize = 12.5,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center
+            };
+            Grid.SetColumn(nameTxt, 0);
+            grid.Children.Add(nameTxt);
+
+            int buttonCount = profile.Buttons?.Count ?? 0;
+            var capTxt = new TextBlock
+            {
+                Text = $"{buttonCount}/15",
+                Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#8A8A93")),
+                FontSize = 10.5,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center
+            };
+            Grid.SetColumn(capTxt, 1);
+            grid.Children.Add(capTxt);
+
+            mainStack.Children.Add(grid);
+
+            // Mini previews row (First 4 buttons)
+            var miniStack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            if (profile.Buttons != null)
+            {
+                var buttonsWithIcons = profile.Buttons.Where(b => !string.IsNullOrEmpty(b.Icon)).Take(4).ToList();
+                foreach (var btn in buttonsWithIcons)
+                {
+                    try
+                    {
+                        var resolvedPath = ProfileStoreService.ResolveIconFilePath(btn.Icon);
+                        if (File.Exists(resolvedPath))
+                        {
+                            var img = new System.Windows.Controls.Image
+                            {
+                                Width = 16,
+                                Height = 16,
+                                Margin = new Thickness(0, 0, 4, 0),
+                                Source = new BitmapImage(new Uri(resolvedPath))
+                            };
+                            miniStack.Children.Add(img);
+                        }
+                    }
+                    catch { /* skip */ }
+                }
+            }
+            mainStack.Children.Add(miniStack);
+
+            border.Child = mainStack;
+
+            // Interactive hovers
+            border.MouseEnter += (s, e) =>
+            {
+                if (profile.ProfileId != _profileStore.Set.ActiveProfileId)
+                {
+                    border.Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#16161C"));
+                    border.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#444452"));
+                }
+            };
+            border.MouseLeave += (s, e) =>
+            {
+                if (profile.ProfileId != _profileStore.Set.ActiveProfileId)
+                {
+                    border.Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#121216"));
+                    border.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1F1F24"));
+                }
+            };
+            border.MouseLeftButtonDown += (s, e) =>
+            {
+                SwitchToProfile(profile.ProfileId);
+            };
+
+            ProfileListContainer.Children.Add(border);
         }
     }
 
-    private void ProfileSelectorCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void SwitchToProfile(string profileId)
     {
-        if (_updatingSelector) return;
-        var selectedId = ProfileSelectorCombo.SelectedValue as string;
-        if (selectedId != null)
-        {
-            _currentFolderId = null;
-            _folderHistory.Clear();
-            _profileStore.SwitchProfile(selectedId);
-            EditPanel.Visibility = Visibility.Collapsed;
-            PlaceholderText.Visibility = Visibility.Visible;
-            _selectedRow = -1;
-            _selectedCol = -1;
-        }
+        _currentFolderId = null;
+        _folderHistory.Clear();
+        _profileStore.SwitchProfile(profileId);
+        RefreshProfileSelector();
+        RefreshGrid();
     }
 
     private void SaveTriggerProcess()
@@ -234,10 +326,6 @@ public partial class EditorWindow : Window
             _currentFolderId = null;
             _folderHistory.Clear();
             _profileStore.DeleteProfile(activeId);
-            EditPanel.Visibility = Visibility.Collapsed;
-            PlaceholderText.Visibility = Visibility.Visible;
-            _selectedRow = -1;
-            _selectedCol = -1;
         }
     }
 
@@ -260,10 +348,6 @@ public partial class EditorWindow : Window
             _currentFolderId = null;
             _folderHistory.Clear();
             _profileStore.CreateProfileFromPreset(name, preset);
-            EditPanel.Visibility = Visibility.Collapsed;
-            PlaceholderText.Visibility = Visibility.Visible;
-            _selectedRow = -1;
-            _selectedCol = -1;
         }
     }
 
@@ -273,14 +357,14 @@ public partial class EditorWindow : Window
 
         if (_currentFolderId == null)
         {
-            BreadcrumbText.Text = "Location: Root";
+            BreadcrumbText.Text = "Folder: Root";
             BackButton.Visibility = Visibility.Collapsed;
         }
         else
         {
             var folderHierarchyNames = _folderHistory.Select(h => h.Label).Reverse().ToList();
             string folderPath = string.Join(" ➔ ", folderHierarchyNames);
-            BreadcrumbText.Text = $"Location: Root ➔ {folderPath}";
+            BreadcrumbText.Text = $"Folder: Root ➔ {folderPath}";
             BackButton.Visibility = Visibility.Visible;
         }
 
@@ -294,21 +378,30 @@ public partial class EditorWindow : Window
             {
                 var btn = new System.Windows.Controls.Button
                 {
-                    Margin = new Thickness(4),
-                    FontSize = 12,
-                    FontWeight = FontWeights.Bold
+                    Margin = new Thickness(6),
+                    Background = System.Windows.Media.Brushes.Transparent,
+                    BorderThickness = new Thickness(0),
+                    Padding = new Thickness(0),
+                    Tag = Tuple.Create(r, c)
                 };
 
                 int row = r;
                 int col = c;
-                // Obsidian dark palette only — this app is dark-only by design (DESIGN.md), no light variant.
-                var textBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FFFFFF"));
-                var borderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1F1F23"));
+                bool hasButton = buttons.TryGetValue((row, col), out var buttonModel);
 
-                if (buttons.TryGetValue((row, col), out var buttonModel))
+                var border = new Border
                 {
-                    var stack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Vertical, VerticalAlignment = VerticalAlignment.Center };
-                    
+                    CornerRadius = new CornerRadius(14),
+                    Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hasButton ? "#181822" : "#0C0C0E")),
+                    BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hasButton ? ThemeManager.AccentColor : "#25252E")),
+                    BorderThickness = new Thickness(hasButton ? 1.5 : 1),
+                    Padding = new Thickness(8)
+                };
+
+                var stack = new StackPanel { VerticalAlignment = System.Windows.VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
+
+                if (hasButton && buttonModel != null)
+                {
                     var iconPath = ProfileStoreService.ResolveIconFilePath(buttonModel.Icon);
                     if (iconPath != null)
                     {
@@ -330,26 +423,41 @@ public partial class EditorWindow : Window
                     { 
                         Text = buttonModel.Label, 
                         HorizontalAlignment = System.Windows.HorizontalAlignment.Center, 
-                        TextAlignment = TextAlignment.Center,
-                        Foreground = textBrush
+                        TextAlignment = System.Windows.TextAlignment.Center,
+                        Foreground = System.Windows.Media.Brushes.White,
+                        FontSize = 11,
+                        FontWeight = System.Windows.FontWeights.SemiBold
                     };
                     stack.Children.Add(tbLabel);
-                    btn.Content = stack;
-
-                    btn.Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0E0E10"));
-                    btn.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#00F2FE"));
-                    btn.BorderThickness = new Thickness(2);
                 }
                 else
                 {
-                    btn.Content = "+";
-                    btn.Foreground = textBrush;
-                    btn.Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0E0E10"));
-                    btn.BorderBrush = borderBrush;
-                    btn.BorderThickness = new Thickness(1);
+                    var tbPlus = new TextBlock
+                    {
+                        Text = "+",
+                        Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#44444F")),
+                        FontSize = 18,
+                        FontWeight = System.Windows.FontWeights.Bold,
+                        HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                        VerticalAlignment = System.Windows.VerticalAlignment.Center
+                    };
+                    stack.Children.Add(tbPlus);
                 }
 
+                border.Child = stack;
+                btn.Content = border;
+
+                // Setup Click to edit cell
                 btn.Click += (s, e) => SelectCell(row, col);
+
+                // Setup Drag and Drop events
+                btn.PreviewMouseLeftButtonDown += Cell_PreviewMouseLeftButtonDown;
+                btn.MouseMove += Cell_MouseMove;
+                btn.AllowDrop = true;
+                btn.DragOver += Cell_DragOver;
+                btn.DragLeave += Cell_DragLeave;
+                btn.Drop += Cell_Drop;
+
                 ButtonGrid.Children.Add(btn);
             }
         }
@@ -357,436 +465,228 @@ public partial class EditorWindow : Window
 
     private void SelectCell(int row, int col)
     {
-        _selectedRow = row;
-        _selectedCol = col;
-
-        PositionText.Text = $"Row: {row}, Col: {col}";
-        PlaceholderText.Visibility = Visibility.Collapsed;
-        EditPanel.Visibility = Visibility.Visible;
-
         var buttonModel = _profileStore.Current.Buttons
             .FirstOrDefault(b => b.Position.Row == row && b.Position.Col == col && b.ParentFolderId == _currentFolderId);
 
-        if (buttonModel != null)
+        bool isNew = false;
+        if (buttonModel == null)
         {
-            LabelInput.Text = buttonModel.Label;
-            string type = buttonModel.Action.Type;
-            int typeIdx = type switch
+            isNew = true;
+            buttonModel = new ButtonModel
             {
-                "hotkey" => 0,
-                "launch_app" => 1,
-                "media_control" => 2,
-                "open_url" => 3,
-                "run_command" => 4,
-                "text_snippet" => 5,
-                "open_folder" => 6,
-                "multi_action" => 7,
-                "dial" => 8,
-                _ => 0
+                ButtonId = $"b_{Guid.NewGuid().ToString().Substring(0, 8)}",
+                Position = new Position { Row = row, Col = col },
+                ParentFolderId = _currentFolderId,
+                Action = new ActionModel { Type = "hotkey" }
             };
-            ActionTypeCombo.SelectedIndex = typeIdx;
-            HotkeyInput.Text = buttonModel.Action.Keys != null ? string.Join(",", buttonModel.Action.Keys) : "";
-            PathInput.Text = buttonModel.Action.Path ?? "";
-            
-            string mediaCmd = buttonModel.Action.MediaCommand ?? "PlayPause";
-            foreach (ComboBoxItem item in MediaCommandCombo.Items)
+        }
+
+        // Open ButtonEditorWindow modally
+        var editorDlg = new ButtonEditorWindow(buttonModel);
+        editorDlg.Owner = this;
+        
+        // Hide delete button if it's a new cell
+        if (isNew)
+        {
+            editorDlg.DeleteBtn.Visibility = Visibility.Collapsed;
+        }
+
+        if (editorDlg.ShowDialog() == true)
+        {
+            if (editorDlg.IsDeleted)
             {
-                if (item.Tag?.ToString() == mediaCmd)
+                if (!isNew)
                 {
-                    MediaCommandCombo.SelectedItem = item;
-                    break;
+                    _profileStore.DeleteButton(_profileStore.Set.ActiveProfileId, buttonModel.ButtonId);
                 }
             }
-            UrlInput.Text = buttonModel.Action.Url ?? "";
-            CommandInput.Text = buttonModel.Action.Command ?? "";
-            SnippetTextInput.Text = buttonModel.Action.Text ?? "";
-            TargetFolderIdInput.Text = buttonModel.Action.TargetFolderId ?? "";
-            MultiActionInput.Text = FormatMultiAction(buttonModel.Action.Actions, buttonModel.Action.Delays);
-            
-            string dialTgt = buttonModel.Action.DialTarget ?? "volume";
-            foreach (ComboBoxItem item in DialTargetCombo.Items)
+            else
             {
-                if (item.Tag?.ToString() == dialTgt)
+                if (isNew)
                 {
-                    DialTargetCombo.SelectedItem = item;
-                    break;
+                    _profileStore.Current.Buttons.Add(editorDlg.Button);
+                }
+                else
+                {
+                    _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, editorDlg.Button);
+                }
+
+                // If user clicked "Enter Folder", automatically descend into it
+                if (editorDlg.EnterFolderRequested && editorDlg.Button.Action.Type == "open_folder" && !string.IsNullOrEmpty(editorDlg.Button.Action.TargetFolderId))
+                {
+                    _currentFolderId = editorDlg.Button.Action.TargetFolderId;
+                    _folderHistory.Push((editorDlg.Button.Action.TargetFolderId, editorDlg.Button.Label));
                 }
             }
-            IconPathText.Text = buttonModel.Icon ?? "";
+
+            _profileStore.Save();
+            _profileStore.NotifyChanged();
+            RefreshGrid();
+            RefreshProfileSelector();
+        }
+    }
+
+    // Drag-and-drop reordering code-behind logic
+    private System.Windows.Point _dragStartPoint;
+
+    private void Cell_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is System.Windows.Controls.Button btn && btn.Tag is Tuple<int, int> pos)
+        {
+            _dragStartPoint = e.GetPosition(null);
+        }
+    }
+
+    private void Cell_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed) return;
+
+        var diff = e.GetPosition(null) - _dragStartPoint;
+        if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
+            Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
+        {
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is Tuple<int, int> sourcePos)
+            {
+                var buttons = _profileStore.Current.Buttons
+                    .Where(b => b.ParentFolderId == _currentFolderId)
+                    .ToDictionary(b => (b.Position.Row, b.Position.Col));
+
+                if (buttons.TryGetValue((sourcePos.Item1, sourcePos.Item2), out var sourceBtn))
+                {
+                    var data = new System.Windows.DataObject("CrossDeckButton", sourcePos);
+                    System.Windows.DragDrop.DoDragDrop(btn, data, System.Windows.DragDropEffects.Move);
+                }
+            }
+        }
+    }
+
+    private void Cell_DragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent("CrossDeckButton"))
+        {
+            e.Effects = System.Windows.DragDropEffects.Move;
+            if (sender is System.Windows.Controls.Button btn && btn.Content is Border border)
+            {
+                border.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor));
+                border.BorderThickness = new Thickness(2);
+            }
         }
         else
         {
-            IconPathText.Text = "";
-            LabelInput.Text = "";
-            ActionTypeCombo.SelectedIndex = 0;
-            HotkeyInput.Text = "";
-            PathInput.Text = "";
-            MediaCommandCombo.SelectedIndex = 0;
-            UrlInput.Text = "";
-            CommandInput.Text = "";
-            SnippetTextInput.Text = "";
-            TargetFolderIdInput.Text = "";
-            MultiActionInput.Text = "";
-            DialTargetCombo.SelectedIndex = 0;
+            e.Effects = System.Windows.DragDropEffects.None;
+        }
+        e.Handled = true;
+    }
+
+    private void Cell_DragLeave(object sender, System.Windows.DragEventArgs e)
+    {
+        if (sender is System.Windows.Controls.Button btn && btn.Content is Border border && btn.Tag is Tuple<int, int> pos)
+        {
+            var buttons = _profileStore.Current.Buttons
+                .Where(b => b.ParentFolderId == _currentFolderId)
+                .ToDictionary(b => (b.Position.Row, b.Position.Col));
+
+            bool hasButton = buttons.ContainsKey((pos.Item1, pos.Item2));
+            border.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hasButton ? ThemeManager.AccentColor : "#25252E"));
+            border.BorderThickness = new Thickness(hasButton ? 1.5 : 1);
         }
     }
 
-    private void ActionTypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void Cell_Drop(object sender, System.Windows.DragEventArgs e)
     {
-        if (HotkeyPanel == null || LaunchAppPanel == null || MediaControlPanel == null || OpenUrlPanel == null || RunCommandPanel == null || TextSnippetPanel == null || FolderPanel == null || MultiActionPanel == null || DialPanel == null) return;
-
-        HotkeyPanel.Visibility = Visibility.Collapsed;
-        LaunchAppPanel.Visibility = Visibility.Collapsed;
-        MediaControlPanel.Visibility = Visibility.Collapsed;
-        OpenUrlPanel.Visibility = Visibility.Collapsed;
-        RunCommandPanel.Visibility = Visibility.Collapsed;
-        TextSnippetPanel.Visibility = Visibility.Collapsed;
-        FolderPanel.Visibility = Visibility.Collapsed;
-        MultiActionPanel.Visibility = Visibility.Collapsed;
-        DialPanel.Visibility = Visibility.Collapsed;
-
-        switch (ActionTypeCombo.SelectedIndex)
+        if (e.Data.GetDataPresent("CrossDeckButton"))
         {
-            case 0: HotkeyPanel.Visibility = Visibility.Visible; break;
-            case 1: LaunchAppPanel.Visibility = Visibility.Visible; break;
-            case 2: MediaControlPanel.Visibility = Visibility.Visible; break;
-            case 3: OpenUrlPanel.Visibility = Visibility.Visible; break;
-            case 4: RunCommandPanel.Visibility = Visibility.Visible; break;
-            case 5: TextSnippetPanel.Visibility = Visibility.Visible; break;
-            case 6: FolderPanel.Visibility = Visibility.Visible; break;
-            case 7: MultiActionPanel.Visibility = Visibility.Visible; break;
-            case 8: DialPanel.Visibility = Visibility.Visible; break;
-        }
-    }
-
-    private void BrowseAppButton_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new Microsoft.Win32.OpenFileDialog
-        {
-            Filter = "Executable files (*.exe)|*.exe|All files (*.*)|*.*"
-        };
-        if (dialog.ShowDialog() == true)
-        {
-            PathInput.Text = dialog.FileName;
-        }
-    }
-
-    private void PathInput_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (PathInput.SelectedItem is not DiscoveredApp app) return;
-
-        PathInput.Text = app.ExePath;
-        if (string.IsNullOrWhiteSpace(LabelInput.Text))
-        {
-            LabelInput.Text = app.Name;
-        }
-        // Auto app-icon (issue 7) — same guarded pattern as the launch_app auto-icon in
-        // SaveButton_Click, just applied at selection time instead of save time.
-        if (string.IsNullOrEmpty(IconPathText.Text))
-        {
-            var extractedHash = ProfileStoreService.ExtractAndSaveIcon(app.ExePath);
-            if (extractedHash != null)
+            var sourcePos = e.Data.GetData("CrossDeckButton") as Tuple<int, int>;
+            if (sender is System.Windows.Controls.Button targetBtn && targetBtn.Tag is Tuple<int, int> targetPos && sourcePos != null)
             {
-                IconPathText.Text = extractedHash;
-            }
-        }
-    }
+                if (sourcePos.Item1 == targetPos.Item1 && sourcePos.Item2 == targetPos.Item2) return;
 
-    private void BrowseIcon_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new Microsoft.Win32.OpenFileDialog
-        {
-            Filter = "Image files (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg|All files (*.*)|*.*"
-        };
-        if (dialog.ShowDialog() == true)
-        {
-            try
-            {
-                byte[] bytes = File.ReadAllBytes(dialog.FileName);
-                IconPathText.Text = ProfileStoreService.SaveIconFromBytes(bytes);
-            }
-            catch (Exception ex)
-            {
-                System.Windows.MessageBox.Show($"Failed to load image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-    }
+                var activeProfile = _profileStore.Current;
+                var sourceButton = activeProfile.Buttons.FirstOrDefault(b => b.ParentFolderId == _currentFolderId && b.Position.Row == sourcePos.Item1 && b.Position.Col == sourcePos.Item2);
+                var targetButton = activeProfile.Buttons.FirstOrDefault(b => b.ParentFolderId == _currentFolderId && b.Position.Row == targetPos.Item1 && b.Position.Col == targetPos.Item2);
 
-    private void BuiltinIcon_Click(object sender, RoutedEventArgs e)
-    {
-        var picker = new IconPickerWindow { Owner = this };
-        if (picker.ShowDialog() == true && picker.SelectedIcon != null)
-        {
-            IconPathText.Text = picker.SelectedIcon;
-        }
-    }
-
-    private void ClearIcon_Click(object sender, RoutedEventArgs e)
-    {
-        IconPathText.Text = "";
-    }
-
-    // First outbound HttpClient in the host codebase (everything else is inbound servers —
-    // WebSocketServer.cs's WS listener and asset server). Used only for the favicon fetch below.
-    private static readonly System.Net.Http.HttpClient _httpClient = new() { Timeout = TimeSpan.FromSeconds(5) };
-
-    /// <summary>
-    /// Tries the site's own /favicon.ico, then Google's public favicon service, saving whichever
-    /// succeeds through the normal icon pipeline. Returns null if both fail (caller falls back to
-    /// builtin:globe). ponytail: no HTML &lt;link rel="icon"&gt; parsing — upgrade only if this
-    /// comes back wrong in practice.
-    /// </summary>
-    private static async Task<string?> FetchFaviconIconAsync(string url)
-    {
-        string host;
-        try
-        {
-            host = new Uri(url).Host;
-        }
-        catch
-        {
-            return null;
-        }
-
-        string[] candidates =
-        {
-            $"https://{host}/favicon.ico",
-            $"https://www.google.com/s2/favicons?domain={host}&sz=144"
-        };
-
-        foreach (var candidate in candidates)
-        {
-            try
-            {
-                var bytes = await _httpClient.GetByteArrayAsync(candidate);
-                if (bytes.Length > 0)
+                if (sourceButton != null)
                 {
-                    return ProfileStoreService.SaveIconFromBytes(bytes);
-                }
-            }
-            catch
-            {
-                // try the next candidate
-            }
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Default builtin: icon for action types that don't already have their own auto-icon logic
-    /// (launch_app extracts the exe icon; open_url fetches a favicon — both handled inline in
-    /// their own switch case). Guarded the same way at the call site: only used when the user
-    /// hasn't already picked an icon.
-    /// </summary>
-    private static string? DefaultIconFor(string actionType, string? subValue) => actionType switch
-    {
-        "hotkey" => "builtin:keyboard",
-        "media_control" => subValue switch
-        {
-            "VolumeMute" => "builtin:volume-x",
-            "VolumeUp" => "builtin:volume-2",
-            "VolumeDown" => "builtin:volume-1",
-            _ => "builtin:play"
-        },
-        "run_command" => "builtin:terminal",
-        "text_snippet" => "builtin:file-text",
-        "open_folder" => "builtin:folder",
-        "multi_action" => "builtin:layers",
-        "dial" => subValue == "brightness" ? "builtin:sun" : "builtin:volume-2",
-        _ => null
-    };
-
-    private async void SaveButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedRow == -1 || _selectedCol == -1) return;
-
-        var label = LabelInput.Text.Trim();
-        if (string.IsNullOrEmpty(label))
-        {
-            System.Windows.MessageBox.Show("Please enter a label for the button.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        var buttonModel = _profileStore.Current.Buttons
-            .FirstOrDefault(b => b.Position.Row == _selectedRow && b.Position.Col == _selectedCol && b.ParentFolderId == _currentFolderId);
-
-        var actionType = (ActionTypeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "hotkey";
-
-        var action = new ActionModel { Type = actionType };
-
-        switch (actionType)
-        {
-            case "hotkey":
-                var keysStr = HotkeyInput.Text.Trim();
-                if (string.IsNullOrEmpty(keysStr))
-                {
-                    System.Windows.MessageBox.Show("Please enter at least one key name.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                action.Keys = keysStr.Split(',').Select(k => k.Trim()).ToList();
-                break;
-            case "launch_app":
-                var path = PathInput.Text.Trim();
-                if (string.IsNullOrEmpty(path))
-                {
-                    System.Windows.MessageBox.Show("Please enter or browse a path.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                action.Path = path;
-                if (string.IsNullOrEmpty(IconPathText.Text) && (path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !path.Contains(System.IO.Path.DirectorySeparatorChar)))
-                {
-                    var extractedHash = ProfileStoreService.ExtractAndSaveIcon(path);
-                    if (extractedHash != null)
+                    sourceButton.Position = new Position { Row = targetPos.Item1, Col = targetPos.Item2 };
+                    if (targetButton != null)
                     {
-                        IconPathText.Text = extractedHash;
+                        targetButton.Position = new Position { Row = sourcePos.Item1, Col = sourcePos.Item2 };
                     }
+                    
+                    _profileStore.Save();
+                    _profileStore.NotifyChanged();
+                    RefreshGrid();
+                    RefreshProfileSelector();
                 }
-                break;
-            case "media_control":
-                action.MediaCommand = (MediaCommandCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "PlayPause";
-                break;
-            case "open_url":
-                var url = UrlInput.Text.Trim();
-                if (string.IsNullOrEmpty(url))
-                {
-                    System.Windows.MessageBox.Show("Please enter a URL.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                action.Url = url;
-                if (string.IsNullOrEmpty(IconPathText.Text))
-                {
-                    var faviconUrl = (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                        ? url : "https://" + url;
-                    var favicon = await FetchFaviconIconAsync(faviconUrl);
-                    IconPathText.Text = favicon ?? "builtin:globe";
-                }
-                break;
-            case "run_command":
-                var cmd = CommandInput.Text.Trim();
-                if (string.IsNullOrEmpty(cmd))
-                {
-                    System.Windows.MessageBox.Show("Please enter a command.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                action.Command = cmd;
-                break;
-            case "text_snippet":
-                var text = SnippetTextInput.Text;
-                if (string.IsNullOrEmpty(text))
-                {
-                    System.Windows.MessageBox.Show("Please enter a text snippet.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                action.Text = text;
-                break;
-            case "open_folder":
-                var fId = TargetFolderIdInput.Text.Trim();
-                if (string.IsNullOrEmpty(fId))
-                {
-                    fId = $"f_{Guid.NewGuid().ToString().Substring(0, 8)}";
-                }
-                action.TargetFolderId = fId;
-                break;
-            case "multi_action":
-                var sequenceText = MultiActionInput.Text;
-                var (subActions, delays, errorMsg) = ParseMultiAction(sequenceText);
-                if (errorMsg != null)
-                {
-                    System.Windows.MessageBox.Show(errorMsg, "Validation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                action.Actions = subActions;
-                action.Delays = delays;
-                break;
-            case "dial":
-                action.DialTarget = (DialTargetCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "volume";
-                break;
+            }
         }
+    }
 
-        // launch_app (icon extracted above) and open_url (favicon fetched above) already handle
-        // their own auto-icon; everything else falls back to a builtin: default if still unset.
-        if (string.IsNullOrEmpty(IconPathText.Text) && actionType != "launch_app" && actionType != "open_url")
+    // Connection events
+    private void OnClientConnectionStatusChanged()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
         {
-            string? subValue = actionType switch
+            UpdateConnectionStatusCard();
+            bool isConnected = _server != null && _server.IsClientConnected;
+            string msg = isConnected 
+                ? $"Connected: {_server!.ConnectedDeviceName}" 
+                : "Device Disconnected";
+            ShowToast(msg, isConnected);
+        }));
+    }
+
+    private void UpdateConnectionStatusCard()
+    {
+        if (DeviceNameText == null) return;
+
+        bool isConnected = _server != null && _server.IsClientConnected;
+        DeviceNameText.Text = isConnected ? (_server!.ConnectedDeviceName ?? "Android Client") : "Offline";
+        ConnectionDetailsText.Text = isConnected ? $"IP: {_server!.LocalIpAddress}:{_server!.Port}" : "Waiting for client...";
+        ConnectionDot.Fill = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(isConnected ? "#27C93F" : "#FF5555"));
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _toastTimer;
+
+    private void ShowToast(string message, bool isSuccess)
+    {
+        if (ToastNotificationCard == null) return;
+
+        ToastMessageText.Text = message;
+        ToastStateDot.Fill = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(isSuccess ? "#27C93F" : "#FF5555"));
+        ToastNotificationCard.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor));
+        ToastNotificationCard.Visibility = Visibility.Visible;
+
+        if (_toastTimer != null)
+        {
+            _toastTimer.Stop();
+        }
+        else
+        {
+            _toastTimer = new System.Windows.Threading.DispatcherTimer();
+            _toastTimer.Interval = TimeSpan.FromSeconds(3);
+            _toastTimer.Tick += (s, e) =>
             {
-                "media_control" => action.MediaCommand,
-                "dial" => action.DialTarget,
-                _ => null
+                ToastNotificationCard.Visibility = Visibility.Collapsed;
+                _toastTimer.Stop();
             };
-            IconPathText.Text = DefaultIconFor(actionType, subValue) ?? "";
         }
+        _toastTimer.Start();
+    }
 
-        var newButton = new ButtonModel
-        {
-            ButtonId = buttonModel?.ButtonId ?? $"b_{Guid.NewGuid().ToString().Substring(0, 8)}",
-            Position = new Position { Row = _selectedRow, Col = _selectedCol },
-            Label = label,
-            Icon = string.IsNullOrEmpty(IconPathText.Text) ? null : IconPathText.Text,
-            Action = action,
-            ParentFolderId = _currentFolderId
-        };
+    // Footer links clicks
+    private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        System.Windows.MessageBox.Show("CrossDeck Host v1.0\n\nInspired by macOS & iOS layout designs.\nFeaturing custom cyber outlined control rings, Left sidebar profile cards, and real-time device connection state syncing.\n\nAdvanced Agentic Coding Pair Programmed.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
 
+    private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
         try
         {
-            _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, newButton);
-            RefreshGrid();
-            ShowStatus("✓ Saved — syncing to phone…", success: true);
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://github.com") { UseShellExecute = true });
         }
-        catch (Exception ex)
-        {
-            ShowStatus($"✗ Save failed: {ex.Message}", success: false);
-        }
-    }
-
-    /// <summary>
-    /// Flashes a success (green) or error (red) message in SaveStatusText for 2 seconds.
-    /// </summary>
-    private void ShowStatus(string message, bool success)
-    {
-        SaveStatusText.Text = message;
-        SaveStatusText.Foreground = success
-            ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(27, 128, 62))   // dark green
-            : new SolidColorBrush(System.Windows.Media.Color.FromRgb(198, 40, 40));  // dark red
-        SaveStatusText.Visibility = Visibility.Visible;
-
-        var timer = new System.Windows.Threading.DispatcherTimer
-        {
-            Interval = TimeSpan.FromSeconds(2)
-        };
-        timer.Tick += (_, _) =>
-        {
-            SaveStatusText.Visibility = Visibility.Collapsed;
-            timer.Stop();
-        };
-        timer.Start();
-    }
-
-    private void DeleteButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedRow == -1 || _selectedCol == -1) return;
-
-        var buttonModel = _profileStore.Current.Buttons
-            .FirstOrDefault(b => b.Position.Row == _selectedRow && b.Position.Col == _selectedCol && b.ParentFolderId == _currentFolderId);
-
-        if (buttonModel != null)
-        {
-            try
-            {
-                _profileStore.DeleteButton(_profileStore.Set.ActiveProfileId, buttonModel.ButtonId);
-                RefreshGrid();
-                ShowStatus("✓ Button deleted.", success: true);
-            }
-            catch (Exception ex)
-            {
-                ShowStatus($"✗ Delete failed: {ex.Message}", success: false);
-                return;
-            }
-        }
-
-        EditPanel.Visibility = Visibility.Collapsed;
-        PlaceholderText.Visibility = Visibility.Visible;
-        _selectedRow = -1;
-        _selectedCol = -1;
+        catch { }
     }
 
     private void BackButton_Click(object sender, RoutedEventArgs e)
@@ -795,147 +695,8 @@ public partial class EditorWindow : Window
         {
             _folderHistory.Pop();
             _currentFolderId = _folderHistory.Count > 0 ? _folderHistory.Peek().Id : null;
-            EditPanel.Visibility = Visibility.Collapsed;
-            PlaceholderText.Visibility = Visibility.Visible;
-            _selectedRow = -1;
-            _selectedCol = -1;
             RefreshGrid();
         }
-    }
-
-    private void EnterFolderButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_selectedRow == -1 || _selectedCol == -1) return;
-
-        var buttonModel = _profileStore.Current.Buttons
-            .FirstOrDefault(b => b.Position.Row == _selectedRow && b.Position.Col == _selectedCol && b.ParentFolderId == _currentFolderId);
-
-        if (buttonModel != null && buttonModel.Action.Type == "open_folder" && !string.IsNullOrEmpty(buttonModel.Action.TargetFolderId))
-        {
-            _currentFolderId = buttonModel.Action.TargetFolderId;
-            _folderHistory.Push((buttonModel.Action.TargetFolderId, buttonModel.Label));
-            EditPanel.Visibility = Visibility.Collapsed;
-            PlaceholderText.Visibility = Visibility.Visible;
-            _selectedRow = -1;
-            _selectedCol = -1;
-            RefreshGrid();
-        }
-    }
-
-    private (System.Collections.Generic.List<ActionModel>? Actions, System.Collections.Generic.List<int>? Delays, string? Error) ParseMultiAction(string text)
-    {
-        var actions = new System.Collections.Generic.List<ActionModel>();
-        var delays = new System.Collections.Generic.List<int>();
-        var lines = text.Split(new[] { '\r', '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
-        
-        foreach (var line in lines)
-        {
-            var trimmed = line.Trim();
-            if (string.IsNullOrEmpty(trimmed)) continue;
-            
-            int colonIdx = trimmed.IndexOf(':');
-            if (colonIdx <= 0)
-                return (null, null, $"Invalid line format (missing ':'): '{trimmed}'");
-                
-            var key = trimmed.Substring(0, colonIdx).Trim().ToLower();
-            var val = trimmed.Substring(colonIdx + 1).Trim();
-            
-            if (key == "delay")
-            {
-                if (!int.TryParse(val, out var ms) || ms < 0)
-                    return (null, null, $"Invalid delay value '{val}' (must be a positive integer)");
-                
-                if (actions.Count > 0)
-                {
-                    while (delays.Count < actions.Count)
-                    {
-                        delays.Add(0);
-                    }
-                    delays[actions.Count - 1] = ms;
-                }
-                else
-                {
-                    return (null, null, "Delay must follow an action");
-                }
-            }
-            else
-            {
-                var sub = new ActionModel();
-                switch (key)
-                {
-                    case "hotkey":
-                        sub.Type = "hotkey";
-                        sub.Keys = val.Split(',').Select(k => k.Trim()).Where(k => !string.IsNullOrEmpty(k)).ToList();
-                        break;
-                    case "launch_app":
-                        sub.Type = "launch_app";
-                        sub.Path = val;
-                        break;
-                    case "media_control":
-                        sub.Type = "media_control";
-                        sub.MediaCommand = val;
-                        break;
-                    case "open_url":
-                        sub.Type = "open_url";
-                        sub.Url = val;
-                        break;
-                    case "run_command":
-                        sub.Type = "run_command";
-                        sub.Command = val;
-                        break;
-                    case "text_snippet":
-                        sub.Type = "text_snippet";
-                        sub.Text = val;
-                        break;
-                    default:
-                        return (null, null, $"Unknown action type '{key}' in multi-action");
-                }
-                actions.Add(sub);
-            }
-        }
-        
-        while (delays.Count < actions.Count)
-        {
-            delays.Add(0);
-        }
-        
-        return (actions, delays, null);
-    }
-
-    private string FormatMultiAction(System.Collections.Generic.List<ActionModel>? actions, System.Collections.Generic.List<int>? delays)
-    {
-        if (actions == null) return "";
-        var sb = new System.Text.StringBuilder();
-        for (int i = 0; i < actions.Count; i++)
-        {
-            var act = actions[i];
-            switch (act.Type)
-            {
-                case "hotkey":
-                    sb.AppendLine($"hotkey: {string.Join(",", act.Keys ?? new())}");
-                    break;
-                case "launch_app":
-                    sb.AppendLine($"launch_app: {act.Path}");
-                    break;
-                case "media_control":
-                    sb.AppendLine($"media_control: {act.MediaCommand}");
-                    break;
-                case "open_url":
-                    sb.AppendLine($"open_url: {act.Url}");
-                    break;
-                case "run_command":
-                    sb.AppendLine($"run_command: {act.Command}");
-                    break;
-                case "text_snippet":
-                    sb.AppendLine($"text_snippet: {act.Text}");
-                    break;
-            }
-            if (delays != null && i < delays.Count && delays[i] > 0)
-            {
-                sb.AppendLine($"delay: {delays[i]}");
-            }
-        }
-        return sb.ToString();
     }
 
     private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -970,15 +731,10 @@ public partial class EditorWindow : Window
                 {
                     ThemeManager.ApplyTheme(win);
                 }
-                // Notify server to broadcast style change
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        // Broadcaster handles this internally on WS message
-                    }
-                    catch { }
-                });
+                
+                // Refresh grid and sidebar to paint active accent color
+                RefreshGrid();
+                RefreshProfileSelector();
             }
         }
     }
