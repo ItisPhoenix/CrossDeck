@@ -13,6 +13,7 @@ public partial class PairingWindow : Window
         IpText.Text = ipAddress;
         PortText.Text = port.ToString();
         PinText.Text = pin;
+        ThemeManager.ApplyTheme(this);
 
         try
         {
@@ -38,4 +39,23 @@ public partial class PairingWindow : Window
             System.Diagnostics.Debug.WriteLine($"Failed to generate QR code: {ex.Message}");
         }
     }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == System.Windows.Input.MouseButton.Left)
+        {
+            this.DragMove();
+        }
+    }
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        this.WindowState = WindowState.Minimized;
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        this.Close();
+    }
 }
+

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -30,6 +31,7 @@ public class WebSocketServer
     private readonly object _lock = new();
 
     private TcpListener? _listener;
+    private TcpListener? _assetListener;
     private CancellationTokenSource? _cts;
 
     public int Port => _port;
@@ -57,12 +59,20 @@ public class WebSocketServer
         _listener = new TcpListener(IPAddress.Any, _port);
         _listener.Start();
         _ = AcceptLoopAsync(_cts.Token);
+
+        // Asset (icon) server on the next port up. Same manual-TCP approach as the
+        // WebSocket listener above — see class doc comment for why HttpListener is
+        // avoided project-wide (admin/urlacl requirement).
+        _assetListener = new TcpListener(IPAddress.Any, _port + 1);
+        _assetListener.Start();
+        _ = AssetAcceptLoopAsync(_cts.Token);
     }
 
     public void Stop()
     {
         _cts?.Cancel();
         _listener?.Stop();
+        _assetListener?.Stop();
     }
 
     private async Task AcceptLoopAsync(CancellationToken ct)
@@ -160,6 +170,23 @@ public class WebSocketServer
                 {
                     case "button_press":
                         await HandleButtonPress(webSocket, msg.Value, ct);
+                        break;
+                    case "style_change":
+                        var newColor = msg.Value.TryGetProperty("accentColor", out var colVal) ? colVal.GetString() : null;
+                        if (newColor != null)
+                        {
+                            _profileStore.Set.AccentColor = newColor;
+                            _profileStore.Save();
+                            System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                            {
+                                ThemeManager.AccentColor = newColor;
+                                foreach (System.Windows.Window win in System.Windows.Application.Current.Windows)
+                                {
+                                    ThemeManager.ApplyTheme(win);
+                                }
+                            });
+                            await BroadcastAllAsync();
+                        }
                         break;
                     case "profile_edit":
                         await HandleProfileEdit(webSocket, msg.Value, ct);
@@ -373,6 +400,22 @@ public class WebSocketServer
         }
     }
 
+    /// <summary>
+    /// Force-closes every currently connected client (used by the tray "Revoke Device" action,
+    /// alongside PairingManager.RevokeAllTokens). The client's onClosed handler is what drives it
+    /// to the reconnect overlay / re-pairing flow — see ConnectionManager.kt.
+    /// </summary>
+    public void DisconnectAllClients()
+    {
+        List<WebSocket> targets;
+        lock (_lock) targets = new List<WebSocket>(_activeSockets);
+
+        foreach (var ws in targets)
+        {
+            _ = CloseAsync(ws, "revoked");
+        }
+    }
+
     private void RegisterSocket(WebSocket ws)
     {
         lock (_lock) _activeSockets.Add(ws);
@@ -412,7 +455,7 @@ public class WebSocketServer
         }
     }
 
-    private object BuildProfileSync() => new { type = "profile_sync", profile = _profileStore.Current };
+    private object BuildProfileSync() => new { type = "profile_sync", profile = _profileStore.Current, accentColor = _profileStore.Set.AccentColor };
 
     private object BuildProfileList() =>
         new
@@ -551,5 +594,147 @@ public class WebSocketServer
         {
             return "unknown";
         }
+    }
+
+    // ---- Asset (icon) server: same manual-TCP-parsed-HTTP approach as the WS handshake ----
+
+    private async Task AssetAcceptLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            TcpClient client;
+            try
+            {
+                client = await _assetListener!.AcceptTcpClientAsync(ct);
+            }
+            catch (OperationCanceledException) { break; }
+            catch (ObjectDisposedException) { break; }
+
+            _ = HandleAssetClientAsync(client, ct);
+        }
+    }
+
+    private async Task HandleAssetClientAsync(TcpClient tcpClient, CancellationToken ct)
+    {
+        using var _ = tcpClient;
+        var stream = tcpClient.GetStream();
+
+        try
+        {
+            var headerText = await ReadHttpHeadersAsync(stream, ct);
+            var requestLine = headerText.Split("\r\n", 2)[0].Split(' ');
+            if (requestLine.Length < 2)
+            {
+                await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                return;
+            }
+
+            var method = requestLine[0];
+            var (path, query) = SplitPathQuery(requestLine[1]);
+
+            var token = ExtractHeader(headerText, "X-CrossDeck-Token") ?? ExtractQueryParam(query, "token");
+            if (string.IsNullOrEmpty(token) || !_pairing.ValidateToken(token))
+            {
+                await WriteHttpResponseAsync(stream, 401, "Unauthorized");
+                return;
+            }
+
+            if (!path.StartsWith("/assets/"))
+            {
+                await WriteHttpResponseAsync(stream, 404, "Not Found");
+                return;
+            }
+
+            if (method == "GET")
+            {
+                var hash = path["/assets/".Length..].Trim('/');
+                var assetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CrossDeckHost", "Assets");
+                var filePath = Path.Combine(assetsDir, hash + ".png");
+
+                if (!File.Exists(filePath))
+                {
+                    await WriteHttpResponseAsync(stream, 404, "Not Found");
+                    return;
+                }
+
+                var bytes = await File.ReadAllBytesAsync(filePath, ct);
+                await WriteHttpResponseAsync(stream, 200, "OK", "image/png", bytes);
+            }
+            else if (method == "POST")
+            {
+                const int maxUploadBytes = 10 * 1024 * 1024; // 10 MB, plenty for a source image pre-resize
+                var contentLengthStr = ExtractHeader(headerText, "Content-Length");
+                if (!int.TryParse(contentLengthStr, out var contentLength) || contentLength <= 0 || contentLength > maxUploadBytes)
+                {
+                    await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                    return;
+                }
+
+                var body = new byte[contentLength];
+                var read = 0;
+                while (read < contentLength)
+                {
+                    var n = await stream.ReadAsync(body.AsMemory(read, contentLength - read), ct);
+                    if (n == 0) break;
+                    read += n;
+                }
+                if (read < contentLength)
+                {
+                    await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                    return;
+                }
+
+                string hash;
+                try
+                {
+                    hash = ProfileStoreService.SaveIconFromBytes(body);
+                }
+                catch
+                {
+                    await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                    return;
+                }
+
+                var json = JsonSerializer.Serialize(new { icon = hash });
+                await WriteHttpResponseAsync(stream, 200, "OK", "application/json", Encoding.UTF8.GetBytes(json));
+            }
+            else
+            {
+                await WriteHttpResponseAsync(stream, 405, "Method Not Allowed");
+            }
+        }
+        catch
+        {
+            // Best effort — client disconnected mid-request or sent garbage. Nothing to clean up
+            // beyond the `using` on tcpClient above.
+        }
+    }
+
+    private static async Task WriteHttpResponseAsync(NetworkStream stream, int statusCode, string statusText, string? contentType = null, byte[]? body = null)
+    {
+        var header =
+            $"HTTP/1.1 {statusCode} {statusText}\r\n" +
+            "Connection: close\r\n" +
+            (contentType != null ? $"Content-Type: {contentType}\r\n" : "") +
+            $"Content-Length: {body?.Length ?? 0}\r\n\r\n";
+
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(header));
+        if (body != null) await stream.WriteAsync(body);
+    }
+
+    private static (string path, string query) SplitPathQuery(string rawPath)
+    {
+        var qIdx = rawPath.IndexOf('?');
+        return qIdx < 0 ? (rawPath, "") : (rawPath[..qIdx], rawPath[(qIdx + 1)..]);
+    }
+
+    private static string? ExtractQueryParam(string query, string name)
+    {
+        foreach (var pair in query.Split('&'))
+        {
+            var kv = pair.Split('=', 2);
+            if (kv.Length == 2 && kv[0] == name) return Uri.UnescapeDataString(kv[1]);
+        }
+        return null;
     }
 }

@@ -8,14 +8,42 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import com.crossdeck.client.connection.ConnectionManager
 import com.crossdeck.client.connection.ConnectionState
 import com.crossdeck.client.ui.DeckGridScreen
 import com.crossdeck.client.ui.PairingScreen
+import com.crossdeck.client.ui.ReconnectOverlay
+
+private val PremiumDarkColors = darkColorScheme(
+    primary = Color(0xFF00F2FE),
+    secondary = Color(0xFF7F00FF),
+    background = Color(0xFF000000),
+    surface = Color(0xFF0E0E10),
+    onBackground = Color(0xFFFFFFFF),
+    onSurface = Color(0xFFFFFFFF)
+)
+
+private val PremiumLightColors = lightColorScheme(
+    primary = Color(0xFF007AFF),
+    secondary = Color(0xFF1D3557),
+    background = Color(0xFFF8F9FA),
+    surface = Color(0xFFFFFFFF),
+    onBackground = Color(0xFF1A202C),
+    onSurface = Color(0xFF1A202C)
+)
 
 class MainActivity : ComponentActivity() {
 
@@ -30,8 +58,21 @@ class MainActivity : ComponentActivity() {
         connectionManager.reconnectWithSavedToken()
 
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            val accentColorHex by connectionManager.accentColor.collectAsState()
+            val parsedAccentColor = try {
+                Color(android.graphics.Color.parseColor(accentColorHex))
+            } catch (e: Exception) {
+                Color(0xFF00F2FE)
+            }
+            val dynamicColors = PremiumDarkColors.copy(
+                primary = parsedAccentColor
+            )
+
+            MaterialTheme(colorScheme = dynamicColors) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = dynamicColors.background
+                ) {
                     val state by connectionManager.connectionState.collectAsState()
                     val profile by connectionManager.currentProfile.collectAsState()
                     val profiles by connectionManager.profilesList.collectAsState()
@@ -39,6 +80,14 @@ class MainActivity : ComponentActivity() {
                     val error by connectionManager.lastError.collectAsState()
                     val toastMessage by connectionManager.toastMessage.collectAsState()
                     val dialLevels by connectionManager.dialLevels.collectAsState()
+                    val connectedHostUrl by connectionManager.connectedHostUrl.collectAsState()
+
+                    // "Manual Connection" in the reconnect overlay forces PairingScreen even though
+                    // we still have a last-known profile; reset once a fresh connection succeeds.
+                    var showManualPairing by remember { mutableStateOf(false) }
+                    LaunchedEffect(state) {
+                        if (state == ConnectionState.Connected) showManualPairing = false
+                    }
 
                     when {
                         state == ConnectionState.Connected && profile != null -> {
@@ -46,13 +95,22 @@ class MainActivity : ComponentActivity() {
                                 profile = profile!!,
                                 profiles = profiles,
                                 activeProfileId = activeProfileId,
+                                connectedHostUrl = connectedHostUrl,
+                                authToken = connectionManager.getToken(),
                                 toastMessage = toastMessage,
                                 dialLevels = dialLevels,
+                                accentColorHex = accentColorHex,
+                                onAccentColorChange = { color ->
+                                    connectionManager.sendStyleChange(color)
+                                },
                                 onButtonTap = { button ->
                                     connectionManager.sendButtonPress(button.buttonId)
                                 },
                                 onButtonSave = { updatedButton ->
                                     connectionManager.sendProfileEditUpdate(profile!!.profileId, updatedButton)
+                                },
+                                onIconUpload = { bytes ->
+                                    connectionManager.uploadIcon(bytes)
                                 },
                                 onButtonDelete = { buttonId ->
                                     connectionManager.sendProfileEditDelete(profile!!.profileId, buttonId)
@@ -74,20 +132,57 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
+                        profile != null && !showManualPairing -> {
+                            // Mid-session drop: show the last-known profile greyed out behind a
+                            // frosted reconnect overlay instead of dumping straight to pairing.
+                            Box(Modifier.fillMaxSize()) {
+                                Box(Modifier.alpha(0.35f)) {
+                                    DeckGridScreen(
+                                        profile = profile!!,
+                                        profiles = profiles,
+                                        activeProfileId = activeProfileId,
+                                        connectedHostUrl = null,
+                                        authToken = null,
+                                        toastMessage = null,
+                                        dialLevels = dialLevels,
+                                        accentColorHex = accentColorHex,
+                                        onAccentColorChange = {},
+                                        onButtonTap = {},
+                                        onButtonSave = {},
+                                        onIconUpload = { null },
+                                        onButtonDelete = {},
+                                        onProfileSwitch = {},
+                                        onProfileCreate = {},
+                                        onProfileDelete = {},
+                                        onProfileRename = { _, _ -> },
+                                        onDialAdjust = { _, _ -> }
+                                    )
+                                }
+                                ReconnectOverlay(
+                                    accentColor = dynamicColors.primary,
+                                    onManualConnect = {
+                                        connectionManager.disconnect()
+                                        showManualPairing = true
+                                    }
+                                )
+                            }
+                        }
                         state == ConnectionState.Connecting -> {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator()
                             }
                         }
                         else -> {
-                            // Disconnected, AuthFailed, or Error — all fall back to manual pairing.
+                            // Never paired, or user forced Manual Connection — fall back to pairing.
                             PairingScreen(
                                 connecting = state == ConnectionState.Connecting,
                                 errorMessage = error,
                                 defaultIp = connectionManager.getLastSavedIp(),
                                 defaultPort = connectionManager.getLastSavedPort().toString(),
                                 defaultPin = connectionManager.getLastSavedPin(),
+                                accentColorHex = accentColorHex,
                                 onConnect = { ip, port, pin ->
+                                    showManualPairing = false
                                     connectionManager.connectWithPin(ip, port, pin)
                                 },
                                 onScan = { callback ->

@@ -44,6 +44,13 @@ public partial class App : System.Windows.Application
             profileStore: _profileStore,
             onShowPairingInfo: ShowPairingWindow,
             onShowEditor: ShowEditorWindow,
+            onRevokeDevice: () =>
+            {
+                _pairing.RevokeAllTokens();
+                _server?.DisconnectAllClients();
+                _pairing.GenerateNewPin();
+                ShowPairingWindow();
+            },
             onExit: () =>
             {
                 _profileWatcher?.Stop();

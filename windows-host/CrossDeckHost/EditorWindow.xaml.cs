@@ -1,6 +1,8 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using CrossDeckHost.ProfileStore;
 using Microsoft.Win32;
 using System.Windows.Input;
@@ -28,6 +30,8 @@ public partial class EditorWindow : Window
 
         Loaded += (s, e) =>
         {
+            ThemeManager.AccentColor = _profileStore.Set.AccentColor;
+            ThemeManager.ApplyTheme(this);
             RefreshProfileSelector();
             RefreshGrid();
         };
@@ -296,16 +300,52 @@ public partial class EditorWindow : Window
 
                 int row = r;
                 int col = c;
+                bool isLight = false;
+                var textBrush = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1A202C") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FFFFFF"));
+                var borderBrush = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#DDE1E5") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1F1F23"));
 
                 if (buttons.TryGetValue((row, col), out var buttonModel))
                 {
-                    btn.Content = $"{buttonModel.Label}\n({buttonModel.Action.Type})";
-                    btn.Background = System.Windows.Media.Brushes.LightBlue;
+                    var stack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Vertical, VerticalAlignment = VerticalAlignment.Center };
+                    
+                    var iconPath = ProfileStoreService.ResolveIconFilePath(buttonModel.Icon);
+                    if (iconPath != null)
+                    {
+                        try
+                        {
+                            var img = new System.Windows.Controls.Image
+                            {
+                                Width = 32,
+                                Height = 32,
+                                Margin = new Thickness(0, 0, 0, 4),
+                                Source = new BitmapImage(new Uri(iconPath))
+                            };
+                            stack.Children.Add(img);
+                        }
+                        catch { }
+                    }
+
+                    var tbLabel = new TextBlock 
+                    { 
+                        Text = buttonModel.Label, 
+                        HorizontalAlignment = System.Windows.HorizontalAlignment.Center, 
+                        TextAlignment = TextAlignment.Center,
+                        Foreground = textBrush
+                    };
+                    stack.Children.Add(tbLabel);
+                    btn.Content = stack;
+
+                    btn.Background = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#E1F5FE") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0E0E10"));
+                    btn.BorderBrush = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#B3E5FC") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#00F2FE"));
+                    btn.BorderThickness = new Thickness(2);
                 }
                 else
                 {
                     btn.Content = "+";
-                    btn.Background = System.Windows.Media.Brushes.White;
+                    btn.Foreground = textBrush;
+                    btn.Background = new SolidColorBrush(isLight ? (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#FFFFFF") : (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#000000"));
+                    btn.BorderBrush = borderBrush;
+                    btn.BorderThickness = new Thickness(1);
                 }
 
                 btn.Click += (s, e) => SelectCell(row, col);
@@ -371,9 +411,11 @@ public partial class EditorWindow : Window
                     break;
                 }
             }
+            IconPathText.Text = buttonModel.Icon ?? "";
         }
         else
         {
+            IconPathText.Text = "";
             LabelInput.Text = "";
             ActionTypeCombo.SelectedIndex = 0;
             HotkeyInput.Text = "";
@@ -428,6 +470,40 @@ public partial class EditorWindow : Window
         }
     }
 
+    private void BrowseIcon_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Image files (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg|All files (*.*)|*.*"
+        };
+        if (dialog.ShowDialog() == true)
+        {
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(dialog.FileName);
+                IconPathText.Text = ProfileStoreService.SaveIconFromBytes(bytes);
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"Failed to load image: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    private void BuiltinIcon_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new IconPickerWindow { Owner = this };
+        if (picker.ShowDialog() == true && picker.SelectedIcon != null)
+        {
+            IconPathText.Text = picker.SelectedIcon;
+        }
+    }
+
+    private void ClearIcon_Click(object sender, RoutedEventArgs e)
+    {
+        IconPathText.Text = "";
+    }
+
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
         if (_selectedRow == -1 || _selectedCol == -1) return;
@@ -465,6 +541,14 @@ public partial class EditorWindow : Window
                     return;
                 }
                 action.Path = path;
+                if (string.IsNullOrEmpty(IconPathText.Text) && (path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !path.Contains(System.IO.Path.DirectorySeparatorChar)))
+                {
+                    var extractedHash = ProfileStoreService.ExtractAndSaveIcon(path);
+                    if (extractedHash != null)
+                    {
+                        IconPathText.Text = extractedHash;
+                    }
+                }
                 break;
             case "media_control":
                 action.MediaCommand = (MediaCommandCombo.SelectedItem as ComboBoxItem)?.Content.ToString() ?? "PlayPause";
@@ -525,6 +609,7 @@ public partial class EditorWindow : Window
             ButtonId = buttonModel?.ButtonId ?? $"b_{Guid.NewGuid().ToString().Substring(0, 8)}",
             Position = new Position { Row = _selectedRow, Col = _selectedCol },
             Label = label,
+            Icon = string.IsNullOrEmpty(IconPathText.Text) ? null : IconPathText.Text,
             Action = action,
             ParentFolderId = _currentFolderId
         };
@@ -740,4 +825,50 @@ public partial class EditorWindow : Window
         }
         return sb.ToString();
     }
+
+    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == System.Windows.Input.MouseButton.Left)
+        {
+            this.DragMove();
+        }
+    }
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        this.WindowState = WindowState.Minimized;
+    }
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e)
+    {
+        this.Close();
+    }
+
+    private void AccentCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.ComboBox combo && combo.SelectedItem is System.Windows.Controls.ComboBoxItem item)
+        {
+            var newColor = item.Content.ToString();
+            if (!string.IsNullOrEmpty(newColor))
+            {
+                _profileStore.Set.AccentColor = newColor;
+                _profileStore.Save();
+                ThemeManager.AccentColor = newColor;
+                foreach (Window win in System.Windows.Application.Current.Windows)
+                {
+                    ThemeManager.ApplyTheme(win);
+                }
+                // Notify server to broadcast style change
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // Broadcaster handles this internally on WS message
+                    }
+                    catch { }
+                });
+            }
+        }
+    }
 }
+

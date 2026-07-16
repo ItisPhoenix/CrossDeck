@@ -7,6 +7,7 @@ import com.crossdeck.client.model.Profile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,8 +18,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.encodeToJsonElement
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
@@ -51,6 +54,9 @@ class ConnectionManager(context: Context) {
     private val _activeProfileId = MutableStateFlow("p_default")
     val activeProfileId: StateFlow<String> = _activeProfileId.asStateFlow()
 
+    private val _accentColor = MutableStateFlow("#00d4ff")
+    val accentColor: StateFlow<String> = _accentColor.asStateFlow()
+
     private val _profilesList = MutableStateFlow<List<com.crossdeck.client.model.ProfileHeader>>(emptyList())
     val profilesList: StateFlow<List<com.crossdeck.client.model.ProfileHeader>> = _profilesList.asStateFlow()
 
@@ -64,6 +70,9 @@ class ConnectionManager(context: Context) {
     private val _dialLevels = MutableStateFlow<Map<String, Int>>(emptyMap())
     val dialLevels: StateFlow<Map<String, Int>> = _dialLevels.asStateFlow()
 
+    private val _connectedHostUrl = MutableStateFlow<String?>(null)
+    val connectedHostUrl: StateFlow<String?> = _connectedHostUrl.asStateFlow()
+
     private fun emitToast(message: String, success: Boolean) {
         _toastMessage.value = Pair(message, success)
         CoroutineScope(Dispatchers.IO).launch {
@@ -73,6 +82,7 @@ class ConnectionManager(context: Context) {
     }
 
     fun connectWithPin(ip: String, port: Int, pin: String) {
+        cancelReconnect()
         savePairing(ip, port)
         prefs.edit().putString(KEY_PIN, pin).apply()
         openSocket(ip, port) { ws -> sendAuth(ws, pin = pin) }
@@ -151,26 +161,66 @@ class ConnectionManager(context: Context) {
     }
 
     fun disconnect() {
+        cancelReconnect()
         webSocket?.close(1000, "user disconnect")
         webSocket = null
         _connectionState.value = ConnectionState.Disconnected
+    }
+
+    // ---- Reconnect backoff (Milestone 3b) ----
+    // Only kicks in after we've synced a profile at least once this run (_currentProfile != null)
+    // — a bad PIN on first pairing should fall straight back to PairingScreen, not retry forever.
+
+    private var reconnectJob: kotlinx.coroutines.Job? = null
+
+    private fun scheduleReconnect() {
+        if (reconnectJob?.isActive == true) return
+        val ip = prefs.getString(KEY_IP, null) ?: return
+        val port = prefs.getInt(KEY_PORT, -1)
+        val token = prefs.getString(KEY_TOKEN, null) ?: return
+        if (port <= 0) return
+
+        reconnectJob = CoroutineScope(Dispatchers.IO).launch {
+            var delayMs = 1000L
+            val maxDelayMs = 30_000L
+            while (true) {
+                kotlinx.coroutines.delay(delayMs)
+                if (_connectionState.value == ConnectionState.Connected) break
+                openSocket(ip, port) { ws -> sendAuth(ws, token = token) }
+                kotlinx.coroutines.delay(2000) // give the attempt a moment to resolve
+                if (_connectionState.value == ConnectionState.Connected) break
+                delayMs = (delayMs * 2).coerceAtMost(maxDelayMs)
+            }
+        }
+    }
+
+    private fun cancelReconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = null
     }
 
     private fun openSocket(ip: String, port: Int, onOpenSendAuth: (WebSocket) -> Unit) {
         _connectionState.value = ConnectionState.Connecting
         val request = Request.Builder().url("ws://$ip:$port/ws").build()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(ws: WebSocket, response: Response) = onOpenSendAuth(ws)
+            override fun onOpen(ws: WebSocket, response: Response) {
+                _connectedHostUrl.value = "http://$ip:${port + 1}/"
+                onOpenSendAuth(ws)
+            }
 
             override fun onMessage(ws: WebSocket, text: String) = handleMessage(text)
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
                 _connectionState.value = ConnectionState.Error
                 _lastError.value = t.message
+                _connectedHostUrl.value = null
+                if (_currentProfile.value != null) scheduleReconnect()
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 _connectionState.value = ConnectionState.Disconnected
+                _connectedHostUrl.value = null
+                if (_currentProfile.value != null) scheduleReconnect()
             }
         })
     }
@@ -193,6 +243,10 @@ class ConnectionManager(context: Context) {
                     _connectionState.value = ConnectionState.Connected
                 }
                 "auth_failed" -> {
+                    // Stop the backoff loop — a rejected token (e.g. host revoked this device)
+                    // won't start working on the next retry. User falls back to the overlay's
+                    // "Manual Connection" button (or PairingScreen if never connected).
+                    cancelReconnect()
                     _connectionState.value = ConnectionState.AuthFailed
                     _lastError.value = obj["reason"]?.jsonPrimitive?.content
                 }
@@ -205,6 +259,9 @@ class ConnectionManager(context: Context) {
                         if (prev != null && prev.buttons != newProfile.buttons) {
                             emitToast("\uD83D\uDFE2 Profile updated from PC", success = true)
                         }
+                    }
+                    obj["accentColor"]?.jsonPrimitive?.content?.let {
+                        _accentColor.value = it
                     }
                 }
                 "ack" -> {
@@ -285,9 +342,41 @@ class ConnectionManager(context: Context) {
         ws.send(obj.toString())
     }
 
+    fun sendStyleChange(colorHex: String) {
+        val ws = webSocket ?: return
+        val obj = buildJsonObject {
+            put("type", "style_change")
+            put("accentColor", colorHex)
+        }
+        ws.send(obj.toString())
+    }
+
     fun getLastSavedIp(): String = prefs.getString(KEY_IP, "") ?: ""
     fun getLastSavedPort(): Int = prefs.getInt(KEY_PORT, 7890)
     fun getLastSavedPin(): String = prefs.getString(KEY_PIN, "") ?: ""
+    fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
+
+    /** Uploads raw image bytes to the host's asset endpoint; returns the hash filename to store
+     * in ButtonModel.icon, or null on failure (not connected, no token, or a server/network error). */
+    suspend fun uploadIcon(bytes: ByteArray): String? = withContext(Dispatchers.IO) {
+        val hostUrl = _connectedHostUrl.value ?: return@withContext null
+        val token = getToken() ?: return@withContext null
+        try {
+            val request = Request.Builder()
+                .url("${hostUrl}assets/")
+                .header("X-CrossDeck-Token", token)
+                .post(bytes.toRequestBody("application/octet-stream".toMediaType()))
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val body = response.body?.string() ?: return@withContext null
+                json.parseToJsonElement(body).jsonObject["icon"]?.jsonPrimitive?.content
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ConnectionManager", "Icon upload failed", e)
+            null
+        }
+    }
 
     private fun savePairing(ip: String, port: Int) {
         prefs.edit().putString(KEY_IP, ip).putInt(KEY_PORT, port).apply()

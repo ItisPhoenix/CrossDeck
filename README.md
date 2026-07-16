@@ -2,55 +2,120 @@
 
 Open source Stream-Deck-style app: your Android phone becomes a customizable button deck that controls your Windows PC over local WiFi.
 
+<!--
+  Demo GIF goes here before the first release. Capture steps:
+  1. Pair a phone with a running Windows Host (same WiFi).
+  2. Screen-record the Android app (Android 11+: swipe-down quick settings > Screen record,
+     or `adb shell screenrecord /sdcard/demo.mp4`) covering: pairing, a few button taps, a
+     profile switch (3D flip), and opening the dial slider.
+  3. Convert to a GIF (e.g. `ffmpeg -i demo.mp4 -vf "fps=12,scale=360:-1" demo.gif`) and drop it
+     at docs/demo.gif, then replace this comment with: ![CrossDeck demo](docs/demo.gif)
+-->
+
+<!--
+  Screenshots: take one of the Windows editor grid and one of the Android deck grid (same
+  profile, so they visibly match), save as docs/screenshot-host.png and
+  docs/screenshot-client.png, then replace this comment with an image row, e.g.:
+  <p float="left">
+    <img src="docs/screenshot-host.png" width="420" />
+    <img src="docs/screenshot-client.png" width="200" />
+  </p>
+-->
+
 ## Repo Structure
 
 ```
 /windows-host      .NET 8 / WPF tray app — runs on the PC being controlled
 /android-client    Kotlin / Jetpack Compose app — runs on the phone (the "deck")
-LICENSE             MIT
+/shared-schema     Wire protocol documentation (source of truth for both sides)
+/docs              Architecture notes and design specs
+LICENSE            MIT
+DESIGN.md          Obsidian Cyber-Intelligence design system tokens
+MASTER-PLAN.md     Full decision log, architecture, and milestone tracker
 ```
 
-## Features Built
+## Features
 
-- [x] **Windows Host**: WebSocket server + tray icon controls + active profile listener.
-- [x] **Android Client**: Dynamic grid system auto-fitted to any screen size.
+- [x] **Windows Host**: WebSocket server + borderless WPF tray app + profile editor.
+- [x] **Android Client**: Full-screen Jetpack Compose grid, edge-to-edge, dark Obsidian theme.
+- [x] **Unified Design Language**: Both apps share the same **Obsidian Cyber-Intelligence** dark tech aesthetic — matching color palettes, typography, and interaction patterns across platforms.
+- [x] **Dynamic Accent Colors**: Choose from Neon Cyan, Neon Purple, Cyberpunk Yellow, Toxic Green, or Crimson Red. Color syncs live over WebSocket between both apps.
 - [x] **UDP Auto-Discovery**: Scan and connect instantly on the local network (saves last connection).
+- [x] **QR Pairing**: Scan a QR code in the Windows pairing window for instant connection.
 - [x] **Multi-Profile Management**: Create, rename, delete, and switch profiles from either the Android deck or the PC.
+- [x] **3D Profile Transitions**: Animated 3D flip card transition on the Android app whenever profiles are switched.
 - [x] **Bidirectional Grid Editor**: Edit actions, labels, folder layout, and grid positions on the fly from either client or host.
-- [x] **Folders**: Scoped button pages with nesting navigation hierarchy and back navigations.
+- [x] **Folders**: Scoped button pages with nesting navigation hierarchy and back navigation.
+- [x] **First-Run Preset Picker**: Select Streaming, Productivity, or Blank preset on first launch.
+- [x] **Auto-Profile-Switch**: Windows Host watches the foreground process and switches profiles automatically.
 - [x] **Actions Engine**:
-  - `hotkey` (Standard keyboard key strokes)
-  - `media_control` (Play, pause, skip, mute, volume change)
-  - `launch_app` (Launch programs/executables)
-  - `open_url` (Open URLs in default browser)
-  - `run_command` (Console shell command line execution)
-  - `text_snippet` (Send raw text snippets)
-  - `multi_action` (Sequenced combinations with custom delay intervals)
-- [x] **Dials / System Controls**: Tap a dial button to pull up a smooth 60fps slider modal popup to control:
-  - System volume level natively via WASAPI COM.
-  - Monitor brightness natively (DDC/CI hardware controller for desktop monitors via `dxva2.dll` with a WMI fallback for laptops).
+  - `hotkey` — Standard keyboard keystrokes via `SendInput`
+  - `media_control` — Play, pause, skip, mute, volume up/down
+  - `launch_app` — Launch programs/executables
+  - `open_url` — Open URLs in default browser
+  - `run_command` — Console shell command execution
+  - `text_snippet` — Send raw text snippets via clipboard injection
+  - `multi_action` — Sequenced combinations with custom delay intervals
+  - `open_folder` — Navigate into sub-folder button pages
+- [x] **Dials / System Controls**: Tap a dial button to open a full-screen bottom-sheet touch-bar slider with haptic detent ticks to control:
+  - System volume via WASAPI COM
+  - Monitor brightness via DDC/CI (`dxva2.dll`) with WMI fallback for laptops
+- [x] **Haptic Feedback**: KEYBOARD_TAP, CONFIRM, and CLOCK_TICK haptics on the Android app for taps, connections, and slider steps.
+- [x] **Custom Tray Menu**: Dark-styled Windows system tray context menu matching the Obsidian UI theme.
+- [x] **Icon System**: 94-icon built-in pack (Lucide) or upload your own image per button, synced over a token-authenticated asset server.
+- [x] **Resilient Reconnect**: Android auto-retries with backoff and shows the last-known deck (greyed out) behind a reconnect overlay instead of dropping straight to the pairing screen.
+- [x] **Revoke Device**: Kick the paired phone and issue a new PIN from the Windows tray menu.
+
+## Why does this app need these permissions?
+
+- **`SendInput` (Windows)**: required to simulate hotkeys and media keys. This is the same API any macro tool uses.
+- **Foreground window polling (Windows)**: used only for auto-profile-switch (switches the active button profile when you focus a specific app like OBS or Chrome). No content is read — only the process name.
+- **Local network access (Android)**: to connect to the Windows Host WebSocket server on your LAN. No external network connections are made.
+- **Camera (Android)**: used only by the QR scanner for pairing. Not used at any other time.
+
+The full source code is auditable in this repository.
+
+---
 
 ## Building — Windows Host
 
-Prerequisites: Windows 10/11, .NET 8 SDK, Visual Studio 2022 with ".NET desktop development" workload.
+**Prerequisites**: Windows 10/11, .NET 8 SDK, Visual Studio 2022 with ".NET desktop development" workload.
 
 ```powershell
-cd windows-host/CrossDeckHost
+cd windows-host
 dotnet restore
 dotnet build
-dotnet run
+dotnet run --project CrossDeckHost
 ```
 
-On first run: a tray icon appears. Right-click → "Show Pairing Info" to get the PC's local IP, port, and a 6-digit PIN. Windows Firewall will prompt to allow the app — accept it, or the phone can't connect.
+On first run: a tray icon appears. Right-click → **Show Pairing Info** to get the IP, port, and 6-digit PIN. Accept the Windows Firewall prompt — the phone cannot connect without it.
+
+---
 
 ## Building — Android Client
 
-Prerequisites: Android Studio, SDK Platform 31+, JDK 17, a physical Android 12+ device on the same WiFi as the PC.
+**Prerequisites**: Android Studio (with bundled JDK 17), SDK Platform 31+, Android 12+ physical device on the same WiFi as the PC.
 
-1. Open `android-client/` in Android Studio, let Gradle sync.
-2. Run on your device (USB debugging enabled).
-3. Tap "Scan" to auto-discover your PC, or enter the IP + PIN manually.
-4. Once connected, the deck grid renders. Tap a button or slider to control your PC.
+```bash
+# From android-client/
+./gradlew assembleDebug
+```
+
+Or open `android-client/` in Android Studio and run on your device.
+
+1. Tap **Scan WiFi** to auto-discover your PC, or tap **Scan QR** to pair via QR code.
+2. Enter PIN manually if preferred.
+3. Once connected, the deck grid renders. Tap ⚙ to change the accent color theme.
+
+---
+
+## Network Setup
+
+- PC and phone must be on the **same router/WiFi**.
+- Disable **AP Isolation** / **Client Isolation** on the router if present — the most common cause of "can't find PC" issues.
+- Test on a home network first; corporate/public WiFi typically blocks mDNS and multicast.
+
+---
 
 ## License
 

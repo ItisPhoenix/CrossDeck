@@ -7,7 +7,7 @@
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms> <!-- needed for NotifyIcon (system tray) -->
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- Add ApplicationIcon>Assets/app.ico</ApplicationIcon once you have a real icon file -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>CrossDeckHost</AssemblyName>
     <RootNamespace>CrossDeckHost</RootNamespace>
   </PropertyGroup>
@@ -15,6 +15,14 @@
   <ItemGroup>
     <!-- QR code generation for pairing screen (add when you get to it — Milestone 1 uses text PIN + manual IP entry) -->
     <PackageReference Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Bundled built-in icon pack (Lucide, monochrome 144x144 PNGs). Copied next to the exe so
+         the editor can enumerate them with Directory.GetFiles instead of a hardcoded name list. -->
+    <Content Include="Assets\Builtin\*.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

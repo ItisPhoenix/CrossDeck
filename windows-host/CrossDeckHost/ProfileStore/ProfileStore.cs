@@ -220,6 +220,7 @@ public class ProfileStoreService
                 ButtonId = "b_001",
                 Position = new Position { Row = 0, Col = 0 },
                 Label = "Google",
+                Icon = ExtractAndSaveIcon("chrome.exe"),
                 Action = new ActionModel { Type = "open_url", Url = "https://google.com" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -263,6 +264,7 @@ public class ProfileStoreService
                 ButtonId = "b_007",
                 Position = new Position { Row = 1, Col = 1 },
                 Label = "Task Manager",
+                Icon = ExtractAndSaveIcon("taskmgr.exe"),
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "Escape" } }
             });
         }
@@ -287,6 +289,7 @@ public class ProfileStoreService
                 ButtonId = "b_003",
                 Position = new Position { Row = 0, Col = 2 },
                 Label = "Notepad",
+                Icon = ExtractAndSaveIcon("notepad.exe"),
                 Action = new ActionModel { Type = "launch_app", Path = "notepad.exe" }
             });
             profile.Buttons.Add(new ButtonModel
@@ -294,6 +297,7 @@ public class ProfileStoreService
                 ButtonId = "b_004",
                 Position = new Position { Row = 0, Col = 3 },
                 Label = "Snip Tool",
+                Icon = ExtractAndSaveIcon("SnippingTool.exe"),
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Win", "Shift", "S" } }
             });
             profile.Buttons.Add(new ButtonModel
@@ -309,6 +313,7 @@ public class ProfileStoreService
                 ButtonId = "b_006",
                 Position = new Position { Row = 1, Col = 0 },
                 Label = "OBS Record",
+                Icon = ExtractAndSaveIcon("obs64.exe"),
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "F9" } }
             });
             profile.Buttons.Add(new ButtonModel
@@ -316,10 +321,125 @@ public class ProfileStoreService
                 ButtonId = "b_007",
                 Position = new Position { Row = 1, Col = 1 },
                 Label = "OBS Stream",
+                Icon = ExtractAndSaveIcon("obs64.exe"),
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "F10" } }
             });
         }
 
         return profile;
+    }
+
+    public static string? ExtractAndSaveIcon(string exeNameOrPath)
+    {
+        try
+        {
+            string fullPath = ResolveExecutablePath(exeNameOrPath);
+            if (!File.Exists(fullPath)) return null;
+
+            using (var icon = System.Drawing.Icon.ExtractAssociatedIcon(fullPath))
+            {
+                if (icon == null) return null;
+                using (var bitmap = icon.ToBitmap())
+                using (var ms = new MemoryStream())
+                {
+                    bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                    return SaveIconFromBytes(ms.ToArray());
+                }
+            }
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a ButtonModel.Icon value ("builtin:&lt;name&gt;", a custom-upload hash, or
+    /// null) to an absolute file path on disk, or null if unset/missing.
+    /// </summary>
+    public static string? ResolveIconFilePath(string? icon)
+    {
+        if (string.IsNullOrEmpty(icon)) return null;
+
+        if (icon.StartsWith("builtin:", StringComparison.Ordinal))
+        {
+            var name = icon["builtin:".Length..];
+            var builtinPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Builtin", name + ".png");
+            return File.Exists(builtinPath) ? builtinPath : null;
+        }
+
+        var assetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CrossDeckHost", "Assets");
+        var iconPath = Path.Combine(assetsDir, icon + ".png");
+        return File.Exists(iconPath) ? iconPath : null;
+    }
+
+    /// <summary>
+    /// Resizes raw image bytes (any format System.Drawing can decode) to a
+    /// square, transparent-padded PNG of the given size. Used so PC uploads,
+    /// Android uploads, and extracted exe icons all hash identically for the
+    /// same source image.
+    /// </summary>
+    public static byte[] ResizeToIconPng(byte[] src, int size = 144)
+    {
+        using var inMs = new MemoryStream(src);
+        using var original = System.Drawing.Image.FromStream(inMs);
+        using var resized = new System.Drawing.Bitmap(size, size);
+        using (var g = System.Drawing.Graphics.FromImage(resized))
+        {
+            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+            g.Clear(System.Drawing.Color.Transparent);
+            g.DrawImage(original, 0, 0, size, size);
+        }
+        using var outMs = new MemoryStream();
+        resized.Save(outMs, System.Drawing.Imaging.ImageFormat.Png);
+        return outMs.ToArray();
+    }
+
+    /// <summary>
+    /// Resizes to 144x144, hashes, and saves under the Assets dir. Returns the
+    /// hash filename (no extension) to store in ButtonModel.Icon.
+    /// </summary>
+    public static string SaveIconFromBytes(byte[] rawBytes)
+    {
+        byte[] resized = ResizeToIconPng(rawBytes);
+        byte[] hashBytes = System.Security.Cryptography.SHA256.HashData(resized);
+        string hash = Convert.ToHexString(hashBytes).ToLower();
+
+        string assetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CrossDeckHost", "Assets");
+        Directory.CreateDirectory(assetsDir);
+        File.WriteAllBytes(Path.Combine(assetsDir, hash + ".png"), resized);
+
+        return hash;
+    }
+
+    private static string ResolveExecutablePath(string exe)
+    {
+        if (Path.IsPathRooted(exe)) return exe;
+
+        string[] searchDirs = {
+            Environment.GetFolderPath(Environment.SpecialFolder.System),
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            @"C:\Program Files\Google\Chrome\Application",
+            @"C:\Program Files (x86)\Google\Chrome\Application",
+            @"C:\Program Files\obs-studio\bin\64bit",
+            @"C:\Program Files (x86)\obs-studio\bin\64bit",
+        };
+
+        foreach (var dir in searchDirs)
+        {
+            string testPath = Path.Combine(dir, exe);
+            if (File.Exists(testPath)) return testPath;
+        }
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var dir in pathEnv.Split(Path.PathSeparator))
+        {
+            string testPath = Path.Combine(dir, exe);
+            if (File.Exists(testPath)) return testPath;
+        }
+
+        return exe;
     }
 }

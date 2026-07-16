@@ -12,15 +12,12 @@
 
     <application
         android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="CrossDeck Client"
         android:supportsRtl="true"
         android:theme="@style/Theme.CrossDeckClient"
         android:usesCleartextTraffic="true">
-        <!--
-          No android:icon set yet — generate real launcher icons via Android Studio's
-          Image Asset Studio (right-click res/ > New > Image Asset) before shipping.
-          Omitting it is fine for local dev/testing; Android uses a default icon.
-        -->
 
         <activity
             android:name=".MainActivity"

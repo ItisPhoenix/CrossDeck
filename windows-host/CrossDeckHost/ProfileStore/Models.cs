@@ -12,6 +12,9 @@ public class ProfileSet
 
     [JsonPropertyName("presetSelected")]
     public bool PresetSelected { get; set; } = false;
+
+    [JsonPropertyName("accentColor")]
+    public string AccentColor { get; set; } = "#00d4ff";
 }
 
 public class Profile
