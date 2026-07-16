@@ -26,6 +26,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
+import com.crossdeck.client.QrScannerActivity
 
 /**
  * Pairing screen with:
@@ -48,6 +53,24 @@ fun PairingScreen(
     var pin by remember { mutableStateOf(defaultPin) }
     var scanning by remember { mutableStateOf(false) }
     var scanStatus by remember { mutableStateOf<String?>(null) }
+
+    val context = LocalContext.current
+    val qrScannerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val data = result.data
+            val scannedIp = data?.getStringExtra("ip")
+            val scannedPort = data?.getStringExtra("port")
+            val scannedPin = data?.getStringExtra("pin")
+
+            if (scannedIp != null && scannedPort != null && scannedPin != null) {
+                ip = scannedIp
+                port = scannedPort
+                pin = scannedPin
+            }
+        }
+    }
 
     fun triggerScan() {
         scanning = true
@@ -105,8 +128,18 @@ fun PairingScreen(
                     Spacer(Modifier.width(8.dp))
                     Text("Scanning…")
                 } else {
-                    Text("Scan for PC")
+                    Text("Scan WiFi")
                 }
+            }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(
+                onClick = {
+                    val intent = Intent(context, QrScannerActivity::class.java)
+                    qrScannerLauncher.launch(intent)
+                },
+                enabled = !connecting
+            ) {
+                Text("Scan QR")
             }
             scanStatus?.let {
                 Spacer(Modifier.width(12.dp))
