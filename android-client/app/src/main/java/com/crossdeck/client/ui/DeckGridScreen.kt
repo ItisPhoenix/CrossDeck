@@ -250,7 +250,7 @@ fun DeckGridScreen(
                             showRenameDialog = true
                         }
                     )
-                    if (activeProfileId != "p_default") {
+                    if (profiles.size > 1) {
                         DropdownMenuItem(
                             text = { Text("🗑 Delete Current", color = MaterialTheme.colorScheme.error) },
                             onClick = {

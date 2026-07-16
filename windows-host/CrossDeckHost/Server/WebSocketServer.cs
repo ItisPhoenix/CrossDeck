@@ -34,6 +34,7 @@ public class WebSocketServer
 
     public int Port => _port;
     public string LocalIpAddress { get; private set; } = "unknown";
+    public event Action? ClientAuthenticated;
 
     public WebSocketServer(int port, PairingManager pairing, ProfileStoreService profileStore, ActionExecutor actionExecutor)
     {
@@ -124,6 +125,7 @@ public class WebSocketServer
             }
 
             RegisterSocket(webSocket);
+            ClientAuthenticated?.Invoke();
 
             // Auth succeeded — immediately push current profile state in one atomic send.
             await SendJsonAsync(webSocket, BuildProfileList(), ct);

@@ -9,6 +9,9 @@ public class ProfileSet
 
     [JsonPropertyName("profiles")]
     public List<Profile> Profiles { get; set; } = new();
+
+    [JsonPropertyName("presetSelected")]
+    public bool PresetSelected { get; set; } = false;
 }
 
 public class Profile

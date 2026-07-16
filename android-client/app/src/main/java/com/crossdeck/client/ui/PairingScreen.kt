@@ -68,6 +68,10 @@ fun PairingScreen(
                 ip = scannedIp
                 port = scannedPort
                 pin = scannedPin
+                val portInt = scannedPort.toIntOrNull()
+                if (portInt != null) {
+                    onConnect(scannedIp.trim(), portInt, scannedPin.trim())
+                }
             }
         }
     }

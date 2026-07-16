@@ -68,8 +68,8 @@ public partial class EditorWindow : Window
             // Update associated process textbox
             TriggerProcessTxt.Text = _profileStore.Current.TriggerProcess ?? "";
 
-            // p_default cannot be deleted
-            DeleteProfileButton.IsEnabled = _profileStore.Set.ActiveProfileId != "p_default";
+            // Cannot delete if it is the only profile left
+            DeleteProfileButton.IsEnabled = _profileStore.Set.Profiles.Count > 1;
         }
         finally
         {
@@ -216,7 +216,7 @@ public partial class EditorWindow : Window
     private void DeleteProfileButton_Click(object sender, RoutedEventArgs e)
     {
         var activeId = _profileStore.Set.ActiveProfileId;
-        if (activeId == "p_default") return;
+        if (_profileStore.Set.Profiles.Count <= 1) return;
 
         var result = System.Windows.MessageBox.Show(
             $"Are you sure you want to delete the profile '{_profileStore.Current.Name}'?",
@@ -229,6 +229,32 @@ public partial class EditorWindow : Window
             _currentFolderId = null;
             _folderHistory.Clear();
             _profileStore.DeleteProfile(activeId);
+            EditPanel.Visibility = Visibility.Collapsed;
+            PlaceholderText.Visibility = Visibility.Visible;
+            _selectedRow = -1;
+            _selectedCol = -1;
+        }
+    }
+
+    private void AddPresetProfileButton_Click(object sender, RoutedEventArgs e)
+    {
+        var picker = new PresetPickerWindow();
+        picker.Owner = this;
+        if (picker.ShowDialog() == true)
+        {
+            var preset = picker.SelectedPreset;
+            var name = $"{preset} Preset";
+            
+            // Resolve duplicate names by adding index if needed
+            int index = 1;
+            while (_profileStore.Set.Profiles.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+            {
+                name = $"{preset} Preset {index++}";
+            }
+
+            _currentFolderId = null;
+            _folderHistory.Clear();
+            _profileStore.CreateProfileFromPreset(name, preset);
             EditPanel.Visibility = Visibility.Collapsed;
             PlaceholderText.Visibility = Visibility.Visible;
             _selectedRow = -1;

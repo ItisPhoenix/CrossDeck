@@ -15,13 +15,15 @@ public partial class App : System.Windows.Application
     private ProfileStoreService? _profileStore;
     private DiscoveryBeacon? _discoveryBeacon;
     private AutoProfileWatcher? _profileWatcher;
+    private PairingWindow? _pairingWindow;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
         _profileStore = new ProfileStoreService();
-        _profileStore.LoadOrCreateDefault();
+
+        _profileStore.LoadOrCreateDefault("Blank");
 
         var actionExecutor = new ActionExecutor();
 
@@ -29,6 +31,7 @@ public partial class App : System.Windows.Application
         _pairing.GenerateNewPin();
 
         _server = new WebSocketServer(port: 7890, pairing: _pairing, profileStore: _profileStore, actionExecutor: actionExecutor);
+        _server.ClientAuthenticated += OnClientAuthenticated;
         _server.Start();
 
         _discoveryBeacon = new DiscoveryBeacon(_server.LocalIpAddress, _server.Port);
@@ -58,9 +61,16 @@ public partial class App : System.Windows.Application
     {
         if (_pairing is null || _server is null) return;
 
-        var window = new PairingWindow(_pairing.CurrentPin, _server.LocalIpAddress, _server.Port);
-        window.Show();
-        window.Activate();
+        if (_pairingWindow != null)
+        {
+            _pairingWindow.Activate();
+            return;
+        }
+
+        _pairingWindow = new PairingWindow(_pairing.CurrentPin, _server.LocalIpAddress, _server.Port);
+        _pairingWindow.Closed += (s, e) => _pairingWindow = null;
+        _pairingWindow.Show();
+        _pairingWindow.Activate();
     }
 
     private void ShowEditorWindow()
@@ -79,6 +89,33 @@ public partial class App : System.Windows.Application
         var window = new EditorWindow(_profileStore);
         window.Show();
         window.Activate();
+    }
+
+    private void OnClientAuthenticated()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_pairingWindow != null)
+            {
+                _pairingWindow.Close();
+                _pairingWindow = null;
+            }
+
+            ShowEditorWindow();
+
+            if (_profileStore != null && !_profileStore.Set.PresetSelected)
+            {
+                var picker = new PresetPickerWindow();
+                if (picker.ShowDialog() == true)
+                {
+                    _profileStore.SetPresetPicked(picker.SelectedPreset);
+                }
+                else
+                {
+                    _profileStore.SetPresetPicked("Blank");
+                }
+            }
+        }));
     }
 
     protected override void OnExit(ExitEventArgs e)
