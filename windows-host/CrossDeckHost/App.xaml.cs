@@ -14,6 +14,7 @@ public partial class App : System.Windows.Application
     private PairingManager? _pairing;
     private ProfileStoreService? _profileStore;
     private DiscoveryBeacon? _discoveryBeacon;
+    private AutoProfileWatcher? _profileWatcher;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -33,12 +34,16 @@ public partial class App : System.Windows.Application
         _discoveryBeacon = new DiscoveryBeacon(_server.LocalIpAddress, _server.Port);
         _discoveryBeacon.Start();
 
+        _profileWatcher = new AutoProfileWatcher(_profileStore);
+        _profileWatcher.Start();
+
         _tray = new TrayIconManager(
             profileStore: _profileStore,
             onShowPairingInfo: ShowPairingWindow,
             onShowEditor: ShowEditorWindow,
             onExit: () =>
             {
+                _profileWatcher?.Stop();
                 _discoveryBeacon?.Stop();
                 _server?.Stop();
                 Shutdown();
@@ -78,6 +83,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _profileWatcher?.Stop();
         _server?.Stop();
         _tray?.Dispose();
         base.OnExit(e);

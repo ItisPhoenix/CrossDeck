@@ -19,6 +19,9 @@ public class Profile
     [JsonPropertyName("name")]
     public string Name { get; set; } = "Default";
 
+    [JsonPropertyName("triggerProcess")]
+    public string? TriggerProcess { get; set; }
+
     [JsonPropertyName("buttons")]
     public List<ButtonModel> Buttons { get; set; } = new();
 }

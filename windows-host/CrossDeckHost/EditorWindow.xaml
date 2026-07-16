@@ -21,6 +21,8 @@
                 <Button Content="New Profile" Margin="8,0,0,0" Padding="8,2" Click="NewProfileButton_Click"/>
                 <Button Content="Rename Profile" Margin="8,0,0,0" Padding="8,2" Click="RenameProfileButton_Click"/>
                 <Button x:Name="DeleteProfileButton" Content="Delete Profile" Margin="8,0,0,0" Padding="8,2" Click="DeleteProfileButton_Click" Background="#FFEBEE" Foreground="#C62828"/>
+                <TextBlock Text="Associated Process:" VerticalAlignment="Center" FontWeight="Bold" Margin="24,0,8,0"/>
+                <TextBox x:Name="TriggerProcessTxt" Width="120" VerticalAlignment="Center" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" ToolTip="e.g. chrome.exe or notepad.exe (auto-switches profile on window focus)"/>
             </DockPanel>
         </Border>
         

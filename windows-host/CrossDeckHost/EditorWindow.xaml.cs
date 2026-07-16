@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using CrossDeckHost.ProfileStore;
 using Microsoft.Win32;
+using System.Windows.Input;
 
 namespace CrossDeckHost;
 
@@ -64,6 +65,9 @@ public partial class EditorWindow : Window
             ProfileSelectorCombo.ItemsSource = _profileStore.Set.Profiles;
             ProfileSelectorCombo.SelectedValue = _profileStore.Set.ActiveProfileId;
 
+            // Update associated process textbox
+            TriggerProcessTxt.Text = _profileStore.Current.TriggerProcess ?? "";
+
             // p_default cannot be deleted
             DeleteProfileButton.IsEnabled = _profileStore.Set.ActiveProfileId != "p_default";
         }
@@ -86,6 +90,29 @@ public partial class EditorWindow : Window
             PlaceholderText.Visibility = Visibility.Visible;
             _selectedRow = -1;
             _selectedCol = -1;
+        }
+    }
+
+    private void SaveTriggerProcess()
+    {
+        var activeProfile = _profileStore.Current;
+        var text = TriggerProcessTxt.Text.Trim();
+        activeProfile.TriggerProcess = string.IsNullOrEmpty(text) ? null : text;
+        _profileStore.Save();
+        _profileStore.NotifyChanged();
+    }
+
+    private void TriggerProcessTxt_LostFocus(object sender, RoutedEventArgs e)
+    {
+        SaveTriggerProcess();
+    }
+
+    private void TriggerProcessTxt_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            SaveTriggerProcess();
+            Keyboard.ClearFocus();
         }
     }
 
