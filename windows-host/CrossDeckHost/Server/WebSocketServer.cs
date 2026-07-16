@@ -1,0 +1,553 @@
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Net.WebSockets;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using CrossDeckHost.Actions;
+using CrossDeckHost.ProfileStore;
+
+namespace CrossDeckHost.Server;
+
+/// <summary>
+/// Deliberately built on raw TcpListener + a manual WebSocket handshake instead of
+/// System.Net.HttpListener. HttpListener requires either Administrator privileges or a
+/// `netsh http add urlacl` reservation for any prefix other than exactly "http://localhost/",
+/// which is a dealbreaker for a consumer app users just double-click to run. TcpListener has
+/// no such restriction, so we do the HTTP Upgrade handshake by hand and then wrap the raw
+/// stream with WebSocket.CreateFromStream.
+/// </summary>
+public class WebSocketServer
+{
+    private const string WebSocketMagicGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+
+    private readonly int _port;
+    private readonly PairingManager _pairing;
+    private readonly ProfileStoreService _profileStore;
+    private readonly ActionExecutor _actionExecutor;
+    private readonly List<WebSocket> _activeSockets = new();
+    private readonly object _lock = new();
+
+    private TcpListener? _listener;
+    private CancellationTokenSource? _cts;
+
+    public int Port => _port;
+    public string LocalIpAddress { get; private set; } = "unknown";
+
+    public WebSocketServer(int port, PairingManager pairing, ProfileStoreService profileStore, ActionExecutor actionExecutor)
+    {
+        _port = port;
+        _pairing = pairing;
+        _profileStore = profileStore;
+        _actionExecutor = actionExecutor;
+        LocalIpAddress = DetectLocalIpAddress();
+
+        // Broadcast profile changes to all connected clients.
+        // IMPORTANT: Use a single fused broadcast (profile_list + profile_sync together)
+        // to avoid two concurrent Task.Run calls racing on the same WebSocket stream.
+        _profileStore.ProfileChanged  += (_) => Task.Run(() => BroadcastAllAsync());
+        _profileStore.ProfileSetChanged += (_) => Task.Run(() => BroadcastAllAsync());
+    }
+
+    public void Start()
+    {
+        _cts = new CancellationTokenSource();
+        _listener = new TcpListener(IPAddress.Any, _port);
+        _listener.Start();
+        _ = AcceptLoopAsync(_cts.Token);
+    }
+
+    public void Stop()
+    {
+        _cts?.Cancel();
+        _listener?.Stop();
+    }
+
+    private async Task AcceptLoopAsync(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            TcpClient client;
+            try
+            {
+                client = await _listener!.AcceptTcpClientAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+
+            _ = HandleClientAsync(client, ct);
+        }
+    }
+
+    private async Task HandleClientAsync(TcpClient tcpClient, CancellationToken ct)
+    {
+        using var _ = tcpClient;
+        var stream = tcpClient.GetStream();
+
+        WebSocket webSocket;
+        try
+        {
+            webSocket = await PerformHandshakeAsync(stream, ct);
+        }
+        catch
+        {
+            return; // Not a valid WS handshake request — drop the connection.
+        }
+
+        string? authedToken = null;
+        CancellationTokenSource? heartbeatCts = null;
+
+        try
+        {
+            // First message must be auth (see shared-schema/protocol.md).
+            var first = await ReceiveJsonAsync(webSocket, ct);
+            if (first is null || GetType_(first.Value) != "auth")
+            {
+                await CloseAsync(webSocket, "expected auth message first");
+                return;
+            }
+
+            authedToken = HandleAuth(first.Value, out var response);
+            await SendJsonAsync(webSocket, response, ct);
+
+            if (authedToken is null)
+            {
+                await CloseAsync(webSocket, "auth failed");
+                return;
+            }
+
+            RegisterSocket(webSocket);
+
+            // Auth succeeded — immediately push current profile state in one atomic send.
+            await SendJsonAsync(webSocket, BuildProfileList(), ct);
+            await SendJsonAsync(webSocket, BuildProfileSync(), ct);
+
+            // Application-level heartbeat: send a lightweight message every 25 s.
+            // This keeps NAT/WiFi power-save from dropping the connection without
+            // touching the WebSocket ping/pong protocol (which races with sends).
+            heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var heartbeatTask = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!heartbeatCts.Token.IsCancellationRequested &&
+                           webSocket.State == WebSocketState.Open)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(25), heartbeatCts.Token);
+                        if (webSocket.State == WebSocketState.Open)
+                            await SendJsonAsync(webSocket, new { type = "heartbeat" }, CancellationToken.None);
+                    }
+                }
+                catch { /* connection closed — normal */ }
+            }, heartbeatCts.Token);
+
+            // Main receive loop.
+            while (webSocket.State == WebSocketState.Open && !ct.IsCancellationRequested)
+            {
+                var msg = await ReceiveJsonAsync(webSocket, ct);
+                if (msg is null) break;
+
+                switch (GetType_(msg.Value))
+                {
+                    case "button_press":
+                        await HandleButtonPress(webSocket, msg.Value, ct);
+                        break;
+                    case "profile_edit":
+                        await HandleProfileEdit(webSocket, msg.Value, ct);
+                        break;
+                    case "profile_switch":
+                        var switchId = msg.Value.TryGetProperty("profileId", out var sId) ? sId.GetString() : null;
+                        if (switchId != null) _profileStore.SwitchProfile(switchId);
+                        break;
+                    case "profile_create":
+                        var createName = msg.Value.TryGetProperty("name", out var cName) ? cName.GetString() : null;
+                        if (createName != null) _profileStore.CreateProfile(createName);
+                        break;
+                    case "profile_delete":
+                        var deleteId = msg.Value.TryGetProperty("profileId", out var dId) ? dId.GetString() : null;
+                        if (deleteId != null) _profileStore.DeleteProfile(deleteId);
+                        break;
+                    case "profile_rename":
+                        var renameId = msg.Value.TryGetProperty("profileId", out var rId) ? rId.GetString() : null;
+                        var renameName = msg.Value.TryGetProperty("name", out var rName) ? rName.GetString() : null;
+                        if (renameId != null && renameName != null) _profileStore.RenameProfile(renameId, renameName);
+                        break;
+                    case "dial_adjust":
+                        await HandleDialAdjust(webSocket, msg.Value, ct);
+                        break;
+                    default:
+                        // Ignore unknown message types
+                        break;
+                }
+            }
+        }
+        catch (Exception ex) when
+            (ex is WebSocketException ||
+             ex is IOException ||
+             ex is OperationCanceledException ||
+             ex is InvalidOperationException)
+        {
+            // Client disconnected or socket error — normal, nothing to do.
+        }
+        catch (Exception)
+        {
+            // Any other unexpected exception — swallow so TcpClient disposes cleanly
+            // via 'finally' below and sends FIN not RST.
+        }
+        finally
+        {
+            heartbeatCts?.Cancel();
+            heartbeatCts?.Dispose();
+            UnregisterSocket(webSocket);
+            // Remove the per-socket semaphore to prevent memory leak.
+            _semaphores.TryRemove(webSocket, out var removedSem);
+            removedSem?.Dispose();
+
+            if (webSocket.State == WebSocketState.Open)
+            {
+                try { await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
+                catch { /* best effort */ }
+            }
+        }
+    }
+
+    private string? HandleAuth(JsonElement authMsg, out object response)
+    {
+        if (authMsg.TryGetProperty("token", out var tokenEl))
+        {
+            var token = tokenEl.GetString() ?? "";
+            if (_pairing.ValidateToken(token))
+            {
+                response = new { type = "auth_ok", token, hostName = Environment.MachineName };
+                return token;
+            }
+            response = new { type = "auth_failed", reason = "invalid_token" };
+            return null;
+        }
+
+        if (authMsg.TryGetProperty("pin", out var pinEl))
+        {
+            var pin = pinEl.GetString() ?? "";
+            if (_pairing.ValidatePin(pin))
+            {
+                var newToken = _pairing.IssueToken();
+                response = new { type = "auth_ok", token = newToken, hostName = Environment.MachineName };
+                return newToken;
+            }
+            response = new { type = "auth_failed", reason = "invalid_pin" };
+            return null;
+        }
+
+        response = new { type = "auth_failed", reason = "no_pin_or_token_provided" };
+        return null;
+    }
+
+    private async Task HandleButtonPress(WebSocket webSocket, JsonElement msg, CancellationToken ct)
+    {
+        var buttonId = msg.TryGetProperty("buttonId", out var idEl) ? idEl.GetString() : null;
+        var button = _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
+
+        if (button is null)
+        {
+            await SendJsonAsync(webSocket, new { type = "ack", buttonId, status = "error", message = "unknown buttonId" }, ct);
+            return;
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var (success, error) = await _actionExecutor.ExecuteAsync(button.Action);
+                await SendJsonAsync(webSocket, success
+                    ? new { type = "ack", buttonId, status = "ok" }
+                    : new { type = "ack", buttonId, status = "error", message = error }, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                await SendJsonAsync(webSocket, new { type = "ack", buttonId, status = "error", message = ex.Message }, CancellationToken.None);
+            }
+        });
+    }
+
+    private async Task HandleDialAdjust(WebSocket webSocket, JsonElement msg, CancellationToken ct)
+    {
+        var buttonId = msg.TryGetProperty("buttonId", out var idEl) ? idEl.GetString() : null;
+        int targetVal = 0;
+        var hasValue = msg.TryGetProperty("value", out var valEl) && valEl.TryGetInt32(out targetVal);
+
+        var button = _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
+        if (button is null || button.Action.Type != "dial")
+        {
+            await SendJsonAsync(webSocket, new { type = "ack", buttonId, status = "error", message = "invalid dial action configuration" }, ct);
+            return;
+        }
+
+        int newVal = 50;
+        if (button.Action.DialTarget == "volume")
+        {
+            newVal = hasValue ? CrossDeckHost.Actions.DialController.SetVolume(targetVal) : CrossDeckHost.Actions.DialController.GetVolume();
+        }
+        else if (button.Action.DialTarget == "brightness")
+        {
+            newVal = hasValue ? CrossDeckHost.Actions.DialController.SetBrightness(targetVal) : CrossDeckHost.Actions.DialController.GetBrightness();
+        }
+
+        await BroadcastDialStateAsync(button.ButtonId, newVal);
+    }
+
+    private async Task BroadcastDialStateAsync(string buttonId, int value)
+    {
+        var payload = new { type = "dial_state", buttonId, value };
+        List<WebSocket> targets;
+        lock (_lock)
+        {
+            _activeSockets.RemoveAll(ws => ws.State != WebSocketState.Open);
+            targets = new List<WebSocket>(_activeSockets);
+        }
+        foreach (var ws in targets)
+        {
+            try
+            {
+                await SendJsonAsync(ws, payload, CancellationToken.None);
+            }
+            catch { }
+        }
+    }
+
+    private async Task HandleProfileEdit(WebSocket webSocket, JsonElement msg, CancellationToken ct)
+    {
+        var profileId = msg.TryGetProperty("profileId", out var pIdEl) ? pIdEl.GetString() : null;
+        var op = msg.TryGetProperty("op", out var opEl) ? opEl.GetString() : null;
+
+        if (profileId is null || op is null)
+        {
+            await SendJsonAsync(webSocket, new { type = "ack", status = "error", message = "missing profileId or op" }, ct);
+            return;
+        }
+
+        if (op == "update_button")
+        {
+            if (msg.TryGetProperty("button", out var btnEl))
+            {
+                try
+                {
+                    var button = JsonSerializer.Deserialize<ButtonModel>(btnEl.GetRawText());
+                    if (button is not null)
+                    {
+                        _profileStore.UpdateButton(profileId, button);
+                        await SendJsonAsync(webSocket, new { type = "ack", status = "ok" }, ct);
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await SendJsonAsync(webSocket, new { type = "ack", status = "error", message = ex.Message }, ct);
+                    return;
+                }
+            }
+            await SendJsonAsync(webSocket, new { type = "ack", status = "error", message = "missing button payload" }, ct);
+        }
+        else if (op == "delete_button")
+        {
+            var buttonId = msg.TryGetProperty("buttonId", out var bIdEl) ? bIdEl.GetString() : null;
+            if (buttonId is not null)
+            {
+                _profileStore.DeleteButton(profileId, buttonId);
+                await SendJsonAsync(webSocket, new { type = "ack", status = "ok" }, ct);
+                return;
+            }
+            await SendJsonAsync(webSocket, new { type = "ack", status = "error", message = "missing buttonId" }, ct);
+        }
+        else
+        {
+            await SendJsonAsync(webSocket, new { type = "ack", status = "error", message = $"unknown op '{op}'" }, ct);
+        }
+    }
+
+    private void RegisterSocket(WebSocket ws)
+    {
+        lock (_lock) _activeSockets.Add(ws);
+    }
+
+    private void UnregisterSocket(WebSocket ws)
+    {
+        lock (_lock) _activeSockets.Remove(ws);
+    }
+
+    /// <summary>
+    /// Sends both profile_list and profile_sync to every connected client in one
+    /// serialised pass per socket. Replaces the old separate BroadcastProfileSyncAsync /
+    /// BroadcastProfileListAsync pair that could race on the same WebSocket stream.
+    /// </summary>
+    private async Task BroadcastAllAsync()
+    {
+        var listPayload = BuildProfileList();
+        var syncPayload = BuildProfileSync();
+        List<WebSocket> targets;
+        lock (_lock)
+        {
+            _activeSockets.RemoveAll(ws => ws.State != WebSocketState.Open);
+            targets = new List<WebSocket>(_activeSockets);
+        }
+
+        foreach (var ws in targets)
+        {
+            try
+            {
+                // Send list then sync through the SAME per-socket semaphore, back-to-back,
+                // so they are never interleaved with each other or with a heartbeat.
+                await SendJsonAsync(ws, listPayload, CancellationToken.None);
+                await SendJsonAsync(ws, syncPayload, CancellationToken.None);
+            }
+            catch { /* socket gone — ignore */ }
+        }
+    }
+
+    private object BuildProfileSync() => new { type = "profile_sync", profile = _profileStore.Current };
+
+    private object BuildProfileList() =>
+        new
+        {
+            type = "profile_list",
+            activeProfileId = _profileStore.Set.ActiveProfileId,
+            profiles = _profileStore.Set.Profiles.Select(p => new { profileId = p.ProfileId, name = p.Name }).ToList()
+        };
+
+    private static string GetType_(JsonElement el) =>
+        el.TryGetProperty("type", out var t) ? (t.GetString() ?? "") : "";
+
+    // ---- WebSocket framing helpers ----
+
+    private static async Task<JsonElement?> ReceiveJsonAsync(WebSocket ws, CancellationToken ct)
+    {
+        var buffer = new byte[8192];
+        using var ms = new MemoryStream();
+        WebSocketReceiveResult result;
+        do
+        {
+            result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+            if (result.MessageType == WebSocketMessageType.Close) return null;
+            // Skip non-text frames (binary, ping surfaced by managed WS) —
+            // writing them into the JSON parser causes JsonException —> RST.
+            if (result.MessageType != WebSocketMessageType.Text) continue;
+            ms.Write(buffer, 0, result.Count);
+        } while (!result.EndOfMessage);
+
+        if (ms.Length == 0) return null;
+        ms.Position = 0;
+        try
+        {
+            using var doc = JsonDocument.Parse(ms);
+            return doc.RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            // Malformed JSON frame — ignore, stay connected.
+            return null;
+        }
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<WebSocket, SemaphoreSlim> _semaphores = new();
+
+    private static async Task SendJsonAsync(WebSocket ws, object payload, CancellationToken ct)
+    {
+        var sem = _semaphores.GetOrAdd(ws, _ => new SemaphoreSlim(1, 1));
+        await sem.WaitAsync(ct);
+        try
+        {
+            var json = JsonSerializer.Serialize(payload);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
+        }
+        finally
+        {
+            sem.Release();
+        }
+    }
+
+    private static async Task CloseAsync(WebSocket ws, string reason)
+    {
+        try { await ws.CloseAsync(WebSocketCloseStatus.PolicyViolation, reason, CancellationToken.None); }
+        catch { /* best effort */ }
+    }
+
+    // ---- Manual HTTP Upgrade handshake (see class doc comment for why) ----
+
+    private static async Task<WebSocket> PerformHandshakeAsync(NetworkStream stream, CancellationToken ct)
+    {
+        var requestText = await ReadHttpHeadersAsync(stream, ct);
+        var key = ExtractHeader(requestText, "Sec-WebSocket-Key")
+                  ?? throw new InvalidOperationException("missing Sec-WebSocket-Key");
+
+        var acceptKey = Convert.ToBase64String(
+            SHA1.HashData(Encoding.UTF8.GetBytes(key + WebSocketMagicGuid)));
+
+        var responseText =
+            "HTTP/1.1 101 Switching Protocols\r\n" +
+            "Upgrade: websocket\r\n" +
+            "Connection: Upgrade\r\n" +
+            $"Sec-WebSocket-Accept: {acceptKey}\r\n\r\n";
+
+        var responseBytes = Encoding.ASCII.GetBytes(responseText);
+        await stream.WriteAsync(responseBytes, ct);
+
+        // Disable keepAliveInterval — we use an application-level heartbeat instead.
+        // The built-in interval sends WebSocket PING frames that race with our application
+        // SendAsync calls on the same NetworkStream, causing OkHttp pong timeouts.
+        return WebSocket.CreateFromStream(stream, isServer: true, subProtocol: null,
+            keepAliveInterval: Timeout.InfiniteTimeSpan);
+    }
+
+    private static async Task<string> ReadHttpHeadersAsync(NetworkStream stream, CancellationToken ct)
+    {
+        var buffer = new List<byte>();
+        var single = new byte[1];
+        // Read byte-by-byte until we see the blank line ending HTTP headers ("\r\n\r\n").
+        // Fine for a handshake (small, one-time) — not used for the actual message loop.
+        while (true)
+        {
+            int n = await stream.ReadAsync(single.AsMemory(0, 1), ct);
+            if (n == 0) break;
+            buffer.Add(single[0]);
+            if (buffer.Count >= 4 &&
+                buffer[^4] == '\r' && buffer[^3] == '\n' && buffer[^2] == '\r' && buffer[^1] == '\n')
+                break;
+        }
+        return Encoding.ASCII.GetString(buffer.ToArray());
+    }
+
+    private static string? ExtractHeader(string headers, string name)
+    {
+        foreach (var line in headers.Split("\r\n"))
+        {
+            var idx = line.IndexOf(':');
+            if (idx <= 0) continue;
+            if (string.Equals(line[..idx].Trim(), name, StringComparison.OrdinalIgnoreCase))
+                return line[(idx + 1)..].Trim();
+        }
+        return null;
+    }
+
+    private static string DetectLocalIpAddress()
+    {
+        try
+        {
+            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            // Doesn't actually send anything — just asks the OS which local interface would be
+            // used to reach an external address, which is a reliable way to find the "real" LAN IP.
+            socket.Connect("8.8.8.8", 65530);
+            return (socket.LocalEndPoint as IPEndPoint)?.Address.ToString() ?? "unknown";
+        }
+        catch
+        {
+            return "unknown";
+        }
+    }
+}

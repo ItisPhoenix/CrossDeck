@@ -1,0 +1,153 @@
+<Window x:Class="CrossDeckHost.EditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="CrossDeck Profile Editor" Height="480" Width="820"
+        WindowStartupLocation="CenterScreen" Background="#F3F3F3">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="3*"/>
+            <ColumnDefinition Width="2*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Top Row: Profile Management Header -->
+        <Border Grid.Row="0" Grid.ColumnSpan="2" Background="#E5E5E5" BorderBrush="#CCCCCC" BorderThickness="0,0,0,1" Padding="12,8">
+            <DockPanel>
+                <TextBlock Text="Active Profile:" VerticalAlignment="Center" FontWeight="Bold" Margin="0,0,8,0"/>
+                <ComboBox x:Name="ProfileSelectorCombo" Width="180" SelectionChanged="ProfileSelectorCombo_SelectionChanged" DisplayMemberPath="Name" SelectedValuePath="ProfileId"/>
+                <Button Content="New Profile" Margin="8,0,0,0" Padding="8,2" Click="NewProfileButton_Click"/>
+                <Button Content="Rename Profile" Margin="8,0,0,0" Padding="8,2" Click="RenameProfileButton_Click"/>
+                <Button x:Name="DeleteProfileButton" Content="Delete Profile" Margin="8,0,0,0" Padding="8,2" Click="DeleteProfileButton_Click" Background="#FFEBEE" Foreground="#C62828"/>
+            </DockPanel>
+        </Border>
+        
+        <!-- Left Side: Interactive 5x3 Grid View -->
+        <Border Grid.Row="1" Grid.Column="0" BorderBrush="#CCCCCC" BorderThickness="0,0,1,0" Margin="12">
+            <DockPanel>
+                <TextBlock Text="Logical Layout Grid (Click cell to edit or create)" DockPanel.Dock="Top" FontSize="14" FontWeight="Bold" Margin="0,0,0,12"/>
+                <DockPanel Margin="0,0,0,12" DockPanel.Dock="Top">
+                    <Button x:Name="BackButton" Content="◀ Go Back" DockPanel.Dock="Left" Padding="8,2" Margin="0,0,10,0" Click="BackButton_Click" Visibility="Collapsed" Background="#E0E0E0" FontWeight="Bold"/>
+                    <TextBlock x:Name="BreadcrumbText" Text="Location: Root" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Opacity="0.8"/>
+                </DockPanel>
+                <UniformGrid x:Name="ButtonGrid" Rows="3" Columns="5" Margin="0">
+                    <!-- Buttons will be dynamically added in code-behind -->
+                </UniformGrid>
+            </DockPanel>
+        </Border>
+        
+        <!-- Right Side: Button Editor Panel -->
+        <Grid Grid.Row="1" Grid.Column="1" Margin="12">
+            <StackPanel x:Name="EditPanel" Visibility="Collapsed">
+                <TextBlock Text="Edit Button Configuration" FontSize="14" FontWeight="Bold" Margin="0,0,0,16"/>
+                
+                <TextBlock Text="Position" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBlock x:Name="PositionText" Text="Row: 0, Col: 0" Margin="0,0,0,12" FontSize="12" Opacity="0.8"/>
+                
+                <TextBlock Text="Label" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBox x:Name="LabelInput" Margin="0,0,0,12" Padding="4"/>
+                
+                <TextBlock Text="Action Type" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <ComboBox x:Name="ActionTypeCombo" Margin="0,0,0,12" SelectionChanged="ActionTypeCombo_SelectionChanged">
+                    <ComboBoxItem Content="hotkey"/>
+                    <ComboBoxItem Content="launch_app"/>
+                    <ComboBoxItem Content="media_control"/>
+                    <ComboBoxItem Content="open_url"/>
+                    <ComboBoxItem Content="run_command"/>
+                    <ComboBoxItem Content="text_snippet"/>
+                    <ComboBoxItem Content="open_folder"/>
+                    <ComboBoxItem Content="multi_action"/>
+                    <ComboBoxItem Content="dial"/>
+                </ComboBox>
+                
+                <!-- Hotkey fields -->
+                <StackPanel x:Name="HotkeyPanel" Visibility="Visible">
+                    <TextBlock Text="Hotkey Combo (comma-separated keys, e.g. Ctrl,Shift,A)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox x:Name="HotkeyInput" Margin="0,0,0,12" Padding="4"/>
+                </StackPanel>
+                
+                <!-- Launch App fields -->
+                <StackPanel x:Name="LaunchAppPanel" Visibility="Collapsed">
+                    <TextBlock Text="Application Path" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <DockPanel Margin="0,0,0,12">
+                        <Button Content="Browse..." DockPanel.Dock="Right" Padding="6,2" Click="BrowseAppButton_Click"/>
+                        <TextBox x:Name="PathInput" Padding="4" Margin="0,0,6,0"/>
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- Media Control fields -->
+                <StackPanel x:Name="MediaControlPanel" Visibility="Collapsed">
+                    <TextBlock Text="Media Command" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="MediaCommandCombo" Margin="0,0,0,12">
+                        <ComboBoxItem Content="PlayPause"/>
+                        <ComboBoxItem Content="NextTrack"/>
+                        <ComboBoxItem Content="PrevTrack"/>
+                        <ComboBoxItem Content="VolumeUp"/>
+                        <ComboBoxItem Content="VolumeDown"/>
+                        <ComboBoxItem Content="VolumeMute"/>
+                    </ComboBox>
+                </StackPanel>
+
+                <!-- Open URL fields -->
+                <StackPanel x:Name="OpenUrlPanel" Visibility="Collapsed">
+                    <TextBlock Text="URL" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox x:Name="UrlInput" Margin="0,0,0,12" Padding="4"/>
+                </StackPanel>
+
+                <!-- Run Command fields -->
+                <StackPanel x:Name="RunCommandPanel" Visibility="Collapsed">
+                    <TextBlock Text="Command (CMD / Shell)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox x:Name="CommandInput" Margin="0,0,0,12" Padding="4"/>
+                </StackPanel>
+
+                <!-- Text Snippet fields -->
+                <StackPanel x:Name="TextSnippetPanel" Visibility="Collapsed">
+                    <TextBlock Text="Text Snippet to Paste" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox x:Name="SnippetTextInput" Margin="0,0,0,12" Padding="4" AcceptsReturn="True" TextWrapping="Wrap" Height="60"/>
+                </StackPanel>
+
+                <!-- Folder fields -->
+                <StackPanel x:Name="FolderPanel" Visibility="Collapsed">
+                    <TextBlock Text="Target Folder ID (custom, or empty to auto-generate)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox x:Name="TargetFolderIdInput" Margin="0,0,0,12" Padding="4"/>
+                    <Button Content="⬇ Enter Folder in Grid" Click="EnterFolderButton_Click" Background="#4CAF50" Foreground="White" FontWeight="Bold" Margin="0,0,0,12" Padding="6"/>
+                </StackPanel>
+                
+                <!-- Multi-Action fields -->
+                <StackPanel x:Name="MultiActionPanel" Visibility="Collapsed">
+                    <TextBlock Text="Action Sequence (e.g. hotkey: Ctrl,C then delay: 500)" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <TextBox x:Name="MultiActionInput" Margin="0,0,0,12" Padding="4" AcceptsReturn="True" TextWrapping="Wrap" Height="100"/>
+                </StackPanel>
+                
+                <!-- Dial fields -->
+                <StackPanel x:Name="DialPanel" Visibility="Collapsed">
+                    <TextBlock Text="Dial Target" FontWeight="SemiBold" Margin="0,0,0,4"/>
+                    <ComboBox x:Name="DialTargetCombo" Margin="0,0,0,12">
+                        <ComboBoxItem Content="volume"/>
+                        <ComboBoxItem Content="brightness"/>
+                    </ComboBox>
+                </StackPanel>
+                
+                <Grid Margin="0,12,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Content="Save" Margin="0,0,6,0" Padding="8" Click="SaveButton_Click" Background="#2196F3" Foreground="White" FontWeight="Bold"/>
+                    <Button Content="Delete" Grid.Column="1" Margin="6,0,0,0" Padding="8" Click="DeleteButton_Click" Background="#E53935" Foreground="White" FontWeight="Bold"/>
+                </Grid>
+                <!-- Status feedback label shown after Save / Delete operations -->
+                <TextBlock x:Name="SaveStatusText"
+                           Margin="0,8,0,0"
+                           FontWeight="SemiBold"
+                           FontSize="12"
+                           Visibility="Collapsed"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
+            
+            <TextBlock x:Name="PlaceholderText" Text="Select a cell on the left to edit or configure a button." VerticalAlignment="Center" HorizontalAlignment="Center" TextAlignment="Center" FontSize="13" Opacity="0.6" Margin="12"/>
+        </Grid>
+    </Grid>
+</Window>

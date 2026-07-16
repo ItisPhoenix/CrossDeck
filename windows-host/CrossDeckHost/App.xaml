@@ -1,0 +1,10 @@
+<Application x:Class="CrossDeckHost.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <!--
+      ShutdownMode=OnExplicitShutdown: the app has no main window by default (it lives in the
+      tray). Without this, WPF would exit immediately since no window is open on startup.
+      We call Application.Current.Shutdown() explicitly from the tray "Exit" menu item.
+    -->
+</Application>
