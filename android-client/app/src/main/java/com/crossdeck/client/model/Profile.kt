@@ -6,7 +6,9 @@ import kotlinx.serialization.Serializable
 data class Profile(
     val profileId: String,
     val name: String,
-    val buttons: List<ButtonModel>
+    val buttons: List<ButtonModel>,
+    val rows: Int = 3,
+    val columns: Int = 5
 )
 
 @Serializable

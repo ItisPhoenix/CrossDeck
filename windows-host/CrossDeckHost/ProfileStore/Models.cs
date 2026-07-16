@@ -30,6 +30,12 @@ public class Profile
 
     [JsonPropertyName("buttons")]
     public List<ButtonModel> Buttons { get; set; } = new();
+
+    [JsonPropertyName("rows")]
+    public int Rows { get; set; } = 3;
+
+    [JsonPropertyName("columns")]
+    public int Columns { get; set; } = 5;
 }
 
 public class ButtonModel

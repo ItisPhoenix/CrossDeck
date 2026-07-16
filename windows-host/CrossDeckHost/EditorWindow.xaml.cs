@@ -2,10 +2,13 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using CrossDeckHost.ProfileStore;
 using Microsoft.Win32;
 using System.Windows.Input;
+using System.Text.Json;
 
 namespace CrossDeckHost;
 
@@ -15,6 +18,14 @@ public partial class EditorWindow : Window
     private readonly Server.WebSocketServer? _server;
     private string? _currentFolderId = null;
     private readonly System.Collections.Generic.Stack<(string Id, string Label)> _folderHistory = new();
+
+    // Undo: snapshot of the state before the last button edit
+    private ButtonModel? _lastUndoSnapshot;
+    private bool _isUndoDelete; // true if the last op was a delete (undo = re-add)
+    private System.Windows.Threading.DispatcherTimer? _undoTimer;
+
+    // True while a cross-fade is happening — blocks re-entrant RefreshGrid calls
+    private bool _isFading;
 
     public EditorWindow(ProfileStoreService profileStore, Server.WebSocketServer? server)
     {
@@ -34,11 +45,15 @@ public partial class EditorWindow : Window
 
         Loaded += (s, e) =>
         {
+            // Restore saved window position/size
+            WindowSettings.Restore(this);
+
             ThemeManager.AccentColor = _profileStore.Set.AccentColor;
             ThemeManager.ApplyTheme(this);
             RefreshProfileSelector();
             RefreshGrid();
             UpdateConnectionStatusCard();
+            SyncGridSizeCombo();
         };
         Closed += (s, e) =>
         {
@@ -50,6 +65,10 @@ public partial class EditorWindow : Window
                 _server.ClientDisconnected -= OnClientConnectionStatusChanged;
             }
         };
+
+        // Persist window geometry on every move/resize
+        LocationChanged += (s, e) => WindowSettings.Save(this);
+        SizeChanged     += (s, e) => WindowSettings.Save(this);
     }
 
     private void OnProfileChangedOnThread(Profile profile)
@@ -114,9 +133,10 @@ public partial class EditorWindow : Window
             grid.Children.Add(nameTxt);
 
             int buttonCount = profile.Buttons?.Count ?? 0;
+            int totalSlots = profile.Rows * profile.Columns;
             var capTxt = new TextBlock
             {
-                Text = $"{buttonCount}/15",
+                Text = $"{buttonCount}/{totalSlots}",
                 Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#8A8A93")),
                 FontSize = 10.5,
                 VerticalAlignment = System.Windows.VerticalAlignment.Center
@@ -177,6 +197,20 @@ public partial class EditorWindow : Window
                 SwitchToProfile(profile.ProfileId);
             };
 
+            // Right-click context menu: Export / Import profile
+            var ctx = new ContextMenu();
+
+            var exportItem = new MenuItem { Header = "📤 Export Profile…" };
+            exportItem.Click += (s, e) => ExportProfile(profile);
+
+            var importItem = new MenuItem { Header = "📥 Import Profile…" };
+            importItem.Click += (s, e) => ImportProfile();
+
+            ctx.Items.Add(exportItem);
+            ctx.Items.Add(new Separator());
+            ctx.Items.Add(importItem);
+            border.ContextMenu = ctx;
+
             ProfileListContainer.Children.Add(border);
         }
     }
@@ -187,7 +221,27 @@ public partial class EditorWindow : Window
         _folderHistory.Clear();
         _profileStore.SwitchProfile(profileId);
         RefreshProfileSelector();
-        RefreshGrid();
+        RefreshGridWithFade();
+        SyncGridSizeCombo();
+    }
+
+    /// <summary>Syncs the GridSizeCombo selection to match the current profile's rows/columns.</summary>
+    private void SyncGridSizeCombo()
+    {
+        if (GridSizeCombo == null) return;
+        var rows = _profileStore.Current.Rows;
+        var cols = _profileStore.Current.Columns;
+        var tag = $"{rows},{cols}";
+        foreach (ComboBoxItem item in GridSizeCombo.Items)
+        {
+            if (item.Tag?.ToString() == tag)
+            {
+                GridSizeCombo.SelectionChanged -= GridSizeCombo_SelectionChanged;
+                GridSizeCombo.SelectedItem = item;
+                GridSizeCombo.SelectionChanged += GridSizeCombo_SelectionChanged;
+                break;
+            }
+        }
     }
 
     private void SaveTriggerProcess()
@@ -353,28 +407,93 @@ public partial class EditorWindow : Window
 
     private void RefreshGrid()
     {
+        RebuildGrid();
+    }
+
+    /// <summary>Cross-fades the button grid: fade out → rebuild → fade in.</summary>
+    private void RefreshGridWithFade()
+    {
+        if (_isFading) { RebuildGrid(); return; }
+        _isFading = true;
+
+        var fadeOut = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(140));
+        fadeOut.Completed += (s, e) =>
+        {
+            RebuildGrid();
+            var fadeIn = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(160));
+            fadeIn.Completed += (si, ei) => _isFading = false;
+            ButtonGrid.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+        };
+        ButtonGrid.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+    }
+
+    /// <summary>Core logic that populates ButtonGrid and rebuilds the breadcrumb panel.</summary>
+    private void RebuildGrid()
+    {
         ButtonGrid.Children.Clear();
 
+        // --- Breadcrumb panel ---
+        BreadcrumbPanel.Children.Clear();
         if (_currentFolderId == null)
         {
-            BreadcrumbText.Text = "Folder: Root";
             BackButton.Visibility = Visibility.Collapsed;
+            // Root segment (non-clickable)
+            BreadcrumbPanel.Children.Add(MakeBreadcrumbSegment("Root", isLast: true, onClick: null));
         }
         else
         {
-            var folderHierarchyNames = _folderHistory.Select(h => h.Label).Reverse().ToList();
-            string folderPath = string.Join(" ➔ ", folderHierarchyNames);
-            BreadcrumbText.Text = $"Folder: Root ➔ {folderPath}";
             BackButton.Visibility = Visibility.Visible;
+            // Clickable "Root" segment that navigates all the way to root
+            BreadcrumbPanel.Children.Add(MakeBreadcrumbSegment("Root", isLast: false, onClick: () =>
+            {
+                _folderHistory.Clear();
+                _currentFolderId = null;
+                RebuildGrid();
+            }));
+
+            var historyList = _folderHistory.ToList();
+            historyList.Reverse();
+            for (int i = 0; i < historyList.Count; i++)
+            {
+                int capturedI = i;
+                bool isLast = (i == historyList.Count - 1);
+                var (folderId, folderLabel) = historyList[i];
+                string capturedFolderId = folderId;
+
+                // Separator
+                BreadcrumbPanel.Children.Add(new TextBlock
+                {
+                    Text = " ➤ ",
+                    Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#44444F")),
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+
+                Action? clickAction = isLast ? null : () =>
+                {
+                    // Pop the history stack back to this folder
+                    while (_folderHistory.Count > 0 && _folderHistory.Peek().Id != capturedFolderId)
+                        _folderHistory.Pop();
+                    _currentFolderId = capturedFolderId;
+                    RebuildGrid();
+                };
+                BreadcrumbPanel.Children.Add(MakeBreadcrumbSegment(folderLabel, isLast, clickAction));
+            }
         }
+
+        // --- Dynamic grid dimensions ---
+        int rows = _profileStore.Current.Rows;
+        int cols = _profileStore.Current.Columns;
+        ButtonGrid.Rows = rows;
+        ButtonGrid.Columns = cols;
 
         var buttons = _profileStore.Current.Buttons
             .Where(b => b.ParentFolderId == _currentFolderId)
             .ToDictionary(b => (b.Position.Row, b.Position.Col));
 
-        for (int r = 0; r < 3; r++)
+        for (int r = 0; r < rows; r++)
         {
-            for (int c = 0; c < 5; c++)
+            for (int c = 0; c < cols; c++)
             {
                 var btn = new System.Windows.Controls.Button
                 {
@@ -419,10 +538,10 @@ public partial class EditorWindow : Window
                         catch { }
                     }
 
-                    var tbLabel = new TextBlock 
-                    { 
-                        Text = buttonModel.Label, 
-                        HorizontalAlignment = System.Windows.HorizontalAlignment.Center, 
+                    var tbLabel = new TextBlock
+                    {
+                        Text = buttonModel.Label,
+                        HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                         TextAlignment = System.Windows.TextAlignment.Center,
                         Foreground = System.Windows.Media.Brushes.White,
                         FontSize = 11,
@@ -432,6 +551,31 @@ public partial class EditorWindow : Window
                 }
                 else
                 {
+                    // Animated pulse ring + centered "+" for empty cells
+                    var canvas = new Canvas { Width = 48, Height = 48 };
+
+                    var ring = new Ellipse
+                    {
+                        Width = 36,
+                        Height = 36,
+                        Stroke = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor)),
+                        StrokeThickness = 1.2,
+                        Fill = System.Windows.Media.Brushes.Transparent,
+                        Opacity = 0.18
+                    };
+                    Canvas.SetLeft(ring, 6);
+                    Canvas.SetTop(ring, 6);
+
+                    // Pulse animation: 0.12 → 0.55 → 0.12, looping every 2.4s
+                    var pulse = new DoubleAnimation(0.12, 0.55, TimeSpan.FromSeconds(1.2))
+                    {
+                        AutoReverse = true,
+                        RepeatBehavior = RepeatBehavior.Forever,
+                        EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+                    };
+                    ring.BeginAnimation(UIElement.OpacityProperty, pulse);
+                    canvas.Children.Add(ring);
+
                     var tbPlus = new TextBlock
                     {
                         Text = "+",
@@ -441,7 +585,11 @@ public partial class EditorWindow : Window
                         HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                         VerticalAlignment = System.Windows.VerticalAlignment.Center
                     };
-                    stack.Children.Add(tbPlus);
+                    Canvas.SetLeft(tbPlus, 15);
+                    Canvas.SetTop(tbPlus, 11);
+                    canvas.Children.Add(tbPlus);
+
+                    stack.Children.Add(canvas);
                 }
 
                 border.Child = stack;
@@ -461,6 +609,27 @@ public partial class EditorWindow : Window
                 ButtonGrid.Children.Add(btn);
             }
         }
+    }
+
+    /// <summary>Creates a styled breadcrumb text segment, optionally clickable.</summary>
+    private TextBlock MakeBreadcrumbSegment(string label, bool isLast, Action? onClick)
+    {
+        var tb = new TextBlock
+        {
+            Text = label,
+            FontSize = isLast ? 14 : 12,
+            FontWeight = isLast ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
+                isLast ? "#FFFFFF" : ThemeManager.AccentColor)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor = onClick != null ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow
+        };
+        if (onClick != null)
+        {
+            tb.TextDecorations = TextDecorations.Underline;
+            tb.MouseLeftButtonDown += (s, e) => onClick();
+        }
+        return tb;
     }
 
     private void SelectCell(int row, int col)
@@ -484,7 +653,7 @@ public partial class EditorWindow : Window
         // Open ButtonEditorWindow modally
         var editorDlg = new ButtonEditorWindow(buttonModel);
         editorDlg.Owner = this;
-        
+
         // Hide delete button if it's a new cell
         if (isNew)
         {
@@ -497,6 +666,8 @@ public partial class EditorWindow : Window
             {
                 if (!isNew)
                 {
+                    // Snapshot for undo before deleting
+                    SnapshotForUndo(buttonModel, isDelete: true);
                     _profileStore.DeleteButton(_profileStore.Set.ActiveProfileId, buttonModel.ButtonId);
                 }
             }
@@ -508,6 +679,8 @@ public partial class EditorWindow : Window
                 }
                 else
                 {
+                    // Snapshot for undo before overwriting
+                    SnapshotForUndo(buttonModel, isDelete: false);
                     _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, editorDlg.Button);
                 }
 
@@ -523,6 +696,136 @@ public partial class EditorWindow : Window
             _profileStore.NotifyChanged();
             RefreshGrid();
             RefreshProfileSelector();
+        }
+    }
+
+    // --------------- UNDO LOGIC ---------------
+
+    private void SnapshotForUndo(ButtonModel btn, bool isDelete)
+    {
+        // Deep-copy via JSON round-trip to avoid aliasing
+        _lastUndoSnapshot = JsonSerializer.Deserialize<ButtonModel>(JsonSerializer.Serialize(btn));
+        _isUndoDelete = isDelete;
+        ShowUndoToast(isDelete ? $"Deleted \"{btn.Label}\"" : $"Edited \"{btn.Label}\"");
+    }
+
+    private void ShowUndoToast(string label)
+    {
+        if (UndoToastCard == null) return;
+        UndoToastLabel.Text = label;
+        UndoToastCard.Visibility = Visibility.Visible;
+
+        _undoTimer?.Stop();
+        _undoTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _undoTimer.Tick += (s, e) =>
+        {
+            UndoToastCard.Visibility = Visibility.Collapsed;
+            _undoTimer.Stop();
+        };
+        _undoTimer.Start();
+    }
+
+    private void UndoBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_lastUndoSnapshot == null) return;
+
+        if (_isUndoDelete)
+        {
+            // Re-add the deleted button
+            _profileStore.Current.Buttons.Add(_lastUndoSnapshot);
+        }
+        else
+        {
+            // Restore previous state
+            _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, _lastUndoSnapshot);
+        }
+
+        _profileStore.Save();
+        _profileStore.NotifyChanged();
+        RefreshGrid();
+        RefreshProfileSelector();
+
+        _lastUndoSnapshot = null;
+        UndoToastCard.Visibility = Visibility.Collapsed;
+        _undoTimer?.Stop();
+    }
+
+    // --------------- GRID SIZE PICKER ---------------
+
+    private void GridSizeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (GridSizeCombo?.SelectedItem is not ComboBoxItem item) return;
+        var tag = item.Tag?.ToString();
+        if (string.IsNullOrEmpty(tag)) return;
+
+        var parts = tag.Split(',');
+        if (parts.Length != 2) return;
+        if (!int.TryParse(parts[0], out int rows) || !int.TryParse(parts[1], out int cols)) return;
+
+        _profileStore.Current.Rows = rows;
+        _profileStore.Current.Columns = cols;
+        _profileStore.Save();
+        _profileStore.NotifyChanged();
+        RefreshGrid();
+        RefreshProfileSelector();
+    }
+
+    // --------------- PROFILE EXPORT / IMPORT ---------------
+
+    private void ExportProfile(Profile profile)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            FileName = $"{profile.Name}.crossdeck.json",
+            DefaultExt = ".json",
+            Filter = "CrossDeck Profile (*.crossdeck.json)|*.crossdeck.json|JSON Files (*.json)|*.json"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var json = JsonSerializer.Serialize(profile, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(dlg.FileName, json);
+            ShowToast($"Exported \"{profile.Name}\" successfully", isSuccess: true);
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show($"Export failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ImportProfile()
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "CrossDeck Profile (*.crossdeck.json)|*.crossdeck.json|JSON Files (*.json)|*.json"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var json = File.ReadAllText(dlg.FileName);
+            var profile = JsonSerializer.Deserialize<Profile>(json);
+            if (profile == null) throw new InvalidDataException("Invalid profile file.");
+
+            // Ensure unique ID to avoid conflicts
+            profile.ProfileId = $"p_{Guid.NewGuid().ToString().Substring(0, 8)}";
+
+            // Resolve duplicate names
+            var name = profile.Name;
+            int idx = 1;
+            while (_profileStore.Set.Profiles.Any(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                name = $"{profile.Name} ({idx++})";
+            profile.Name = name;
+
+            _profileStore.Set.Profiles.Add(profile);
+            _profileStore.Save();
+            _profileStore.NotifyChanged();
+            ShowToast($"Imported \"{profile.Name}\" successfully", isSuccess: true);
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show($"Import failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -695,7 +998,7 @@ public partial class EditorWindow : Window
         {
             _folderHistory.Pop();
             _currentFolderId = _folderHistory.Count > 0 ? _folderHistory.Peek().Id : null;
-            RefreshGrid();
+            RebuildGrid();
         }
     }
 
@@ -739,4 +1042,3 @@ public partial class EditorWindow : Window
         }
     }
 }
-

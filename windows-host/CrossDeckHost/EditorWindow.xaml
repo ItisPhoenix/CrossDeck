@@ -138,12 +138,20 @@
                             </Grid.ColumnDefinitions>
 
                             <Button x:Name="BackButton" Content="◀ Go Back" VerticalAlignment="Center" Padding="8,4" Click="BackButton_Click" Visibility="Collapsed" Margin="0,0,10,0"/>
-                            <TextBlock x:Name="BreadcrumbText" Grid.Column="1" Text="Folder: Root" VerticalAlignment="Center" Foreground="#FFFFFF" FontSize="14" FontWeight="Bold"/>
+                            <!-- Clickable breadcrumb segments built dynamically in code-behind -->
+                            <StackPanel x:Name="BreadcrumbPanel" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"/>
 
-                            <!-- Trigger Process picker box -->
+                            <!-- Right: Trigger Process + Grid Size picker -->
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="Trigger Process:" Foreground="#8A8A93" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="TriggerProcessTxt" Width="130" Height="22" VerticalAlignment="Center" Padding="3,1" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" ToolTip="e.g. chrome.exe (auto-switches to this profile)"/>
+                                <TextBlock Text="Grid:" Foreground="#8A8A93" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <ComboBox x:Name="GridSizeCombo" Width="80" Height="22" FontSize="10.5" SelectionChanged="GridSizeCombo_SelectionChanged" Background="#121216" Foreground="#FFFFFF" BorderBrush="#25252E" VerticalAlignment="Center" Margin="0,0,14,0">
+                                    <ComboBoxItem Content="2 × 4" Tag="2,4"/>
+                                    <ComboBoxItem Content="3 × 5" Tag="3,5" IsSelected="True"/>
+                                    <ComboBoxItem Content="4 × 6" Tag="4,6"/>
+                                    <ComboBoxItem Content="2 × 3" Tag="2,3"/>
+                                </ComboBox>
+                                <TextBlock Text="Trigger:" Foreground="#8A8A93" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="TriggerProcessTxt" Width="120" Height="22" VerticalAlignment="Center" Padding="3,1" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" ToolTip="e.g. chrome.exe (auto-switches to this profile)"/>
                             </StackPanel>
                         </Grid>
 
@@ -153,13 +161,24 @@
                                 <!-- Dynamic Squircle Buttons added dynamically in C# -->
                             </UniformGrid>
 
-                            <!-- Ambient Connection Notifications Toast Overlay in Bottom-Right -->
-                            <Border x:Name="ToastNotificationCard" CornerRadius="8" Background="#1C1C24" BorderBrush="{DynamicResource PrimaryAccentBrush}" BorderThickness="1" Padding="12,8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,16" Visibility="Collapsed">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Ellipse x:Name="ToastStateDot" Width="8" Height="8" Fill="#FF5555" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                    <TextBlock x:Name="ToastMessageText" Text="Device Disconnected" Foreground="#FFFFFF" FontSize="11.5" FontWeight="SemiBold"/>
-                                </StackPanel>
-                            </Border>
+                            <!-- Ambient Connection / Undo Toast Overlay in Bottom-Right -->
+                            <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,16">
+                                <!-- Connection status toast -->
+                                <Border x:Name="ToastNotificationCard" CornerRadius="8" Background="#1C1C24" BorderBrush="{DynamicResource PrimaryAccentBrush}" BorderThickness="1" Padding="12,8" Margin="0,0,0,6" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Ellipse x:Name="ToastStateDot" Width="8" Height="8" Fill="#FF5555" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock x:Name="ToastMessageText" Text="Device Disconnected" Foreground="#FFFFFF" FontSize="11.5" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                </Border>
+                                <!-- Undo last edit toast -->
+                                <Border x:Name="UndoToastCard" CornerRadius="8" Background="#1C1C24" BorderBrush="#8B5CF6" BorderThickness="1" Padding="10,6" Visibility="Collapsed">
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                        <TextBlock Text="↩" Foreground="#8B5CF6" FontSize="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock x:Name="UndoToastLabel" Text="Undo last edit" Foreground="#FFFFFF" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <Button x:Name="UndoBtn" Content="Undo" Click="UndoBtn_Click" Padding="8,3" FontSize="10.5" Background="#8B5CF6" Foreground="#FFFFFF" FontWeight="SemiBold"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
                         </Grid>
                     </Grid>
                 </Border>

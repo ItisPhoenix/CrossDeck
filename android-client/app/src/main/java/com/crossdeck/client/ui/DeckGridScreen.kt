@@ -91,6 +91,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import android.view.HapticFeedbackConstants
 import androidx.compose.ui.platform.LocalView
 import com.crossdeck.client.model.ActionModel
@@ -137,6 +138,7 @@ fun DeckGridScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val view = LocalView.current
+    val density = LocalDensity.current.density
 
     // Single gate for every haptic call site below — respects the Haptic Feedback setting
     // without wrapping each individual view.performHapticFeedback(...) call in an if-check.
@@ -211,8 +213,9 @@ fun DeckGridScreen(
         label = "profileFlip"
     )
 
-    val rows = 3
-    val cols = 5
+    // Dynamic grid dimensions from the profile model (defaults to 3×5 if unset).
+    val rows = profile.rows.coerceAtLeast(1)
+    val cols = profile.columns.coerceAtLeast(1)
     val displayedButtons = profile.buttons.filter { it.parentFolderId == currentFolderId }
     val buttonMap = displayedButtons.associateBy { it.position.row to it.position.col }
 
@@ -598,12 +601,31 @@ fun DeckGridScreen(
                                                 }
                                             )
                                         } else {
+                                            // Empty cell pulse ring — a neon ring that slowly
+                                            // pulses in opacity so the deck feels alive.
+                                            val emptyPulse by rememberInfiniteTransition(label = "emptyPulse")
+                                                .animateFloat(
+                                                    initialValue = 0.15f,
+                                                    targetValue = 0.65f,
+                                                    animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                                                        animation = tween(2000, easing = androidx.compose.animation.core.LinearEasing),
+                                                        repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                                                    ),
+                                                    label = "emptyPulseAlpha"
+                                                )
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxSize()
                                                     .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(12.dp))
-                                                    .background(Color(0xFF0E0E10), RoundedCornerShape(12.dp))
-                                            )
+                                                    .background(Color(0xFF0E0E10), RoundedCornerShape(12.dp)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(26.dp)
+                                                        .border(1.5.dp, accentColor.copy(alpha = emptyPulse), RoundedCornerShape(50))
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -903,6 +925,27 @@ private fun DeckButton(
             )
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            // Ripple ring that expands + fades on press, giving tactile feedback.
+            val rippleScale by animateFloatAsState(
+                targetValue = if (isPressed) 1.6f else 0.6f,
+                animationSpec = tween(durationMillis = if (isPressed) 350 else 200),
+                label = "rippleScale"
+            )
+            val rippleAlpha by animateFloatAsState(
+                targetValue = if (isPressed) 0.45f else 0f,
+                animationSpec = tween(durationMillis = if (isPressed) 350 else 200),
+                label = "rippleAlpha"
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize(0.7f)
+                    .graphicsLayer {
+                        scaleX = rippleScale
+                        scaleY = rippleScale
+                        alpha = rippleAlpha
+                    }
+                    .border(2.dp, accentColor, RoundedCornerShape(50))
+            )
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
