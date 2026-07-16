@@ -1,39 +1,41 @@
-# AppName (rename before publishing)
+# CrossDeck
 
 Open source Stream-Deck-style app: your Android phone becomes a customizable button deck that controls your Windows PC over local WiFi.
-
-Full architecture, decision log, and protocol spec: [`docs/Architecture-Spec.md`](docs/Architecture-Spec.md).
 
 ## Repo Structure
 
 ```
 /windows-host      .NET 8 / WPF tray app — runs on the PC being controlled
 /android-client    Kotlin / Jetpack Compose app — runs on the phone (the "deck")
-/shared-schema      protocol.md — WebSocket JSON message formats, source of truth for both sides
-/docs               architecture spec, decision log
 LICENSE             MIT
 ```
 
-## Build Status — Milestone 1 (current)
+## Features Built
 
-Goal of this milestone: prove the hard part works end-to-end before adding features.
-
-- [x] Windows Host: WebSocket server + PIN pairing + serves one hardcoded profile
-- [x] Android Client: manual IP+PIN pairing screen + connects + renders that profile read-only + sends `button_press` on tap
-- [x] Windows Host: receives `button_press`, executes a hotkey action via `SendInput`
-- [ ] Bidirectional profile editing + sync (Milestone 2)
-- [ ] Folders, multi-action, dial/slider, auto-profile-switch, text snippets (Milestone 2/3)
-- [ ] Icon pack + custom upload with asset endpoint (Milestone 3)
-- [ ] mDNS auto-discovery (manual IP entry works now; NSD discovery stub included but not wired up yet)
-
-See `docs/Architecture-Spec.md` → "Revised MVP Scope" for the full planned build order.
+- [x] **Windows Host**: WebSocket server + tray icon controls + active profile listener.
+- [x] **Android Client**: Dynamic grid system auto-fitted to any screen size.
+- [x] **UDP Auto-Discovery**: Scan and connect instantly on the local network (saves last connection).
+- [x] **Multi-Profile Management**: Create, rename, delete, and switch profiles from either the Android deck or the PC.
+- [x] **Bidirectional Grid Editor**: Edit actions, labels, folder layout, and grid positions on the fly from either client or host.
+- [x] **Folders**: Scoped button pages with nesting navigation hierarchy and back navigations.
+- [x] **Actions Engine**:
+  - `hotkey` (Standard keyboard key strokes)
+  - `media_control` (Play, pause, skip, mute, volume change)
+  - `launch_app` (Launch programs/executables)
+  - `open_url` (Open URLs in default browser)
+  - `run_command` (Console shell command line execution)
+  - `text_snippet` (Send raw text snippets)
+  - `multi_action` (Sequenced combinations with custom delay intervals)
+- [x] **Dials / System Controls**: Tap a dial button to pull up a smooth 60fps slider modal popup to control:
+  - System volume level natively via WASAPI COM.
+  - Monitor brightness natively (DDC/CI hardware controller for desktop monitors via `dxva2.dll` with a WMI fallback for laptops).
 
 ## Building — Windows Host
 
 Prerequisites: Windows 10/11, .NET 8 SDK, Visual Studio 2022 with ".NET desktop development" workload.
 
-```
-cd windows-host/HostApp
+```powershell
+cd windows-host/CrossDeckHost
 dotnet restore
 dotnet build
 dotnet run
@@ -47,8 +49,8 @@ Prerequisites: Android Studio, SDK Platform 31+, JDK 17, a physical Android 12+ 
 
 1. Open `android-client/` in Android Studio, let Gradle sync.
 2. Run on your device (USB debugging enabled).
-3. On the pairing screen, enter the PC's IP, port, and PIN shown in the Windows tray app.
-4. Once connected, the deck grid renders. Tap a button to trigger its action on the PC.
+3. Tap "Scan" to auto-discover your PC, or enter the IP + PIN manually.
+4. Once connected, the deck grid renders. Tap a button or slider to control your PC.
 
 ## License
 

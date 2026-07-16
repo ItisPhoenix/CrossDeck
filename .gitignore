@@ -16,3 +16,11 @@ android-client/.cxx/
 # OS
 .DS_Store
 Thumbs.db
+
+#Others
+appname-repo-milestone1/
+appname-repo-milestone1.zip
+shared-schema/
+docs/
+MASTER-PLAN.md
+Architecture-Spec-v2-FINAL.md
