@@ -5,8 +5,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -14,8 +14,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.width
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.produceState
@@ -26,10 +26,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -40,6 +42,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.zIndex
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
@@ -164,25 +167,12 @@ fun DeckGridScreen(
         SignalCyan
     }
 
-    // Dynamic scale oscillation for selector
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.98f,
-        targetValue = 1.02f,
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(1500, easing = androidx.compose.animation.core.LinearEasing),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
-        ),
-        label = "pulseScale"
-    )
-
     // Show a Snackbar whenever toastMessage becomes non-null
     LaunchedEffect(toastMessage) {
         toastMessage?.let { (msg, _) ->
             scope.launch { snackbarHostState.showSnackbar(message = msg, withDismissAction = false) }
         }
     }
-    val context = LocalContext.current
     var isEditMode by remember { mutableStateOf(false) }
     var editingButton by remember { mutableStateOf<ButtonModel?>(null) }
     var creatingAtPosition by remember { mutableStateOf<Position?>(null) }
@@ -190,6 +180,16 @@ fun DeckGridScreen(
     var currentFolderId by remember { mutableStateOf<String?>(null) }
     var folderHistory by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var activeDialButton by remember { mutableStateOf<ButtonModel?>(null) }
+
+    // Pop one level out of the current folder — used by both the system back button and the
+    // on-screen back chevron. folderHistory entries are (parentFolderId, enteredFolderLabel);
+    // "" stands in for root since currentFolderId is nullable but the list holds non-null strings.
+    fun navigateBackFromFolder() {
+        val parent = folderHistory.lastOrNull()?.first
+        currentFolderId = parent?.ifEmpty { null }
+        folderHistory = folderHistory.dropLast(1)
+    }
+    BackHandler(enabled = currentFolderId != null) { navigateBackFromFolder() }
 
     var expanded by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -326,164 +326,11 @@ fun DeckGridScreen(
                 .padding(innerPadding)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp)
-                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Profile selector dropdown
-                    ExposedDropdownMenuBox(
-                        expanded = expanded,
-                        onExpandedChange = { expanded = !expanded }
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .menuAnchor()
-                                .scale(pulseScale)
-                                .clickable { expanded = !expanded }
-                                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-                                .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = profile.name,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Icon(
-                                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "Select Profile",
-                                    tint = accentColor,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                        ExposedDropdownMenu(
-                            expanded = expanded,
-                            onDismissRequest = { expanded = false }
-                        ) {
-                            profiles.forEach { p ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(p.name)
-                                            if (p.icons.isNotEmpty()) {
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                p.icons.take(4).forEach { hash ->
-                                                    val bmp by produceState<ImageBitmap?>(initialValue = null, hash, connectedHostUrl) {
-                                                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                                            resolveIconBitmap(context, hash, connectedHostUrl, authToken)
-                                                        }
-                                                    }
-                                                    bmp?.let {
-                                                        Image(
-                                                            bitmap = it,
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(16.dp).padding(end = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    },
-                                    onClick = {
-                                        expanded = false
-                                        onProfileSwitch(p.profileId)
-                                    }
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = { Text("+ New Profile", color = accentColor) },
-                                onClick = {
-                                    expanded = false
-                                    showCreateDialog = true
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("✏ Rename Current") },
-                                onClick = {
-                                    expanded = false
-                                    renameProfileName = profile.name
-                                    showRenameDialog = true
-                                }
-                            )
-                            if (profiles.size > 1) {
-                                DropdownMenuItem(
-                                    text = { Text("🗑 Delete Current", color = MaterialTheme.colorScheme.error) },
-                                    onClick = {
-                                        expanded = false
-                                        onProfileDelete(activeProfileId)
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // Settings and edit triggers
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Button(
-                            onClick = {
-                                haptic()
-                                isEditMode = !isEditMode
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isEditMode) accentColor else MaterialTheme.colorScheme.surface,
-                                contentColor = if (isEditMode) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurface
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.border(1.dp, if (isEditMode) accentColor else MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = null,
-                                    tint = if (isEditMode) MaterialTheme.colorScheme.background else accentColor,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isEditMode) "Done" else "Edit",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                haptic()
-                                showSettingsPanel = !showSettingsPanel
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                contentColor = MaterialTheme.colorScheme.onSurface
-                            ),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Settings",
-                                tint = accentColor,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-
                 // Grid layout wrapper with 3D Flip capability
                 var swipeAccum by remember { mutableStateOf(0f) }
                 val canSwipeProfiles = profiles.size > 1 && currentFolderId == null && !isEditMode
-                Box(
-                    contentAlignment = Alignment.Center,
+                BoxWithConstraints(
+                    contentAlignment = Alignment.TopCenter,
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
@@ -525,20 +372,31 @@ fun DeckGridScreen(
                         var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
                         val gridSpacing = if (settings.compactGrid) 4.dp else 6.dp
-                        // Content-sized + parent Box centers it, instead of top-anchoring with dead space below.
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(cols),
-                            contentPadding = PaddingValues(2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(gridSpacing),
+                        // Reserve headroom for the floating menu/back icons (top-right/top-left) so
+                        // full-height cells don't render underneath — otherwise the top-corner
+                        // buttons would be partly hidden and partly untappable.
+                        val topInset = 56.dp
+                        // Stream-Deck-style: cell size is derived from available space so the whole
+                        // grid always fits on screen — no scrolling, especially in landscape where
+                        // height (not width) is the tight dimension.
+                        val cellSize = remember(maxWidth, maxHeight, rows, cols, gridSpacing) {
+                            val availableW = maxWidth - 4.dp - gridSpacing * (cols - 1)
+                            val availableH = maxHeight - 4.dp - topInset - gridSpacing * (rows - 1)
+                            minOf(availableW / cols, availableH / rows).coerceAtLeast(0.dp)
+                        }
+
+                        // Content-sized + parent Box centers it horizontally; top padding clears the
+                        // floating icon row instead of centering into it.
+                        Column(
                             verticalArrangement = Arrangement.spacedBy(gridSpacing),
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .wrapContentHeight()
+                                .padding(top = topInset)
                                 .onGloballyPositioned { gridCoordinates = it }
                         ) {
-                            items(rows * cols) { index ->
-                                val r = index / cols
-                                val c = index % cols
+                        for (r in 0 until rows) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(gridSpacing)) {
+                        for (c in 0 until cols) {
+                                val index = r * cols + c
                                 val cellButton = buttonMap[r to c]
                                 val isDraggingThis = draggedIndex == index
 
@@ -612,7 +470,7 @@ fun DeckGridScreen(
                                 } else Modifier
 
                                 Box(
-                                    modifier = Modifier.aspectRatio(1f)
+                                    modifier = Modifier.size(cellSize)
                                 ) {
                                     if (cellButton != null) {
                                         val dialValue = dialLevels[cellButton.buttonId]
@@ -685,8 +543,146 @@ fun DeckGridScreen(
                                         }
                                     }
                                 }
-                            }
                         }
+                        }
+                        }
+                        }
+                    }
+                }
+            }
+
+            // Folder back button — top-left, mirrors the menu button, only shown inside a folder.
+            // Without this a folder was a dead end: nothing else in the UI could get back out.
+            if (currentFolderId != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp)
+                        .clickable {
+                            haptic()
+                            navigateBackFromFolder()
+                        }
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), RoundedCornerShape(50))
+                        .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(50))
+                        .padding(start = 4.dp, end = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = "Back",
+                        tint = accentColor,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Text(
+                        text = folderHistory.lastOrNull()?.second ?: "Back",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Floating menu button — top-right, always visible. Keeps the grid clean (Stream Deck
+            // style, no permanent header bar) while still reaching Edit mode, Settings, and
+            // profile switching from one place.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+            ) {
+                IconButton(
+                    onClick = { expanded = true },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), RoundedCornerShape(50))
+                        .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(50))
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Menu",
+                        tint = accentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(if (isEditMode) "Done Editing" else "Edit Buttons") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = if (isEditMode) accentColor else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        onClick = {
+                            haptic()
+                            isEditMode = !isEditMode
+                            expanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        onClick = {
+                            haptic()
+                            showSettingsPanel = true
+                            expanded = false
+                        }
+                    )
+                    Text(
+                        text = "PROFILE: ${profile.name}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                    profiles.forEach { p ->
+                        val isActive = p.profileId == activeProfileId
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = p.name,
+                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isActive) accentColor else MaterialTheme.colorScheme.onSurface
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onProfileSwitch(p.profileId)
+                            }
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("+ New Profile", color = accentColor) },
+                        onClick = {
+                            expanded = false
+                            showCreateDialog = true
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("✏ Rename Current") },
+                        onClick = {
+                            expanded = false
+                            renameProfileName = profile.name
+                            showRenameDialog = true
+                        }
+                    )
+                    if (profiles.size > 1) {
+                        DropdownMenuItem(
+                            text = { Text("🗑 Delete Current", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                expanded = false
+                                onProfileDelete(activeProfileId)
+                            }
+                        )
                     }
                 }
             }

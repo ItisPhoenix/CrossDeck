@@ -391,14 +391,25 @@ public class ActionExecutor
         try
         {
             var sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
-            var session = sessionManager.GetCurrentSession();
-            if (session is not null)
+
+            // GetCurrentSession() can point at a stale session — e.g. a browser tab that just
+            // entered Picture-in-Picture stops being "current" from Windows' point of view even
+            // though it's still playing. Prefer whichever session is actually reporting
+            // Playing/Paused right now; only fall back to "current" if none are.
+            var activeSession = sessionManager.GetSessions().FirstOrDefault(s =>
+            {
+                var status = s.GetPlaybackInfo()?.PlaybackStatus;
+                return status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
+                    || status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
+            }) ?? sessionManager.GetCurrentSession();
+
+            if (activeSession is not null)
             {
                 bool ok = command switch
                 {
-                    "PlayPause" => await session.TryTogglePlayPauseAsync(),
-                    "NextTrack" => await session.TrySkipNextAsync(),
-                    "PrevTrack" => await session.TrySkipPreviousAsync(),
+                    "PlayPause" => await activeSession.TryTogglePlayPauseAsync(),
+                    "NextTrack" => await activeSession.TrySkipNextAsync(),
+                    "PrevTrack" => await activeSession.TrySkipPreviousAsync(),
                     _ => false
                 };
                 if (ok)
