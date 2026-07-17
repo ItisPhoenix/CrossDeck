@@ -230,6 +230,19 @@ public partial class ButtonEditorWindow : Window
         if (PathComboInput.SelectedItem is DiscoveredApp app)
         {
             PathComboInput.Text = app.ExePath;
+            TryAutoExtractAppIcon(app.ExePath);
+        }
+    }
+
+    // launch_app never had an icon source of its own — picking an app silently left Icon
+    // unset unless the user separately browsed for an image. Mirror the favicon flow: extract
+    // the exe's real icon and store it, same as FetchFavicon does for open_url.
+    private void TryAutoExtractAppIcon(string exePath)
+    {
+        var hash = ProfileStoreService.ExtractAndSaveIcon(exePath);
+        if (hash != null)
+        {
+            IconPathText.Text = hash;
         }
     }
 
@@ -242,6 +255,7 @@ public partial class ButtonEditorWindow : Window
         if (dlg.ShowDialog() == true)
         {
             PathComboInput.Text = dlg.FileName;
+            TryAutoExtractAppIcon(dlg.FileName);
         }
     }
 
@@ -296,7 +310,10 @@ public partial class ButtonEditorWindow : Window
 
         try
         {
-            var faviconUrl = $"https://www.google.com/s2/favicons?sz=32&domain={domain}";
+            // sz=256 asks Google for its largest cached favicon variant — verified this actually
+            // returns a real higher-res image (not just server-side upscaling of a 32px source),
+            // so the 144x144 PNG we save from it looks sharp instead of blurry.
+            var faviconUrl = $"https://www.google.com/s2/favicons?sz=256&domain={domain}";
             var bytes = await _faviconHttpClient.GetByteArrayAsync(faviconUrl, token);
 
             if (token.IsCancellationRequested) return;

@@ -1,0 +1,26 @@
+; Inno Setup Script for CrossDeck PC Host
+; Compiles into a standard Windows Setup EXE installer.
+
+[Setup]
+AppName=CrossDeck
+AppVersion=0.1.0-beta
+DefaultDirName={userappdata}\CrossDeck
+DefaultGroupName=CrossDeck
+UninstallDisplayIcon={app}\CrossDeckHost.exe
+Compression=lzma2
+SolidCompression=yes
+OutputDir=D:\CrossDeck\windows-host\Setup
+OutputBaseFilename=CrossDeckSetup
+SetupIconFile=D:\CrossDeck\windows-host\CrossDeckHost\Assets\app.ico
+LicenseFile=D:\CrossDeck\LICENSE
+PrivilegesRequired=lowest
+
+[Files]
+Source: "D:\CrossDeck\windows-host\CrossDeckHost\bin\Release\net8.0-windows\win-x64\publish\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\CrossDeck"; Filename: "{app}\CrossDeckHost.exe"; WorkingDir: "{app}"
+Name: "{autodesktop}\CrossDeck"; Filename: "{app}\CrossDeckHost.exe"; WorkingDir: "{app}"
+
+[Run]
+Filename: "{app}\CrossDeckHost.exe"; Description: "Launch CrossDeck Host"; Flags: nowait postinstall skipifsilent

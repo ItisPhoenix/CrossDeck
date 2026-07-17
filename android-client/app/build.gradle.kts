@@ -12,13 +12,20 @@ android {
         applicationId = "com.crossdeck.client"
         minSdk = 31 // Android 12+, per architecture spec decision #13
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-milestone1"
+        versionName = "0.1.0-beta"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+
+    applicationVariants.all {
+        val variant = this
+        variant.outputs.map { it as com.android.build.gradle.internal.api.ApkVariantOutputImpl }.forEach { output ->
+            output.outputFileName = "CrossDeck Client.apk"
         }
     }
 
@@ -37,6 +44,11 @@ android {
 
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
+    }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 }
 

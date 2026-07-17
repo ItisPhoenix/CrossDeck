@@ -70,6 +70,7 @@ public class WebSocketServer
     {
         _cts = new CancellationTokenSource();
         _listener = new TcpListener(IPAddress.Any, _port);
+        _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         _listener.Start();
         _ = AcceptLoopAsync(_cts.Token);
 
@@ -77,6 +78,7 @@ public class WebSocketServer
         // WebSocket listener above — see class doc comment for why HttpListener is
         // avoided project-wide (admin/urlacl requirement).
         _assetListener = new TcpListener(IPAddress.Any, _port + 1);
+        _assetListener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         _assetListener.Start();
         _ = AssetAcceptLoopAsync(_cts.Token);
     }
@@ -545,7 +547,12 @@ public class WebSocketServer
         {
             type = "profile_list",
             activeProfileId = _profileStore.Set.ActiveProfileId,
-            profiles = _profileStore.Set.Profiles.Select(p => new { profileId = p.ProfileId, name = p.Name }).ToList()
+            profiles = _profileStore.Set.Profiles.Select(p => new
+            {
+                profileId = p.ProfileId,
+                name = p.Name,
+                icons = p.Buttons.Where(b => !string.IsNullOrEmpty(b.Icon)).Select(b => b.Icon).Take(4).ToList()
+            }).ToList()
         };
 
     private static string GetType_(JsonElement el) =>

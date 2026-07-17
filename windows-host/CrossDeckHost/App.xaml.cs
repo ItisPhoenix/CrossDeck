@@ -64,8 +64,22 @@ public partial class App : System.Windows.Application
             });
         _tray.Initialize();
 
-        // Show pairing info immediately on first launch so it's not hidden behind a tray click.
-        ShowPairingWindow();
+        // If launched with '--background' (e.g. via startup shortcut or registry key),
+        // we stay silently in the system tray without showing the Pairing Window.
+        bool startInBackground = false;
+        foreach (var arg in e.Args)
+        {
+            if (arg.Equals("--background", StringComparison.OrdinalIgnoreCase))
+            {
+                startInBackground = true;
+                break;
+            }
+        }
+
+        if (!startInBackground)
+        {
+            ShowPairingWindow();
+        }
     }
 
     private void ShowPairingWindow()

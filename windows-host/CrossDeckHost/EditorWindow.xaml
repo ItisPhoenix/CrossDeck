@@ -84,15 +84,17 @@
                             <Button Style="{StaticResource DangerButton}" Grid.Column="1" Content="Delete Page" Click="DeleteProfileButton_Click" Margin="3,0,0,0"/>
                         </Grid>
 
-                        <Button Style="{StaticResource StandardButton}" Content="Add Preset profile..." Click="AddPresetProfileButton_Click" Margin="0,0,0,12"/>
+                        <Button Style="{StaticResource StandardButton}" Content="Add Preset profile..." Click="AddPresetProfileButton_Click" Margin="0,0,0,10"/>
+
+                        <!-- Auto-start checkbox -->
+                        <CheckBox x:Name="RunOnBootCheck" Content="Start CrossDeck on PC startup" Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="2,0,0,12" Checked="RunOnBootCheck_Changed" Unchecked="RunOnBootCheck_Changed"/>
 
                         <Border BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,4,0,0">
                             <Grid>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                                    <TextBlock Text="About" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" Margin="0,0,12,0" TextDecorations="Underline"/>
-                                    <TextBlock Text="Help &amp; Feedback" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="HelpLink_Click" TextDecorations="Underline"/>
+                                    <TextBlock Text="About" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" TextDecorations="Underline"/>
                                 </StackPanel>
-                                <TextBlock Text="v1.0" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" HorizontalAlignment="Right"/>
+                                <TextBlock Text="v0.1.0-beta" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" HorizontalAlignment="Right"/>
                             </Grid>
                         </Border>
                     </StackPanel>

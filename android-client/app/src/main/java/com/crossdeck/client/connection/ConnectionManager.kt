@@ -233,14 +233,14 @@ class ConnectionManager(context: Context) {
                 _connectionState.value = ConnectionState.Error
                 _lastError.value = t.message
                 _connectedHostUrl.value = null
-                if (_currentProfile.value != null && loadSettings().autoReconnect) scheduleReconnect()
+                if (loadSettings().autoReconnect) scheduleReconnect()
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 if (ws !== webSocket) return
                 _connectionState.value = ConnectionState.Disconnected
                 _connectedHostUrl.value = null
-                if (_currentProfile.value != null && loadSettings().autoReconnect) scheduleReconnect()
+                if (loadSettings().autoReconnect) scheduleReconnect()
             }
         })
     }

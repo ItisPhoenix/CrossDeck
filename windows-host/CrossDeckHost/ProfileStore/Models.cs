@@ -15,6 +15,9 @@ public class ProfileSet
 
     [JsonPropertyName("accentColor")]
     public string AccentColor { get; set; } = "#00E5FF"; // matches Resources/Colors.xaml Brush.SignalCyan
+
+    [JsonPropertyName("runOnBoot")]
+    public bool RunOnBoot { get; set; } = false;
 }
 
 public class Profile

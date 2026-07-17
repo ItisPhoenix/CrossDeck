@@ -482,7 +482,7 @@ public class ActionExecutor
     [StructLayout(LayoutKind.Sequential)]
     private struct INPUT
     {
-        public int type;
+        public uint type;
         public InputUnion U;
     }
 

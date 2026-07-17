@@ -14,7 +14,8 @@ data class Profile(
 @Serializable
 data class ProfileHeader(
     val profileId: String,
-    val name: String
+    val name: String,
+    val icons: List<String> = emptyList()
 )
 
 @Serializable

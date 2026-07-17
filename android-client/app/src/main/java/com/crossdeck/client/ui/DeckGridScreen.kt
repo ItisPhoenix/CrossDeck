@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.width
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.produceState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -31,6 +32,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -180,6 +182,7 @@ fun DeckGridScreen(
             scope.launch { snackbarHostState.showSnackbar(message = msg, withDismissAction = false) }
         }
     }
+    val context = LocalContext.current
     var isEditMode by remember { mutableStateOf(false) }
     var editingButton by remember { mutableStateOf<ButtonModel?>(null) }
     var creatingAtPosition by remember { mutableStateOf<Position?>(null) }
@@ -369,7 +372,28 @@ fun DeckGridScreen(
                         ) {
                             profiles.forEach { p ->
                                 DropdownMenuItem(
-                                    text = { Text(p.name) },
+                                    text = {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(p.name)
+                                            if (p.icons.isNotEmpty()) {
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                p.icons.take(4).forEach { hash ->
+                                                    val bmp by produceState<ImageBitmap?>(initialValue = null, hash, connectedHostUrl) {
+                                                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                                            resolveIconBitmap(context, hash, connectedHostUrl, authToken)
+                                                        }
+                                                    }
+                                                    bmp?.let {
+                                                        Image(
+                                                            bitmap = it,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(16.dp).padding(end = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
                                     onClick = {
                                         expanded = false
                                         onProfileSwitch(p.profileId)
@@ -456,12 +480,40 @@ fun DeckGridScreen(
                 }
 
                 // Grid layout wrapper with 3D Flip capability
+                var swipeAccum by remember { mutableStateOf(0f) }
+                val canSwipeProfiles = profiles.size > 1 && currentFolderId == null && !isEditMode
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
-                        .padding(16.dp)
+                        .padding(8.dp)
+                        .then(
+                            if (canSwipeProfiles) {
+                                Modifier.pointerInput(profiles, activeProfileId) {
+                                    detectHorizontalDragGestures(
+                                        onDragStart = { swipeAccum = 0f },
+                                        onDragEnd = {
+                                            val idx = profiles.indexOfFirst { it.profileId == activeProfileId }
+                                            if (idx >= 0) {
+                                                val threshold = 120f
+                                                if (swipeAccum <= -threshold) {
+                                                    haptic()
+                                                    onProfileSwitch(profiles[(idx + 1) % profiles.size].profileId)
+                                                } else if (swipeAccum >= threshold) {
+                                                    haptic()
+                                                    onProfileSwitch(profiles[(idx - 1 + profiles.size) % profiles.size].profileId)
+                                                }
+                                            }
+                                            swipeAccum = 0f
+                                        }
+                                    ) { change, dragAmount ->
+                                        change.consume()
+                                        swipeAccum += dragAmount
+                                    }
+                                }
+                            } else Modifier
+                        )
                         .graphicsLayer {
                             rotationY = rotationYAngle
                             cameraDistance = 12f * density
@@ -472,11 +524,11 @@ fun DeckGridScreen(
                         var dragOffset by remember { mutableStateOf(Offset.Zero) }
                         var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
-                        val gridSpacing = if (settings.compactGrid) 4.dp else 8.dp
+                        val gridSpacing = if (settings.compactGrid) 4.dp else 6.dp
                         // Content-sized + parent Box centers it, instead of top-anchoring with dead space below.
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(cols),
-                            contentPadding = PaddingValues(4.dp),
+                            contentPadding = PaddingValues(2.dp),
                             horizontalArrangement = Arrangement.spacedBy(gridSpacing),
                             verticalArrangement = Arrangement.spacedBy(gridSpacing),
                             modifier = Modifier
@@ -636,6 +688,32 @@ fun DeckGridScreen(
                             }
                         }
                     }
+                }
+            }
+
+            // Page-dot indicator — one dot per profile, current one accent-filled, tap to switch.
+            if (profiles.size > 1) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(modifier = Modifier.weight(1f))
+                    profiles.forEach { p ->
+                        val isActive = p.profileId == activeProfileId
+                        Box(
+                            modifier = Modifier
+                                .size(if (isActive) 8.dp else 6.dp)
+                                .clickable { onProfileSwitch(p.profileId) }
+                                .background(
+                                    if (isActive) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+                                    RoundedCornerShape(50)
+                                )
+                        )
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
 
@@ -960,7 +1038,7 @@ private fun DeckButton(
                     Image(
                         bitmap = imageBitmap!!,
                         contentDescription = button.label,
-                        modifier = Modifier.size(38.dp).padding(bottom = 2.dp)
+                        modifier = Modifier.size(if (iconOnlyMode) 48.dp else 38.dp).padding(bottom = 2.dp)
                     )
                 }
                 if (!(iconOnlyMode && imageBitmap != null)) {
@@ -1169,6 +1247,15 @@ private fun EditButtonDialog(
         if (actionType == "open_url" && url.isNotBlank()) {
             kotlinx.coroutines.delay(700)
             onRequestExtractIcon(url)
+        }
+    }
+
+    // launch_app's path never triggered an extract request on its own — only open_url did —
+    // so picking/typing an app path silently never fetched its icon. Mirror the open_url effect.
+    LaunchedEffect(path, actionType) {
+        if (actionType == "launch_app" && path.isNotBlank()) {
+            kotlinx.coroutines.delay(400)
+            onRequestExtractIcon(path)
         }
     }
 

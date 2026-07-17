@@ -1,16 +1,19 @@
 package com.crossdeck.client.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
+// True black, not Void (#0B0B0F) — "pitch black" was explicitly requested. Void stays as the
+// cross-platform-matched token for everything else; only the screen background goes pure black.
+private val PitchBlack = Color(0xFF000000)
+
 private fun darkScheme(accent: Color) = darkColorScheme(
     primary = accent,
     secondary = VoltViolet,
-    background = Void,
+    background = PitchBlack,
     surface = Panel,
     onBackground = Paper,
     onSurface = Paper,
@@ -32,10 +35,11 @@ private fun lightScheme(accent: Color) = lightColorScheme(
 )
 
 /**
- * Was dead code before this fix: MainActivity defined both a dark and a light color scheme but
- * only ever used the dark one — `isSystemInDarkTheme()` was imported and never called. Wiring it
- * up here means light mode (a planned Milestone 3 item) now actually has somewhere real to plug
- * into instead of needing this decided from scratch later.
+ * Dark-only, always — matches Windows (no light `ResourceDictionary` swap exists there either).
+ * `darkTheme` stays a param (not hardcoded in the body) so a future light-theme toggle has a real
+ * seam to plug into, but the default no longer follows `isSystemInDarkTheme()`: a phone in system
+ * light mode was rendering this app in near-white, which read as a bug rather than an intentional
+ * light theme.
  *
  * @param accentColor the live per-profile custom accent (mirrors Windows' ThemeManager.AccentColor
  *   / DynamicResource "Brush.Accent") — defaults to SignalCyan to match the Windows-side default.
@@ -43,7 +47,7 @@ private fun lightScheme(accent: Color) = lightColorScheme(
 @Composable
 fun CrossDeckTheme(
     accentColor: Color = SignalCyan,
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) darkScheme(accentColor) else lightScheme(accentColor)

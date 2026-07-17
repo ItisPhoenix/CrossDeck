@@ -396,7 +396,8 @@ public class ProfileStoreService
             string fullPath = ResolveExecutablePath(exeNameOrPath);
             if (!File.Exists(fullPath)) return null;
 
-            using (var icon = System.Drawing.Icon.ExtractAssociatedIcon(fullPath))
+            // Attempt to pull a crisp high-res 256x256 icon from the system shell first
+            using (var icon = JumboIcon.ExtractJumbo(fullPath) ?? System.Drawing.Icon.ExtractAssociatedIcon(fullPath))
             {
                 if (icon == null) return null;
                 using (var bitmap = icon.ToBitmap())
@@ -439,7 +440,7 @@ public class ProfileStoreService
     /// Android uploads, and extracted exe icons all hash identically for the
     /// same source image.
     /// </summary>
-    public static byte[] ResizeToIconPng(byte[] src, int size = 144)
+    public static byte[] ResizeToIconPng(byte[] src, int size = 256)
     {
         using var inMs = new MemoryStream(src);
         using var original = System.Drawing.Image.FromStream(inMs);
@@ -517,10 +518,13 @@ public class ProfileStoreService
             return null;
         }
 
+        // Google's endpoint first: favicon.ico on most sites is a tiny legacy 16x16/32x32 icon
+        // that just looks blurry once upscaled to our 144x144 tile size. Google's sz=256 request
+        // actually returns a real higher-res source image, not a client-side upscale.
         string[] candidates =
         {
-            $"https://{host}/favicon.ico",
-            $"https://www.google.com/s2/favicons?domain={host}&sz=144"
+            $"https://www.google.com/s2/favicons?domain={host}&sz=256",
+            $"https://{host}/favicon.ico"
         };
 
         foreach (var candidate in candidates)

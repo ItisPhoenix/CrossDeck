@@ -54,6 +54,13 @@ public partial class EditorWindow : Window
             RefreshGrid();
             UpdateConnectionStatusCard();
             SyncGridSizeCombo();
+
+            // Set auto-run checkbox initial state without triggering selection handler
+            RunOnBootCheck.Checked -= RunOnBootCheck_Changed;
+            RunOnBootCheck.Unchecked -= RunOnBootCheck_Changed;
+            RunOnBootCheck.IsChecked = _profileStore.Set.RunOnBoot;
+            RunOnBootCheck.Checked += RunOnBootCheck_Changed;
+            RunOnBootCheck.Unchecked += RunOnBootCheck_Changed;
         };
         Closed += (s, e) =>
         {
@@ -518,34 +525,40 @@ public partial class EditorWindow : Window
                 if (hasButton && buttonModel != null)
                 {
                     var iconPath = ProfileStoreService.ResolveIconFilePath(buttonModel.Icon);
+                    bool iconLoaded = false;
                     if (iconPath != null)
                     {
                         try
                         {
                             var img = new System.Windows.Controls.Image
                             {
-                                Width = 36,
-                                Height = 36,
-                                Margin = new Thickness(0, 0, 0, 4),
+                                Width = 52,
+                                Height = 52,
                                 Stretch = Stretch.Uniform,
                                 Source = new BitmapImage(new Uri(iconPath))
                             };
                             stack.Children.Add(img);
+                            iconLoaded = true;
                         }
                         catch { }
                     }
 
-                    var tbLabel = new TextBlock
+                    // Icon-dominant tiles: the icon alone reads as the button once loaded.
+                    // Label only shows when there's no icon to anchor on (keeps text-only actions legible).
+                    if (!iconLoaded)
                     {
-                        Text = buttonModel.Label,
-                        HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                        TextAlignment = System.Windows.TextAlignment.Center,
-                        Foreground = ThemeManager.Brush("Brush.Paper"),
-                        FontSize = 11,
-                        FontWeight = System.Windows.FontWeights.SemiBold,
-                        TextWrapping = TextWrapping.Wrap
-                    };
-                    stack.Children.Add(tbLabel);
+                        var tbLabel = new TextBlock
+                        {
+                            Text = buttonModel.Label,
+                            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                            TextAlignment = System.Windows.TextAlignment.Center,
+                            Foreground = ThemeManager.Brush("Brush.Paper"),
+                            FontSize = 11,
+                            FontWeight = System.Windows.FontWeights.SemiBold,
+                            TextWrapping = TextWrapping.Wrap
+                        };
+                        stack.Children.Add(tbLabel);
+                    }
                 }
                 else
                 {
@@ -980,7 +993,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v1.0\n\nInspired by macOS & iOS layout designs.\nFeaturing custom cyber outlined control rings, Left sidebar profile cards, and real-time device connection state syncing.\n\nAdvanced Agentic Coding Pair Programmed.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v0.1.0-beta | Licensed under the MIT License.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -1021,6 +1034,39 @@ public partial class EditorWindow : Window
                 RefreshGrid();
                 RefreshProfileSelector();
             }
+        }
+    }
+
+    private void RunOnBootCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        bool runOnBoot = RunOnBootCheck.IsChecked == true;
+        _profileStore.Set.RunOnBoot = runOnBoot;
+        _profileStore.Save();
+
+        const string runKeyPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
+        const string appName = "CrossDeckHost";
+
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(runKeyPath, writable: true);
+            if (key != null)
+            {
+                if (runOnBoot)
+                {
+                    // Add registry run value targeting current executable
+                    string execPath = System.Windows.Forms.Application.ExecutablePath;
+                    key.SetValue(appName, $"\"{execPath}\" --background");
+                }
+                else
+                {
+                    // Remove registry run value if exists
+                    key.DeleteValue(appName, throwOnMissingValue: false);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show($"Failed to modify startup registry key: {ex.Message}", "Startup Settings Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 }
