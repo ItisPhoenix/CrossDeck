@@ -21,9 +21,14 @@ public partial class IconPickerWindow : Window
     private void LoadIcons()
     {
         var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Builtin");
-        if (!Directory.Exists(dir)) return;
+        var files = Directory.Exists(dir) ? Directory.GetFiles(dir, "*.png") : Array.Empty<string>();
+        if (files.Length == 0)
+        {
+            EmptyStateText.Visibility = Visibility.Visible;
+            return;
+        }
 
-        foreach (var file in Directory.GetFiles(dir, "*.png").OrderBy(f => f))
+        foreach (var file in files.OrderBy(f => f))
         {
             var name = Path.GetFileNameWithoutExtension(file);
             var img = new System.Windows.Controls.Image
@@ -38,8 +43,8 @@ public partial class IconPickerWindow : Window
                 Height = 52,
                 Margin = new Thickness(4),
                 Content = img,
-                Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#0E0E10")),
-                BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1F1F23")),
+                Background = ThemeManager.Brush("Brush.Void"),
+                BorderBrush = ThemeManager.Brush("Brush.Hairline"),
                 BorderThickness = new Thickness(1),
                 ToolTip = name,
             };
@@ -51,18 +56,5 @@ public partial class IconPickerWindow : Window
             };
             IconWrapPanel.Children.Add(btn);
         }
-    }
-
-    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (e.ChangedButton == System.Windows.Input.MouseButton.Left)
-        {
-            this.DragMove();
-        }
-    }
-
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
-    {
-        this.Close();
     }
 }

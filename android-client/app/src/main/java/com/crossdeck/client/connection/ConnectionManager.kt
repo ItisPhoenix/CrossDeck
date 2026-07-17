@@ -45,8 +45,8 @@ class ConnectionManager(context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true }
     private var webSocket: WebSocket? = null
-    private val prefs = context.getSharedPreferences("appname_pairing", Context.MODE_PRIVATE)
-    private val settingsPrefs = context.getSharedPreferences("appname_settings", Context.MODE_PRIVATE)
+    private val prefs = context.getSharedPreferences("crossdeck_pairing", Context.MODE_PRIVATE)
+    private val settingsPrefs = context.getSharedPreferences("crossdeck_settings", Context.MODE_PRIVATE)
 
     private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -57,7 +57,8 @@ class ConnectionManager(context: Context) {
     private val _activeProfileId = MutableStateFlow("p_default")
     val activeProfileId: StateFlow<String> = _activeProfileId.asStateFlow()
 
-    private val _accentColor = MutableStateFlow("#00d4ff")
+    // Matches ui/theme/Color.kt's SignalCyan and Windows' ThemeManager.DefaultAccentHex — don't let this drift.
+    private val _accentColor = MutableStateFlow("#00E5FF")
     val accentColor: StateFlow<String> = _accentColor.asStateFlow()
 
     private val _profilesList = MutableStateFlow<List<com.crossdeck.client.model.ProfileHeader>>(emptyList())
@@ -210,17 +211,25 @@ class ConnectionManager(context: Context) {
     }
 
     private fun openSocket(ip: String, port: Int, onOpenSendAuth: (WebSocket) -> Unit) {
+        // Abandon any still-pending previous attempt first — otherwise a slow-to-fail connect
+        // (e.g. a firewalled/dead IP) can leave two live sockets racing to set connectionState.
+        webSocket?.cancel()
         _connectionState.value = ConnectionState.Connecting
         val request = Request.Builder().url("ws://$ip:$port/ws").build()
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, response: Response) {
+                if (ws !== webSocket) return // stale callback from a superseded attempt
                 _connectedHostUrl.value = "http://$ip:${port + 1}/"
                 onOpenSendAuth(ws)
             }
 
-            override fun onMessage(ws: WebSocket, text: String) = handleMessage(text)
+            override fun onMessage(ws: WebSocket, text: String) {
+                if (ws !== webSocket) return
+                handleMessage(text)
+            }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                if (ws !== webSocket) return
                 _connectionState.value = ConnectionState.Error
                 _lastError.value = t.message
                 _connectedHostUrl.value = null
@@ -228,6 +237,7 @@ class ConnectionManager(context: Context) {
             }
 
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+                if (ws !== webSocket) return
                 _connectionState.value = ConnectionState.Disconnected
                 _connectedHostUrl.value = null
                 if (_currentProfile.value != null && loadSettings().autoReconnect) scheduleReconnect()
@@ -335,20 +345,32 @@ class ConnectionManager(context: Context) {
                 socket.send(packet)
 
                 val buffer = ByteArray(1024)
-                val responsePacket = java.net.DatagramPacket(buffer, buffer.size)
-                socket.receive(responsePacket)
+                // Keep reading until soTimeout fires — a single receive() only ever sees the
+                // first PC to reply and ignores every other host on the LAN.
+                while (true) {
+                    val responsePacket = java.net.DatagramPacket(buffer, buffer.size)
+                    try {
+                        socket.receive(responsePacket)
+                    } catch (e: java.net.SocketTimeoutException) {
+                        break // normal end of scan window, not an error
+                    }
 
-                val responseText = String(responsePacket.data, 0, responsePacket.length)
-                val responseObj = json.parseToJsonElement(responseText).jsonObject
-                val ip = responseObj["ip"]?.jsonPrimitive?.content ?: ""
-                val port = responseObj["port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 7890
-                val hostName = responseObj["hostName"]?.jsonPrimitive?.content ?: ""
+                    try {
+                        val responseText = String(responsePacket.data, 0, responsePacket.length)
+                        val responseObj = json.parseToJsonElement(responseText).jsonObject
+                        val ip = responseObj["ip"]?.jsonPrimitive?.content ?: ""
+                        val port = responseObj["port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 7890
+                        val hostName = responseObj["hostName"]?.jsonPrimitive?.content ?: ""
 
-                if (ip.isNotBlank()) {
-                    Handler(Looper.getMainLooper()).post { onDiscovered(ip, port, hostName) }
+                        if (ip.isNotBlank()) {
+                            Handler(Looper.getMainLooper()).post { onDiscovered(ip, port, hostName) }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("ConnectionManager", "Malformed discovery response, ignoring", e)
+                    }
                 }
             } catch (e: Exception) {
-                // Ignore or log timeout
+                android.util.Log.e("ConnectionManager", "LAN discovery scan failed", e)
             } finally {
                 socket?.close()
             }

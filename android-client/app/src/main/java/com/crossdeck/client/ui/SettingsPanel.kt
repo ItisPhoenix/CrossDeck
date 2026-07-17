@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.crossdeck.client.model.AppSettings
+import com.crossdeck.client.ui.theme.SignalCyan
 
 /**
  * Settings drawer content — accent picker (pre-existing) plus the Milestone 4 additions. Extracted
@@ -49,13 +50,13 @@ fun SettingsPanel(
     val accentColor = try {
         Color(android.graphics.Color.parseColor(accentColorHex))
     } catch (e: Exception) {
-        Color(0xFF00F2FE)
+        SignalCyan
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xE60A0A0E), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             .border(1.dp, accentColor.copy(alpha = 0.3f), RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
     ) {
         Column(
@@ -65,7 +66,7 @@ fun SettingsPanel(
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp)
         ) {
-            Text("Select Theme Accent", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            Text("Select Theme Accent", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Spacer(modifier = Modifier.height(16.dp))
             
             Row(
@@ -76,10 +77,10 @@ fun SettingsPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 listOf(
-                    "Neon Cyan" to "#00d4ff",
+                    "Neon Cyan" to "#00E5FF",
                     "Neon Purple" to "#8b5cf6",
                     "Cyberpunk Yellow" to "#ffb703",
-                    "Toxic Green" to "#2ec4b6",
+                    "Toxic Green" to "#39FF14",
                     "Crimson Red" to "#e63946"
                 ).forEach { (_, hex) ->
                     val color = Color(android.graphics.Color.parseColor(hex))
@@ -90,7 +91,7 @@ fun SettingsPanel(
                             .background(color, RoundedCornerShape(21.dp))
                             .border(
                                 width = if (isSelected) 2.5.dp else 1.dp,
-                                color = if (isSelected) Color.White else Color(0x33FFFFFF),
+                                color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
                                 shape = RoundedCornerShape(21.dp)
                             )
                             .clickable {
@@ -101,8 +102,8 @@ fun SettingsPanel(
                 }
             }
 
-            HorizontalDivider(color = Color(0xFF1F1F23), modifier = Modifier.padding(vertical = 16.dp))
-            Text("App Settings", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 16.dp))
+            Text("App Settings", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Spacer(modifier = Modifier.height(8.dp))
 
             SettingToggleRow("Haptic Feedback", settings.hapticsEnabled, accentColor) {
@@ -124,27 +125,27 @@ fun SettingsPanel(
                 onSettingsChange(settings.copy(confirmRunCommand = it))
             }
 
-            HorizontalDivider(color = Color(0xFF1F1F23), modifier = Modifier.padding(vertical = 16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 16.dp))
 
-            Text("Connection", style = MaterialTheme.typography.titleMedium, color = Color.White)
+            Text("Connection", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 connectionHostInfo ?: "Not connected",
-                color = Color.White.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
             TextButton(onClick = { haptic(); onForgetHost() }) {
-                Text("Forget This PC", color = Color(0xFFE63946))
+                Text("Forget This PC", color = MaterialTheme.colorScheme.error)
             }
 
-            HorizontalDivider(color = Color(0xFF1F1F23), modifier = Modifier.padding(vertical = 16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 16.dp))
 
             TextButton(onClick = { haptic(); onClearIconCache() }) {
-                Text("Clear Icon Cache", color = Color.White)
+                Text("Clear Icon Cache", color = MaterialTheme.colorScheme.onSurface)
             }
 
-            HorizontalDivider(color = Color(0xFF1F1F23), modifier = Modifier.padding(vertical = 16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(vertical = 16.dp))
 
             AboutSection()
         }
@@ -158,15 +159,15 @@ private fun SettingToggleRow(label: String, checked: Boolean, accentColor: Color
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+        Text(label, color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
+                checkedThumbColor = MaterialTheme.colorScheme.onSurface,
                 checkedTrackColor = accentColor,
-                uncheckedThumbColor = Color.Gray,
-                uncheckedTrackColor = Color(0xFF14141A)
+                uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                uncheckedTrackColor = MaterialTheme.colorScheme.background
             )
         )
     }
@@ -181,8 +182,8 @@ private fun AboutSection() {
         "dev"
     }
 
-    Text("About", style = MaterialTheme.typography.titleMedium, color = Color.White)
+    Text("About", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
     Spacer(modifier = Modifier.height(8.dp))
-    Text("CrossDeck v$versionName", color = Color.White.copy(alpha = 0.7f))
-    Text("MIT License — fully open source, zero telemetry", color = Color.White.copy(alpha = 0.7f))
+    Text("CrossDeck v$versionName", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("MIT License — fully open source, zero telemetry", color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

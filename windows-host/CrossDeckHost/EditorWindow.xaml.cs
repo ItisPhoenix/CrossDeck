@@ -105,8 +105,8 @@ public partial class EditorWindow : Window
             // Card container
             var border = new Border
             {
-                Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(isSelected ? "#1C1C24" : "#121216")),
-                BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(isSelected ? ThemeManager.AccentColor : "#1F1F24")),
+                Background = ThemeManager.Brush(isSelected ? "Brush.Panel" : "Brush.Void"),
+                BorderBrush = isSelected ? ThemeManager.Brush("Brush.Accent") : ThemeManager.Brush("Brush.Hairline"),
                 BorderThickness = new Thickness(isSelected ? 1.5 : 1),
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(10),
@@ -124,7 +124,7 @@ public partial class EditorWindow : Window
             var nameTxt = new TextBlock
             {
                 Text = profile.Name,
-                Foreground = System.Windows.Media.Brushes.White,
+                Foreground = ThemeManager.Brush("Brush.Paper"),
                 FontWeight = System.Windows.FontWeights.SemiBold,
                 FontSize = 12.5,
                 VerticalAlignment = System.Windows.VerticalAlignment.Center
@@ -137,7 +137,7 @@ public partial class EditorWindow : Window
             var capTxt = new TextBlock
             {
                 Text = $"{buttonCount}/{totalSlots}",
-                Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#8A8A93")),
+                Foreground = ThemeManager.Brush("Brush.Mist"),
                 FontSize = 10.5,
                 VerticalAlignment = System.Windows.VerticalAlignment.Center
             };
@@ -180,16 +180,16 @@ public partial class EditorWindow : Window
             {
                 if (profile.ProfileId != _profileStore.Set.ActiveProfileId)
                 {
-                    border.Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#16161C"));
-                    border.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#444452"));
+                    border.Background = ThemeManager.Brush("Brush.Panel");
+                    border.BorderBrush = ThemeManager.Brush("Brush.Hairline");
                 }
             };
             border.MouseLeave += (s, e) =>
             {
                 if (profile.ProfileId != _profileStore.Set.ActiveProfileId)
                 {
-                    border.Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#121216"));
-                    border.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#1F1F24"));
+                    border.Background = ThemeManager.Brush("Brush.Void");
+                    border.BorderBrush = ThemeManager.Brush("Brush.Hairline");
                 }
             };
             border.MouseLeftButtonDown += (s, e) =>
@@ -464,7 +464,7 @@ public partial class EditorWindow : Window
                 BreadcrumbPanel.Children.Add(new TextBlock
                 {
                     Text = " ➤ ",
-                    Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#44444F")),
+                    Foreground = ThemeManager.Brush("Brush.Mist"),
                     FontSize = 11,
                     VerticalAlignment = VerticalAlignment.Center
                 });
@@ -487,34 +487,30 @@ public partial class EditorWindow : Window
         ButtonGrid.Rows = rows;
         ButtonGrid.Columns = cols;
 
+        // Group by cell so that any duplicate (row,col) in stored data can't
+        // crash the dictionary build — first button at a cell wins.
         var buttons = _profileStore.Current.Buttons
             .Where(b => b.ParentFolderId == _currentFolderId)
-            .ToDictionary(b => (b.Position.Row, b.Position.Col));
+            .GroupBy(b => (b.Position.Row, b.Position.Col))
+            .ToDictionary(g => g.Key, g => g.First());
 
         for (int r = 0; r < rows; r++)
         {
             for (int c = 0; c < cols; c++)
             {
-                var btn = new System.Windows.Controls.Button
-                {
-                    Margin = new Thickness(6),
-                    Background = System.Windows.Media.Brushes.Transparent,
-                    BorderThickness = new Thickness(0),
-                    Padding = new Thickness(0),
-                    Tag = Tuple.Create(r, c)
-                };
-
                 int row = r;
                 int col = c;
                 bool hasButton = buttons.TryGetValue((row, col), out var buttonModel);
 
-                var border = new Border
+                // DeckButtonStyle mirrors Android's DeckButton; accent border is drag-over-only feedback.
+                var btn = new System.Windows.Controls.Button
                 {
-                    CornerRadius = new CornerRadius(14),
-                    Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hasButton ? "#181822" : "#0C0C0E")),
-                    BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hasButton ? ThemeManager.AccentColor : "#25252E")),
+                    Style = System.Windows.Application.Current.Resources["DeckButtonStyle"] as Style,
+                    Margin = new Thickness(6),
+                    Background = ThemeManager.Brush(hasButton ? "Brush.Panel" : "Brush.Void"),
+                    BorderBrush = ThemeManager.Brush("Brush.Hairline"),
                     BorderThickness = new Thickness(hasButton ? 1.5 : 1),
-                    Padding = new Thickness(8)
+                    Tag = Tuple.Create(r, c)
                 };
 
                 var stack = new StackPanel { VerticalAlignment = System.Windows.VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
@@ -528,9 +524,10 @@ public partial class EditorWindow : Window
                         {
                             var img = new System.Windows.Controls.Image
                             {
-                                Width = 32,
-                                Height = 32,
+                                Width = 36,
+                                Height = 36,
                                 Margin = new Thickness(0, 0, 0, 4),
+                                Stretch = Stretch.Uniform,
                                 Source = new BitmapImage(new Uri(iconPath))
                             };
                             stack.Children.Add(img);
@@ -543,9 +540,10 @@ public partial class EditorWindow : Window
                         Text = buttonModel.Label,
                         HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                         TextAlignment = System.Windows.TextAlignment.Center,
-                        Foreground = System.Windows.Media.Brushes.White,
+                        Foreground = ThemeManager.Brush("Brush.Paper"),
                         FontSize = 11,
-                        FontWeight = System.Windows.FontWeights.SemiBold
+                        FontWeight = System.Windows.FontWeights.SemiBold,
+                        TextWrapping = TextWrapping.Wrap
                     };
                     stack.Children.Add(tbLabel);
                 }
@@ -579,21 +577,20 @@ public partial class EditorWindow : Window
                     var tbPlus = new TextBlock
                     {
                         Text = "+",
-                        Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#44444F")),
-                        FontSize = 18,
+                        Foreground = ThemeManager.Brush("Brush.Mist"),
+                        FontSize = 20,
                         FontWeight = System.Windows.FontWeights.Bold,
                         HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                         VerticalAlignment = System.Windows.VerticalAlignment.Center
                     };
-                    Canvas.SetLeft(tbPlus, 15);
-                    Canvas.SetTop(tbPlus, 11);
+                    Canvas.SetLeft(tbPlus, 17);
+                    Canvas.SetTop(tbPlus, 12);
                     canvas.Children.Add(tbPlus);
 
                     stack.Children.Add(canvas);
                 }
 
-                border.Child = stack;
-                btn.Content = border;
+                btn.Content = stack;
 
                 // Setup Click to edit cell
                 btn.Click += (s, e) => SelectCell(row, col);
@@ -619,8 +616,7 @@ public partial class EditorWindow : Window
             Text = label,
             FontSize = isLast ? 14 : 12,
             FontWeight = isLast ? FontWeights.Bold : FontWeights.Normal,
-            Foreground = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(
-                isLast ? "#FFFFFF" : ThemeManager.AccentColor)),
+            Foreground = isLast ? ThemeManager.Brush("Brush.Paper") : ThemeManager.Brush("Brush.Accent"),
             VerticalAlignment = VerticalAlignment.Center,
             Cursor = onClick != null ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow
         };
@@ -758,6 +754,10 @@ public partial class EditorWindow : Window
         var tag = item.Tag?.ToString();
         if (string.IsNullOrEmpty(tag)) return;
 
+        // Guard: SelectionChanged can fire during InitializeComponent() (initial
+        // SelectedIndex) before _profileStore is assigned — ignore until ready.
+        if (_profileStore?.Current == null) return;
+
         var parts = tag.Split(',');
         if (parts.Length != 2) return;
         if (!int.TryParse(parts[0], out int rows) || !int.TryParse(parts[1], out int cols)) return;
@@ -868,10 +868,10 @@ public partial class EditorWindow : Window
         if (e.Data.GetDataPresent("CrossDeckButton"))
         {
             e.Effects = System.Windows.DragDropEffects.Move;
-            if (sender is System.Windows.Controls.Button btn && btn.Content is Border border)
+            if (sender is System.Windows.Controls.Button btn)
             {
-                border.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor));
-                border.BorderThickness = new Thickness(2);
+                btn.BorderBrush = ThemeManager.Brush("Brush.Accent");
+                btn.BorderThickness = new Thickness(2);
             }
         }
         else
@@ -883,15 +883,15 @@ public partial class EditorWindow : Window
 
     private void Cell_DragLeave(object sender, System.Windows.DragEventArgs e)
     {
-        if (sender is System.Windows.Controls.Button btn && btn.Content is Border border && btn.Tag is Tuple<int, int> pos)
+        if (sender is System.Windows.Controls.Button btn && btn.Tag is Tuple<int, int> pos)
         {
             var buttons = _profileStore.Current.Buttons
                 .Where(b => b.ParentFolderId == _currentFolderId)
                 .ToDictionary(b => (b.Position.Row, b.Position.Col));
 
             bool hasButton = buttons.ContainsKey((pos.Item1, pos.Item2));
-            border.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(hasButton ? ThemeManager.AccentColor : "#25252E"));
-            border.BorderThickness = new Thickness(hasButton ? 1.5 : 1);
+            btn.BorderBrush = ThemeManager.Brush("Brush.Hairline");
+            btn.BorderThickness = new Thickness(hasButton ? 1.5 : 1);
         }
     }
 
@@ -946,7 +946,7 @@ public partial class EditorWindow : Window
         bool isConnected = _server != null && _server.IsClientConnected;
         DeviceNameText.Text = isConnected ? (_server!.ConnectedDeviceName ?? "Android Client") : "Offline";
         ConnectionDetailsText.Text = isConnected ? $"IP: {_server!.LocalIpAddress}:{_server!.Port}" : "Waiting for client...";
-        ConnectionDot.Fill = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(isConnected ? "#27C93F" : "#FF5555"));
+        ConnectionDot.Fill = ThemeManager.Brush(isConnected ? "Brush.Go" : "Brush.Alarm");
     }
 
     private System.Windows.Threading.DispatcherTimer? _toastTimer;
@@ -956,8 +956,8 @@ public partial class EditorWindow : Window
         if (ToastNotificationCard == null) return;
 
         ToastMessageText.Text = message;
-        ToastStateDot.Fill = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(isSuccess ? "#27C93F" : "#FF5555"));
-        ToastNotificationCard.BorderBrush = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor));
+        ToastStateDot.Fill = ThemeManager.Brush(isSuccess ? "Brush.Go" : "Brush.Alarm");
+        ToastNotificationCard.BorderBrush = ThemeManager.Brush("Brush.Accent");
         ToastNotificationCard.Visibility = Visibility.Visible;
 
         if (_toastTimer != null)
@@ -1000,24 +1000,6 @@ public partial class EditorWindow : Window
             _currentFolderId = _folderHistory.Count > 0 ? _folderHistory.Peek().Id : null;
             RebuildGrid();
         }
-    }
-
-    private void TitleBar_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (e.ChangedButton == System.Windows.Input.MouseButton.Left)
-        {
-            this.DragMove();
-        }
-    }
-
-    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
-    {
-        this.WindowState = WindowState.Minimized;
-    }
-
-    private void CloseButton_Click(object sender, RoutedEventArgs e)
-    {
-        this.Close();
     }
 
     private void AccentCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

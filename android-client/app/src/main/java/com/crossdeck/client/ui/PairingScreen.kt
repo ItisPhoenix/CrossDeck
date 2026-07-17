@@ -50,6 +50,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
+import com.crossdeck.client.ui.theme.SignalCyan
 
 @Composable
 fun PairingScreen(
@@ -73,7 +74,7 @@ fun PairingScreen(
     val accentColor = try {
         Color(android.graphics.Color.parseColor(accentColorHex))
     } catch (e: Exception) {
-        Color(0xFF00F2FE)
+        SignalCyan
     }
 
     val qrScannerLauncher = rememberLauncherForActivityResult(
@@ -144,7 +145,7 @@ fun PairingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF000000))
+            .background(MaterialTheme.colorScheme.background)
             .background(
                 Brush.radialGradient(
                     colors = listOf(accentColor.copy(alpha = 0.15f), Color.Transparent),
@@ -158,15 +159,15 @@ fun PairingScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
-                .background(Color(0xE60E0E10), RoundedCornerShape(18.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(18.dp))
                 .padding(24.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            Text("✦ Pair with your PC", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+            Text("✦ Pair with your PC", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
             Text(
                 "CrossDeck will scan your WiFi for a PC running the host app.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Color.LightGray.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
             )
 
@@ -192,14 +193,14 @@ fun PairingScreen(
                         enabled = !scanning && !connecting,
                         border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
                         shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
                     ) {
                         if (scanning) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = accentColor)
                             Spacer(Modifier.width(8.dp))
-                            Text("Scanning…", color = Color.White)
+                            Text("Scanning…", color = MaterialTheme.colorScheme.onSurface)
                         } else {
-                            Text("Scan WiFi", color = Color.White)
+                            Text("Scan WiFi", color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
@@ -213,16 +214,16 @@ fun PairingScreen(
                     border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
                     shape = RoundedCornerShape(8.dp),
                     enabled = !connecting,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)
                 ) {
-                    Text("Scan QR", color = Color.White)
+                    Text("Scan QR", color = MaterialTheme.colorScheme.onSurface)
                 }
                 scanStatus?.let {
                     Spacer(Modifier.width(12.dp))
                     Text(
                         it,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (it.startsWith("Found")) accentColor else Color.Gray
+                        color = if (it.startsWith("Found")) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -232,14 +233,14 @@ fun PairingScreen(
                 onValueChange = { ip = it },
                 label = { Text("PC IP Address") },
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                     focusedBorderColor = accentColor,
-                    unfocusedBorderColor = Color(0xFF1F1F23),
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                     focusedLabelColor = accentColor,
-                    unfocusedLabelColor = Color.Gray,
-                    focusedContainerColor = Color(0xFF14141A),
-                    unfocusedContainerColor = Color(0xFF14141A)
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedContainerColor = MaterialTheme.colorScheme.background,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.background
                 ),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -253,14 +254,14 @@ fun PairingScreen(
                 label = { Text("Port") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                     focusedBorderColor = accentColor,
-                    unfocusedBorderColor = Color(0xFF1F1F23),
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                     focusedLabelColor = accentColor,
-                    unfocusedLabelColor = Color.Gray,
-                    focusedContainerColor = Color(0xFF14141A),
-                    unfocusedContainerColor = Color(0xFF14141A)
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedContainerColor = MaterialTheme.colorScheme.background,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.background
                 ),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -274,14 +275,14 @@ fun PairingScreen(
                 label = { Text("PIN") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                     focusedBorderColor = accentColor,
-                    unfocusedBorderColor = Color(0xFF1F1F23),
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outline,
                     focusedLabelColor = accentColor,
-                    unfocusedLabelColor = Color.Gray,
-                    focusedContainerColor = Color(0xFF14141A),
-                    unfocusedContainerColor = Color(0xFF14141A)
+                    unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    focusedContainerColor = MaterialTheme.colorScheme.background,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.background
                 ),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -291,7 +292,7 @@ fun PairingScreen(
             if (errorMessage != null) {
                 Text(
                     errorMessage,
-                    color = Color.Red,
+                    color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 12.dp)
                 )
             }
@@ -303,7 +304,7 @@ fun PairingScreen(
                     onConnect(ip.trim(), portInt, pin.trim())
                 },
                 enabled = !connecting && !scanning && ip.isNotBlank() && pin.isNotBlank(),
-                colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.Black),
+                colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = MaterialTheme.colorScheme.background),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()

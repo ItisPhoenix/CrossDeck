@@ -9,6 +9,12 @@ public class ProfileStoreService
     private readonly string _oldFilePath;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
+    // Guards Set + profiles.json against the WebSocket receive loop, the editor UI thread, and
+    // AutoProfileWatcher's timer all calling mutators concurrently. Held only around
+    // mutate+serialize+write; NotifyChanged() fires after release so event handlers never run
+    // with the lock held.
+    private readonly object _lock = new();
+
     public ProfileSet Set { get; private set; } = new();
 
     public Profile Current => Set.Profiles.FirstOrDefault(p => p.ProfileId == Set.ActiveProfileId) ?? Set.Profiles.First();
@@ -28,49 +34,60 @@ public class ProfileStoreService
 
     public void LoadOrCreateDefault(string preset = "Blank")
     {
-        if (File.Exists(_filePath))
+        lock (_lock)
         {
-            var json = File.ReadAllText(_filePath);
-            var loaded = JsonSerializer.Deserialize<ProfileSet>(json, _jsonOptions);
-            if (loaded is not null && loaded.Profiles.Count > 0)
+            if (File.Exists(_filePath))
             {
-                Set = loaded;
-                return;
-            }
-        }
-
-        // Migrate from old profile.json if exists
-        if (File.Exists(_oldFilePath))
-        {
-            try
-            {
-                var json = File.ReadAllText(_oldFilePath);
-                var oldProfile = JsonSerializer.Deserialize<Profile>(json, _jsonOptions);
-                if (oldProfile is not null)
+                var json = File.ReadAllText(_filePath);
+                var loaded = JsonSerializer.Deserialize<ProfileSet>(json, _jsonOptions);
+                if (loaded is not null && loaded.Profiles.Count > 0)
                 {
-                    Set = new ProfileSet
-                    {
-                        ActiveProfileId = oldProfile.ProfileId,
-                        Profiles = new List<Profile> { oldProfile }
-                    };
-                    Save();
-                    File.Delete(_oldFilePath);
+                    Set = loaded;
                     return;
                 }
             }
-            catch { }
-        }
 
-        // Fresh initialization using selected preset
-        Set = new ProfileSet
-        {
-            ActiveProfileId = "p_default",
-            Profiles = new List<Profile> { CreatePresetProfile(preset) }
-        };
-        Save();
+            // Migrate from old profile.json if exists
+            if (File.Exists(_oldFilePath))
+            {
+                try
+                {
+                    var json = File.ReadAllText(_oldFilePath);
+                    var oldProfile = JsonSerializer.Deserialize<Profile>(json, _jsonOptions);
+                    if (oldProfile is not null)
+                    {
+                        Set = new ProfileSet
+                        {
+                            ActiveProfileId = oldProfile.ProfileId,
+                            Profiles = new List<Profile> { oldProfile }
+                        };
+                        SaveLocked();
+                        File.Delete(_oldFilePath);
+                        return;
+                    }
+                }
+                catch { }
+            }
+
+            // Fresh initialization using selected preset
+            Set = new ProfileSet
+            {
+                ActiveProfileId = "p_default",
+                Profiles = new List<Profile> { CreatePresetProfile(preset) }
+            };
+            SaveLocked();
+        }
     }
 
     public void Save()
+    {
+        lock (_lock)
+        {
+            SaveLocked();
+        }
+    }
+
+    private void SaveLocked()
     {
         var json = JsonSerializer.Serialize(Set, _jsonOptions);
         File.WriteAllText(_filePath, json);
@@ -78,100 +95,129 @@ public class ProfileStoreService
 
     public void SwitchProfile(string profileId)
     {
-        if (Set.Profiles.Any(p => p.ProfileId == profileId))
+        bool changed;
+        lock (_lock)
         {
-            Set.ActiveProfileId = profileId;
-            Save();
-            NotifyChanged();
+            changed = Set.Profiles.Any(p => p.ProfileId == profileId);
+            if (changed)
+            {
+                Set.ActiveProfileId = profileId;
+                SaveLocked();
+            }
         }
+        if (changed) NotifyChanged();
     }
 
     public void CreateProfile(string name)
     {
-        var newId = $"p_{Guid.NewGuid().ToString().Substring(0, 8)}";
-        var newProfile = new Profile
+        lock (_lock)
         {
-            ProfileId = newId,
-            Name = name,
-            Buttons = new List<ButtonModel>()
-        };
-        Set.Profiles.Add(newProfile);
-        Set.ActiveProfileId = newId;
-        Save();
+            var newId = $"p_{Guid.NewGuid().ToString().Substring(0, 8)}";
+            var newProfile = new Profile
+            {
+                ProfileId = newId,
+                Name = name,
+                Buttons = new List<ButtonModel>()
+            };
+            Set.Profiles.Add(newProfile);
+            Set.ActiveProfileId = newId;
+            SaveLocked();
+        }
         NotifyChanged();
     }
 
     public void CreateProfileFromPreset(string name, string preset)
     {
-        var newId = $"p_{Guid.NewGuid().ToString().Substring(0, 8)}";
-        var template = CreatePresetProfile(preset);
-        var newProfile = new Profile
+        lock (_lock)
         {
-            ProfileId = newId,
-            Name = name,
-            Buttons = template.Buttons
-        };
-        Set.Profiles.Add(newProfile);
-        Set.ActiveProfileId = newId;
-        Save();
+            var newId = $"p_{Guid.NewGuid().ToString().Substring(0, 8)}";
+            var template = CreatePresetProfile(preset);
+            var newProfile = new Profile
+            {
+                ProfileId = newId,
+                Name = name,
+                Buttons = template.Buttons
+            };
+            Set.Profiles.Add(newProfile);
+            Set.ActiveProfileId = newId;
+            SaveLocked();
+        }
         NotifyChanged();
     }
 
     public void DeleteProfile(string profileId)
     {
-        if (Set.Profiles.Count <= 1) return; // Keep at least one profile
-
-        var profile = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
-        if (profile != null)
+        bool changed = false;
+        lock (_lock)
         {
-            Set.Profiles.Remove(profile);
-            if (Set.ActiveProfileId == profileId)
+            if (Set.Profiles.Count <= 1) return; // Keep at least one profile
+
+            var profile = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
+            if (profile != null)
             {
-                Set.ActiveProfileId = Set.Profiles.First().ProfileId;
+                Set.Profiles.Remove(profile);
+                if (Set.ActiveProfileId == profileId)
+                {
+                    Set.ActiveProfileId = Set.Profiles.First().ProfileId;
+                }
+                SaveLocked();
+                changed = true;
             }
-            Save();
-            NotifyChanged();
         }
+        if (changed) NotifyChanged();
     }
 
     public void RenameProfile(string profileId, string newName)
     {
-        var profile = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
-        if (profile != null)
+        bool changed = false;
+        lock (_lock)
         {
-            profile.Name = newName;
-            Save();
-            NotifyChanged();
+            var profile = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
+            if (profile != null)
+            {
+                profile.Name = newName;
+                SaveLocked();
+                changed = true;
+            }
         }
+        if (changed) NotifyChanged();
     }
 
     public void UpdateButton(string profileId, ButtonModel updatedButton)
     {
-        var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
-        if (target == null) return;
-
-        var existing = target.Buttons.FirstOrDefault(b => b.ButtonId == updatedButton.ButtonId);
-        if (existing != null)
+        lock (_lock)
         {
-            target.Buttons.Remove(existing);
+            var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
+            if (target == null) return;
+
+            var existing = target.Buttons.FirstOrDefault(b => b.ButtonId == updatedButton.ButtonId);
+            if (existing != null)
+            {
+                target.Buttons.Remove(existing);
+            }
+            target.Buttons.Add(updatedButton);
+            SaveLocked();
         }
-        target.Buttons.Add(updatedButton);
-        Save();
         NotifyChanged();
     }
 
     public void DeleteButton(string profileId, string buttonId)
     {
-        var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
-        if (target == null) return;
-
-        var existing = target.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
-        if (existing != null)
+        bool changed = false;
+        lock (_lock)
         {
-            target.Buttons.Remove(existing);
-            Save();
-            NotifyChanged();
+            var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
+            if (target == null) return;
+
+            var existing = target.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
+            if (existing != null)
+            {
+                target.Buttons.Remove(existing);
+                SaveLocked();
+                changed = true;
+            }
         }
+        if (changed) NotifyChanged();
     }
 
     public void NotifyChanged()
@@ -182,25 +228,31 @@ public class ProfileStoreService
 
     public void ResetProfileToPreset(string profileId, string preset)
     {
-        var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
-        if (target == null) return;
+        lock (_lock)
+        {
+            var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
+            if (target == null) return;
 
-        var template = CreatePresetProfile(preset);
-        target.Buttons = template.Buttons;
-        Save();
+            var template = CreatePresetProfile(preset);
+            target.Buttons = template.Buttons;
+            SaveLocked();
+        }
         NotifyChanged();
     }
 
     public void SetPresetPicked(string preset)
     {
-        var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == Set.ActiveProfileId);
-        if (target != null)
+        lock (_lock)
         {
-            var template = CreatePresetProfile(preset);
-            target.Buttons = template.Buttons;
+            var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == Set.ActiveProfileId);
+            if (target != null)
+            {
+                var template = CreatePresetProfile(preset);
+                target.Buttons = template.Buttons;
+            }
+            Set.PresetSelected = true;
+            SaveLocked();
         }
-        Set.PresetSelected = true;
-        Save();
         NotifyChanged();
     }
 

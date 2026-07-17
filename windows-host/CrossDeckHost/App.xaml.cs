@@ -25,6 +25,10 @@ public partial class App : System.Windows.Application
 
         _profileStore.LoadOrCreateDefault("Blank");
 
+        // Must happen before any window is shown, or PairingWindow (shown immediately below)
+        // renders with the default accent for a frame instead of the user's saved custom color.
+        ThemeManager.AccentColor = _profileStore.Set.AccentColor;
+
         var actionExecutor = new ActionExecutor();
 
         _pairing = new PairingManager();

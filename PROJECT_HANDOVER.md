@@ -46,7 +46,7 @@ d:\CrossDeck\
 │   ├── IconPickerWindow.xaml/.cs   Borderless grid picker for the bundled built-in icon pack
 │   ├── PairingWindow.xaml/.cs      Borderless pairing window + QR code display
 │   ├── PresetPickerWindow.xaml/.cs First-run Streaming/Productivity/Blank preset picker
-│   ├── ThemeManager.cs             Global Obsidian dark palette; imperative visual-tree styling (not a ResourceDictionary) via ApplyTheme(window)
+│   ├── ThemeManager.cs             Live per-profile accent color, propagated via the "Brush.Accent" DynamicResource (Resources/Colors.xaml + Styles.xaml hold the full token set)
 │   ├── App.xaml/.cs                Application entry point
 │   └── CrossDeckHost.csproj
 │
@@ -136,11 +136,11 @@ d:\CrossDeck\
 - `MainActivity` shows a frosted `ReconnectOverlay` (pulsing spinner + "Manual Connection") over the dimmed, touch-blocked last-known profile instead of jumping straight to `PairingScreen`; still falls back to `PairingScreen` when there's never been a profile or the user taps Manual Connection.
 - Windows: tray "Revoke Paired Device" (confirmation dialog) calls `PairingManager.RevokeAllTokens()` + `WebSocketServer.DisconnectAllClients()` + regenerates the pairing PIN. `PairingManager` tokens now persist to `%AppData%\CrossDeckHost\tokens.json` (previously in-memory only, so revokes/tokens didn't survive a host restart).
 
-### 3c. Ship Prep ⬜ — NOT STARTED
-- Trademark/domain check on "CrossDeck" before publishing
-- Real launcher icons for Android + .ico for Windows (both currently system defaults)
-- Demo GIF/screenshots for README
-- First GitHub release
+### 3c. Ship Prep — partially done
+- Trademark/domain check on "CrossDeck" before publishing — ⬜ still open
+- Real launcher icons for Android + .ico for Windows — ✅ done (`Assets/app.ico`, `mipmap-xxxhdpi/ic_launcher*.png`)
+- Demo GIF/screenshots for README — ⬜ still open
+- First GitHub release — ⬜ still open
 
 ---
 
@@ -153,7 +153,7 @@ class ProfileSet {
     string ActiveProfileId = "p_default";
     List<Profile> Profiles;
     bool PresetSelected = false;
-    string AccentColor = "#00d4ff";   // NEW — dynamic theme sync
+    string AccentColor = "#00E5FF";   // dynamic theme sync, matches SignalCyan
 }
 
 class Profile {
@@ -161,6 +161,8 @@ class Profile {
     string Name;
     string? TriggerProcess;           // for auto-profile-switch
     List<ButtonModel> Buttons;
+    int Rows = 3;
+    int Columns = 5;
 }
 
 class ButtonModel {
@@ -219,6 +221,10 @@ Transport: WebSocket `ws://<host-ip>:7890/ws`. All messages are JSON with a `typ
 | `dial_state` | server → client | Broadcast after dial_adjust. `{ "buttonId", "value" }` |
 | `style_change` | client → server | Change accent color. `{ "accentColor": "#hex" }` |
 | `heartbeat` | server → client | Every 25 s. No-op keepalive. `{ "type": "heartbeat" }` |
+| `list_apps` | client → server | Request installed-app list for the Launch App picker. No payload |
+| `app_list` | server → client | Response to `list_apps`. `{ "apps": [{ "name", "path" }] }` |
+| `extract_icon` | client → server | Request an icon for a path or URL (exe icon or website favicon). `{ "path": "..." }` |
+| `icon_extracted` | server → client | Response to `extract_icon`. `{ "path": "...", "icon": "<hash>"? }` |
 
 ### profile_sync shape (always includes accentColor)
 
@@ -239,7 +245,7 @@ Transport: WebSocket `ws://<host-ip>:7890/ws`. All messages are JSON with a `typ
       }
     ]
   },
-  "accentColor": "#00d4ff"
+  "accentColor": "#00E5FF"
 }
 ```
 
@@ -256,25 +262,25 @@ Transport: WebSocket `ws://<host-ip>:7890/ws`. All messages are JSON with a `typ
 Both apps share the same visual language. Key tokens:
 
 ```
-background:      #080810  (deep void)
-surface:         #0E0E10  (near-black panel)
-outline:         #1F1F23  (subtle separator border)
-on-surface:      #FFFFFF
-on-muted:        #9CA3AF
+background (Void):   #0B0B0F
+surface (Panel):      #16161C
+outline (Hairline):    #26262E
+on-surface (Paper):    #F2F3F5
+on-muted (Mist):       #9AA0AC
 
-accent (default):  #00d4ff  Neon Cyan
+accent (default):  #00E5FF  Neon Cyan
 accent options:    #8b5cf6  Neon Purple
                    #ffb703  Cyberpunk Yellow
-                   #2ec4b6  Toxic Green
+                   #39FF14  Toxic Green
                    #e63946  Crimson Red
 
-border-inactive:   1px solid #1F1F23
+border-inactive:   1px solid Hairline
 border-active:     1.5px solid <accent>
-corner-radius:     8dp (buttons) / 12dp (cards) / 16dp (sheets)
+corner-radius:     8dp Control (buttons) / 14dp Container/DeckButton (cards, deck keys)
 ```
 
 Rules:
-- No light theme. Dark only.
+- Dark by default; Android has a light theme wired via `isSystemInDarkTheme()`, Windows is still dark-only.
 - Borders, not filled colors, for inactive elements.
 - Every interactive element has a scale/glow micro-interaction.
 - Accent color is user-selectable at runtime and syncs live over WebSocket.
@@ -336,7 +342,7 @@ Rules:
 
 ## Decisions That Are Locked (Do Not Revisit)
 
-- **No light theme** — dark only, always
+- ~~**No light theme** — dark only, always~~ — superseded in practice: Android now has a light theme (`isSystemInDarkTheme()`, `ui/theme/Theme.kt`). Flagging rather than silently deleting this "locked" line — worth confirming whether that was a deliberate reversal of this decision or code that got ahead of it.
 - **No plugin marketplace** — `ActionModel.Type` string dispatch stays extensible but no loader built
 - **No telemetry** — zero analytics, zero tracking, structurally permanent
 - **MIT license** — no freemium, no paywalled features, ever

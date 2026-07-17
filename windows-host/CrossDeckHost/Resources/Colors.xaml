@@ -1,0 +1,60 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+      Dark theme only for now (matches current app behavior); light-theme values are included
+      as *Light so Milestone 3's dark/light toggle has a real source to switch to instead of
+      inventing values then.
+    -->
+
+    <!-- Neutrals -->
+    <SolidColorBrush x:Key="Brush.Void" Color="#0B0B0F"/>
+    <SolidColorBrush x:Key="Brush.Panel" Color="#16161C"/>
+    <SolidColorBrush x:Key="Brush.Hairline" Color="#26262E"/>
+    <SolidColorBrush x:Key="Brush.Paper" Color="#F2F3F5"/>
+    <SolidColorBrush x:Key="Brush.Mist" Color="#9AA0AC"/>
+
+    <SolidColorBrush x:Key="Brush.BaseLight" Color="#F7F7F9"/>
+    <SolidColorBrush x:Key="Brush.PanelLight" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Brush.HairlineLight" Color="#E4E4EA"/>
+    <SolidColorBrush x:Key="Brush.PaperLight" Color="#14141A"/>
+    <SolidColorBrush x:Key="Brush.MistLight" Color="#6B7280"/>
+
+    <!-- Brand accents — identical values to Android's ui/theme/Color.kt, do not drift -->
+    <SolidColorBrush x:Key="Brush.SignalCyan" Color="#00E5FF"/>
+    <SolidColorBrush x:Key="Brush.VoltViolet" Color="#8B5CF6"/>
+
+    <!--
+      Brush.Accent — the LIVE, per-profile customizable accent (see ProfileSet.AccentColor).
+      Defaults to SignalCyan's value here so DynamicResource lookups resolve correctly before
+      ThemeManager.ApplyTheme() runs on app startup. ThemeManager overwrites this same key at
+      runtime when the user picks a custom accent color — see Actions/ThemeManager.cs.
+      Styles must reference this via DynamicResource, not StaticResource, or accent customization
+      silently won't work.
+    -->
+    <SolidColorBrush x:Key="Brush.Accent" Color="#00E5FF"/>
+
+    <!-- Semantic -->
+    <SolidColorBrush x:Key="Brush.Go" Color="#22C55E"/>
+    <SolidColorBrush x:Key="Brush.Caution" Color="#F5A524"/>
+    <SolidColorBrush x:Key="Brush.Alarm" Color="#EF4444"/>
+
+    <!-- Spacing scale, as a reference for margin/padding values (WPF has no spacing token type,
+         these are just named doubles so new XAML can reference a value instead of typing a raw
+         number) -->
+    <!-- Thickness, not Double: Margin/Padding are Thickness-typed, and WPF won't auto-convert a
+         StaticResource-provided Double into Thickness at runtime the way a literal string does.
+         A single-number Thickness like "24" resolves to uniform 24 on all four sides. -->
+    <Thickness x:Key="Space.4">4</Thickness>
+    <Thickness x:Key="Space.8">8</Thickness>
+    <Thickness x:Key="Space.12">12</Thickness>
+    <Thickness x:Key="Space.16">16</Thickness>
+    <Thickness x:Key="Space.24">24</Thickness>
+    <Thickness x:Key="Space.32">32</Thickness>
+
+    <!-- Radius scale -->
+    <CornerRadius x:Key="Radius.Control">8</CornerRadius>
+    <CornerRadius x:Key="Radius.Container">14</CornerRadius>
+    <CornerRadius x:Key="Radius.DeckButton">14</CornerRadius>
+
+</ResourceDictionary>

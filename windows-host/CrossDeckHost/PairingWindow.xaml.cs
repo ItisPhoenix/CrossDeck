@@ -10,13 +10,27 @@ public partial class PairingWindow : Window
     public PairingWindow(string pin, string ipAddress, int port)
     {
         InitializeComponent();
-        IpText.Text = ipAddress;
-        PortText.Text = port.ToString();
-        PinText.Text = pin;
         // ApplyTheme must run after layout (VisualTreeHelper walk is a no-op pre-layout) — Loaded,
         // not the constructor. See EditorWindow's constructor for the same pattern.
         Loaded += (s, e) => ThemeManager.ApplyTheme(this);
+        Refresh(pin, ipAddress, port);
+    }
 
+    /// <summary>
+    /// Re-renders the pairing details and QR code so the window always reflects the
+    /// current PIN / IP / port (e.g. after a device revoke or network change) rather
+    /// than the values captured when it was first shown.
+    /// </summary>
+    public void Refresh(string pin, string ipAddress, int port)
+    {
+        IpText.Text = ipAddress;
+        PortText.Text = port.ToString();
+        PinText.Text = pin;
+        GenerateQr(ipAddress, port, pin);
+    }
+
+    private void GenerateQr(string ipAddress, int port, string pin)
+    {
         try
         {
             using (var qrGenerator = new QRCodeGenerator())

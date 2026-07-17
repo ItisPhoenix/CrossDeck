@@ -18,12 +18,6 @@ data class ProfileHeader(
 )
 
 @Serializable
-data class ProfileSet(
-    val activeProfileId: String,
-    val profiles: List<Profile>
-)
-
-@Serializable
 data class ButtonModel(
     val buttonId: String,
     val position: Position,

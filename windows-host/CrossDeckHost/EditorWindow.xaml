@@ -3,43 +3,13 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="CrossDeck Profile Editor" Height="520" Width="840"
         WindowStartupLocation="CenterScreen"
-        AllowsTransparency="True" WindowStyle="None" Background="Transparent">
-    <Border CornerRadius="12" Background="#0C0C0E" BorderBrush="#1F1F24" BorderThickness="1.5">
+        WindowStyle="SingleBorderWindow"
+        FontFamily="Segoe UI" FontSize="12" UseLayoutRounding="True" SnapsToDevicePixels="True">
+
+    <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1">
         <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="32"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <!-- Custom TitleBar Row 0 -->
-            <Border Grid.Row="0" Background="#0E0E12" BorderBrush="#1F1F24" BorderThickness="0,0,0,1.2" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                <Grid>
-                    <!-- Left: Custom Cyber-themed Outlined Rings -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0">
-                        <Ellipse Width="12" Height="12" Stroke="#FF5F56" StrokeThickness="1.5" Fill="Transparent" Cursor="Hand" MouseLeftButtonDown="CloseButton_Click" ToolTip="Close"/>
-                        <Ellipse Width="12" Height="12" Stroke="#8B5CF6" StrokeThickness="1.5" Fill="Transparent" Margin="8,0,8,0" Cursor="Hand" MouseLeftButtonDown="MinimizeButton_Click" ToolTip="Minimize"/>
-                        <Ellipse Width="12" Height="12" Stroke="#00D4FF" StrokeThickness="1.5" Fill="Transparent" ToolTip="Maximize (Disabled)"/>
-                    </StackPanel>
-
-                    <!-- Center: Window Title Text -->
-                    <TextBlock Text="CrossDeck Host Editor" Foreground="#8A8A93" FontFamily="Segoe UI" FontWeight="SemiBold" FontSize="11.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-
-                    <!-- Right: Accent Selector Combo -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0">
-                        <TextBlock Text="Theme:" Foreground="#8A8A93" FontSize="10.5" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <ComboBox x:Name="AccentCombo" Width="125" Height="22" FontSize="10.5" SelectionChanged="AccentCombo_SelectionChanged" Background="#121216" Foreground="#FFFFFF" BorderBrush="#25252E" VerticalAlignment="Center">
-                            <ComboBoxItem Content="Neon Cyan" Tag="#00d4ff"/>
-                            <ComboBoxItem Content="Neon Purple" Tag="#8b5cf6"/>
-                            <ComboBoxItem Content="Cyberpunk Yellow" Tag="#ffb703"/>
-                            <ComboBoxItem Content="Toxic Green" Tag="#2ec4b6"/>
-                            <ComboBoxItem Content="Crimson Red" Tag="#e63946"/>
-                        </ComboBox>
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <!-- Main Split Content Area Row 1 -->
-            <Grid Grid.Row="1" Margin="12">
+            <!-- Main Split Content Area -->
+            <Grid Margin="12">
                 <Grid.ColumnDefinitions>
                     <!-- Column 0: Left Sidebar (width 220) -->
                     <ColumnDefinition Width="220"/>
@@ -59,7 +29,7 @@
                     </Grid.RowDefinitions>
 
                     <!-- 1. Phone Connection Card -->
-                    <Border Grid.Row="0" Margin="0,0,0,12" Padding="12" Background="#121216" BorderBrush="#1F1F24" BorderThickness="1" CornerRadius="10">
+                    <Border Grid.Row="0" Margin="0,0,0,12" Padding="12" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="10">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
@@ -68,10 +38,10 @@
                             <TextBlock Text="📱" FontSize="24" VerticalAlignment="Center" Margin="0,0,10,0"/>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                 <Grid>
-                                    <TextBlock x:Name="DeviceNameText" Text="Offline" Foreground="#FFFFFF" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
-                                    <Ellipse x:Name="ConnectionDot" HorizontalAlignment="Right" Width="8" Height="8" Fill="#FF5555" Margin="0,3,0,0" VerticalAlignment="Top"/>
+                                    <TextBlock x:Name="DeviceNameText" Text="Offline" Foreground="{StaticResource Brush.Paper}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                                    <Ellipse x:Name="ConnectionDot" HorizontalAlignment="Right" Width="8" Height="8" Fill="{StaticResource Brush.Alarm}" Margin="0,3,0,0" VerticalAlignment="Top"/>
                                 </Grid>
-                                <TextBlock x:Name="ConnectionDetailsText" Text="Waiting for client..." Foreground="#8A8A93" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="ConnectionDetailsText" Text="Waiting for client..." Foreground="{StaticResource Brush.Mist}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -85,42 +55,51 @@
 
                     <!-- 3. Sidebar Footer (Profile Control buttons & links) -->
                     <StackPanel Grid.Row="2" Margin="0,12,0,0">
+                        <!-- Theme / Accent selector (standard ComboBox) -->
+                        <Grid Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Theme:" Foreground="{StaticResource Brush.Mist}" FontSize="11" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <!-- Tag values here are accent color DATA the user picks from, not chrome — left as literal hex on purpose. -->
+                            <ComboBox x:Name="AccentCombo" Grid.Column="1" Height="28" FontSize="11" SelectionChanged="AccentCombo_SelectionChanged">
+                                <ComboBoxItem Content="Neon Cyan" Tag="#00E5FF"/>
+                                <ComboBoxItem Content="Neon Purple" Tag="#8b5cf6"/>
+                                <ComboBoxItem Content="Cyberpunk Yellow" Tag="#ffb703"/>
+                                <ComboBoxItem Content="Toxic Green" Tag="#39FF14"/>
+                                <ComboBoxItem Content="Crimson Red" Tag="#e63946"/>
+                            </ComboBox>
+                        </Grid>
+
                         <!-- Profile creation triggers -->
-                        <Button Content="+ New Profile Page" Click="NewProfileButton_Click" Background="Transparent" BorderBrush="#25252E" BorderThickness="1" Foreground="#8A8A93" Padding="8" Margin="0,0,0,6">
-                            <Button.Template>
-                                <ControlTemplate TargetType="Button">
-                                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10" Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-                                </ControlTemplate>
-                            </Button.Template>
-                        </Button>
+                        <Button Style="{StaticResource AccentButton}" Content="+ New Profile Page" Click="NewProfileButton_Click" Margin="0,0,0,6"/>
 
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Button Content="Rename" Click="RenameProfileButton_Click" Margin="0,0,3,0" Padding="6,4" FontSize="10.5"/>
-                            <Button Grid.Column="1" Content="Delete Page" Click="DeleteProfileButton_Click" Margin="3,0,0,0" Padding="6,4" FontSize="10.5" Background="#3F1616" Foreground="#FFA0A0" BorderBrush="#601A1A"/>
+                            <Button Style="{StaticResource StandardButton}" Content="Rename" Click="RenameProfileButton_Click" Margin="0,0,3,0"/>
+                            <Button Style="{StaticResource DangerButton}" Grid.Column="1" Content="Delete Page" Click="DeleteProfileButton_Click" Margin="3,0,0,0"/>
                         </Grid>
-                        
-                        <Button Content="Add Preset profile..." Click="AddPresetProfileButton_Click" Margin="0,0,0,12" Padding="6" FontSize="10.5"/>
 
-                        <Border BorderBrush="#1F1F24" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,4,0,0">
+                        <Button Style="{StaticResource StandardButton}" Content="Add Preset profile..." Click="AddPresetProfileButton_Click" Margin="0,0,0,12"/>
+
+                        <Border BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,4,0,0">
                             <Grid>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
-                                    <TextBlock Text="About" Foreground="#8A8A93" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" Margin="0,0,12,0" TextDecorations="Underline"/>
-                                    <TextBlock Text="Help &amp; Feedback" Foreground="#8A8A93" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="HelpLink_Click" TextDecorations="Underline"/>
+                                    <TextBlock Text="About" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" Margin="0,0,12,0" TextDecorations="Underline"/>
+                                    <TextBlock Text="Help &amp; Feedback" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="HelpLink_Click" TextDecorations="Underline"/>
                                 </StackPanel>
-                                <TextBlock Text="v1.0" Foreground="#44444F" FontSize="10.5" HorizontalAlignment="Right"/>
+                                <TextBlock Text="v1.0" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" HorizontalAlignment="Right"/>
                             </Grid>
                         </Border>
                     </StackPanel>
                 </Grid>
 
                 <!-- RIGHT MAIN GRID AREA -->
-                <Border Grid.Column="1" Background="#121216" BorderBrush="#1F1F24" BorderThickness="1" CornerRadius="12" Padding="12">
+                <Border Grid.Column="1" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="12" Padding="12">
                     <Grid>
                         <Grid.RowDefinitions>
                             <!-- Top: Navigation Header -->
@@ -137,21 +116,21 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
 
-                            <Button x:Name="BackButton" Content="◀ Go Back" VerticalAlignment="Center" Padding="8,4" Click="BackButton_Click" Visibility="Collapsed" Margin="0,0,10,0"/>
+                            <Button x:Name="BackButton" Style="{StaticResource StandardButton}" Content="◀ Go Back" VerticalAlignment="Center" Click="BackButton_Click" Visibility="Collapsed" Margin="0,0,10,0"/>
                             <!-- Clickable breadcrumb segments built dynamically in code-behind -->
                             <StackPanel x:Name="BreadcrumbPanel" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"/>
 
                             <!-- Right: Trigger Process + Grid Size picker -->
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="Grid:" Foreground="#8A8A93" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <ComboBox x:Name="GridSizeCombo" Width="80" Height="22" FontSize="10.5" SelectionChanged="GridSizeCombo_SelectionChanged" Background="#121216" Foreground="#FFFFFF" BorderBrush="#25252E" VerticalAlignment="Center" Margin="0,0,14,0">
+                                <TextBlock Text="Grid:" Foreground="{StaticResource Brush.Mist}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <ComboBox x:Name="GridSizeCombo" Width="80" Height="28" FontSize="11" SelectionChanged="GridSizeCombo_SelectionChanged" VerticalAlignment="Center" Margin="0,0,14,0">
                                     <ComboBoxItem Content="2 × 4" Tag="2,4"/>
                                     <ComboBoxItem Content="3 × 5" Tag="3,5" IsSelected="True"/>
                                     <ComboBoxItem Content="4 × 6" Tag="4,6"/>
                                     <ComboBoxItem Content="2 × 3" Tag="2,3"/>
                                 </ComboBox>
-                                <TextBlock Text="Trigger:" Foreground="#8A8A93" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBox x:Name="TriggerProcessTxt" Width="120" Height="22" VerticalAlignment="Center" Padding="3,1" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" ToolTip="e.g. chrome.exe (auto-switches to this profile)"/>
+                                <TextBlock Text="Trigger:" Foreground="{StaticResource Brush.Mist}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <TextBox x:Name="TriggerProcessTxt" Width="120" Height="28" VerticalAlignment="Center" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" ToolTip="e.g. chrome.exe (auto-switches to this profile)"/>
                             </StackPanel>
                         </Grid>
 
@@ -164,18 +143,18 @@
                             <!-- Ambient Connection / Undo Toast Overlay in Bottom-Right -->
                             <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,16">
                                 <!-- Connection status toast -->
-                                <Border x:Name="ToastNotificationCard" CornerRadius="8" Background="#1C1C24" BorderBrush="{DynamicResource PrimaryAccentBrush}" BorderThickness="1" Padding="12,8" Margin="0,0,0,6" Visibility="Collapsed">
+                                <Border x:Name="ToastNotificationCard" CornerRadius="8" Background="{StaticResource Brush.Panel}" BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="1" Padding="12,8" Margin="0,0,0,6" Visibility="Collapsed">
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <Ellipse x:Name="ToastStateDot" Width="8" Height="8" Fill="#FF5555" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                        <TextBlock x:Name="ToastMessageText" Text="Device Disconnected" Foreground="#FFFFFF" FontSize="11.5" FontWeight="SemiBold"/>
+                                        <Ellipse x:Name="ToastStateDot" Width="8" Height="8" Fill="{StaticResource Brush.Alarm}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                        <TextBlock x:Name="ToastMessageText" Text="Device Disconnected" Foreground="{StaticResource Brush.Paper}" FontSize="11.5" FontWeight="SemiBold"/>
                                     </StackPanel>
                                 </Border>
                                 <!-- Undo last edit toast -->
-                                <Border x:Name="UndoToastCard" CornerRadius="8" Background="#1C1C24" BorderBrush="#8B5CF6" BorderThickness="1" Padding="10,6" Visibility="Collapsed">
+                                <Border x:Name="UndoToastCard" CornerRadius="8" Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.VoltViolet}" BorderThickness="1" Padding="10,6" Visibility="Collapsed">
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="↩" Foreground="#8B5CF6" FontSize="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                        <TextBlock x:Name="UndoToastLabel" Text="Undo last edit" Foreground="#FFFFFF" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <Button x:Name="UndoBtn" Content="Undo" Click="UndoBtn_Click" Padding="8,3" FontSize="10.5" Background="#8B5CF6" Foreground="#FFFFFF" FontWeight="SemiBold"/>
+                                        <TextBlock Text="↩" Foreground="{StaticResource Brush.VoltViolet}" FontSize="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock x:Name="UndoToastLabel" Text="Undo last edit" Foreground="{StaticResource Brush.Paper}" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                        <Button x:Name="UndoBtn" Content="Undo" Click="UndoBtn_Click" Padding="8,3" FontSize="10.5" Background="{StaticResource Brush.VoltViolet}" Foreground="{StaticResource Brush.Paper}" FontWeight="SemiBold"/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
@@ -186,3 +165,4 @@
         </Grid>
     </Border>
 </Window>
+

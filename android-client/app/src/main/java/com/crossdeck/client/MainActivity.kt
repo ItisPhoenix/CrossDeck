@@ -18,33 +18,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import com.crossdeck.client.connection.ConnectionManager
 import com.crossdeck.client.connection.ConnectionState
 import com.crossdeck.client.ui.DeckGridScreen
 import com.crossdeck.client.ui.PairingScreen
 import com.crossdeck.client.ui.ReconnectOverlay
+import com.crossdeck.client.ui.theme.CrossDeckTheme
+import com.crossdeck.client.ui.theme.SignalCyan
 import java.io.File
-
-private val PremiumDarkColors = darkColorScheme(
-    primary = Color(0xFF00F2FE),
-    secondary = Color(0xFF7F00FF),
-    background = Color(0xFF000000),
-    surface = Color(0xFF0E0E10),
-    onBackground = Color(0xFFFFFFFF),
-    onSurface = Color(0xFFFFFFFF)
-)
-
-private val PremiumLightColors = lightColorScheme(
-    primary = Color(0xFF007AFF),
-    secondary = Color(0xFF1D3557),
-    background = Color(0xFFF8F9FA),
-    surface = Color(0xFFFFFFFF),
-    onBackground = Color(0xFF1A202C),
-    onSurface = Color(0xFF1A202C)
-)
 
 class MainActivity : ComponentActivity() {
 
@@ -63,16 +44,13 @@ class MainActivity : ComponentActivity() {
             val parsedAccentColor = try {
                 Color(android.graphics.Color.parseColor(accentColorHex))
             } catch (e: Exception) {
-                Color(0xFF00F2FE)
+                SignalCyan
             }
-            val dynamicColors = PremiumDarkColors.copy(
-                primary = parsedAccentColor
-            )
 
-            MaterialTheme(colorScheme = dynamicColors) {
+            CrossDeckTheme(accentColor = parsedAccentColor) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = dynamicColors.background
+                    color = MaterialTheme.colorScheme.background
                 ) {
                     val state by connectionManager.connectionState.collectAsState()
                     val profile by connectionManager.currentProfile.collectAsState()
@@ -195,7 +173,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 ReconnectOverlay(
-                                    accentColor = dynamicColors.primary,
+                                    accentColor = MaterialTheme.colorScheme.primary,
                                     onManualConnect = {
                                         connectionManager.disconnect()
                                         showManualPairing = true

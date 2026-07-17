@@ -4,31 +4,13 @@
         Title="Choose Icon" Height="480" Width="560"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        AllowsTransparency="True" WindowStyle="None" Background="Transparent">
-    <Border CornerRadius="12" Background="#080810" BorderBrush="#1F1F23" BorderThickness="1.5">
+        WindowStyle="SingleBorderWindow"
+        FontFamily="Segoe UI" FontSize="12" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1">
         <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="32"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <!-- Custom TitleBar Row 0 -->
-            <Border Grid.Row="0" Background="#0E0E12" BorderBrush="#1F1F24" BorderThickness="0,0,0,1.2" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                <Grid>
-                    <!-- Left: Traffic Lights -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0">
-                        <Ellipse Width="12" Height="12" Fill="#FF5F56" Cursor="Hand" MouseLeftButtonDown="CloseButton_Click" ToolTip="Close"/>
-                        <Ellipse Width="12" Height="12" Fill="#FFBD2E" Margin="8,0,8,0" IsEnabled="False" Opacity="0.5" ToolTip="Minimize (Disabled)"/>
-                        <Ellipse Width="12" Height="12" Fill="#27C93F" ToolTip="Maximize (Disabled)"/>
-                    </StackPanel>
-
-                    <!-- Center: Window Title Text -->
-                    <TextBlock Text="Choose Built-in Icon" Foreground="#8A8A93" FontFamily="Segoe UI" FontWeight="SemiBold" FontSize="11.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
-
-            <!-- Icon Grid Row 1 -->
-            <ScrollViewer Grid.Row="1" Margin="12" VerticalScrollBarVisibility="Auto">
+            <TextBlock x:Name="EmptyStateText" Text="No built-in icons found." Foreground="{StaticResource Brush.Mist}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+            <ScrollViewer Margin="12" VerticalScrollBarVisibility="Auto">
                 <WrapPanel x:Name="IconWrapPanel" Orientation="Horizontal"/>
             </ScrollViewer>
         </Grid>

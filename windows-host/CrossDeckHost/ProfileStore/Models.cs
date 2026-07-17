@@ -14,7 +14,7 @@ public class ProfileSet
     public bool PresetSelected { get; set; } = false;
 
     [JsonPropertyName("accentColor")]
-    public string AccentColor { get; set; } = "#00d4ff";
+    public string AccentColor { get; set; } = "#00E5FF"; // matches Resources/Colors.xaml Brush.SignalCyan
 }
 
 public class Profile

@@ -13,6 +13,10 @@ public class PairingManager
     private DateTime _pinExpiresAt = DateTime.MinValue;
     private readonly HashSet<string> _validTokens = new();
 
+    // _validTokens is read from ValidateToken on every WebSocket connection and asset request
+    // (each on its own thread) while IssueToken/RevokeToken/RevokeAllTokens mutate it concurrently.
+    private readonly object _tokensLock = new();
+
     public string CurrentPin => _currentPin;
 
     public PairingManager()
@@ -40,18 +44,30 @@ public class PairingManager
     public string IssueToken()
     {
         var token = Guid.NewGuid().ToString();
-        _validTokens.Add(token);
-        SaveTokens();
+        lock (_tokensLock)
+        {
+            _validTokens.Add(token);
+            SaveTokensLocked();
+        }
         return token;
     }
 
-    public bool ValidateToken(string token) => _validTokens.Contains(token);
+    public bool ValidateToken(string token)
+    {
+        lock (_tokensLock)
+        {
+            return _validTokens.Contains(token);
+        }
+    }
 
     /// <summary>Revokes a single token.</summary>
     public void RevokeToken(string token)
     {
-        _validTokens.Remove(token);
-        SaveTokens();
+        lock (_tokensLock)
+        {
+            _validTokens.Remove(token);
+            SaveTokensLocked();
+        }
     }
 
     /// <summary>
@@ -61,8 +77,11 @@ public class PairingManager
     /// </summary>
     public void RevokeAllTokens()
     {
-        _validTokens.Clear();
-        SaveTokens();
+        lock (_tokensLock)
+        {
+            _validTokens.Clear();
+            SaveTokensLocked();
+        }
     }
 
     private void LoadTokens()
@@ -74,13 +93,16 @@ public class PairingManager
             var tokens = JsonSerializer.Deserialize<List<string>>(json);
             if (tokens != null)
             {
-                foreach (var t in tokens) _validTokens.Add(t);
+                lock (_tokensLock)
+                {
+                    foreach (var t in tokens) _validTokens.Add(t);
+                }
             }
         }
         catch { /* corrupt/missing file — start with no tokens, same as a fresh install */ }
     }
 
-    private void SaveTokens()
+    private void SaveTokensLocked()
     {
         try
         {

@@ -5,7 +5,8 @@
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         AllowsTransparency="True" WindowStyle="None" Background="Transparent">
-    <Border CornerRadius="12" Background="#080810" BorderBrush="#1F1F23" BorderThickness="1.5">
+    <Border CornerRadius="{StaticResource Radius.Container}" Background="{StaticResource Brush.Void}"
+            BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.5">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="32"/>
@@ -13,22 +14,27 @@
             </Grid.RowDefinitions>
 
             <!-- Custom TitleBar Row 0 -->
-            <Border Grid.Row="0" Background="#0E0E12" BorderBrush="#1F1F24" BorderThickness="0,0,0,1.2" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+            <Border Grid.Row="0" Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}"
+                    BorderThickness="0,0,0,1.5" CornerRadius="12,12,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
-                    <!-- Left: Traffic Lights -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0">
-                        <Ellipse Width="12" Height="12" Fill="#FF5F56" Cursor="Hand" MouseLeftButtonDown="CloseButton_Click" ToolTip="Close"/>
-                        <Ellipse Width="12" Height="12" Fill="#FFBD2E" Margin="8,0,8,0" Cursor="Hand" MouseLeftButtonDown="MinimizeButton_Click" ToolTip="Minimize"/>
-                        <Ellipse Width="12" Height="12" Fill="#27C93F" ToolTip="Maximize (Disabled)"/>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="✦ CrossDeck Pairing Info" Foreground="{StaticResource Brush.Paper}"
+                               FontFamily="Segoe UI Variable, Segoe UI" FontWeight="Bold" FontSize="12"
+                               Margin="12,0,0,0" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <Button Content="—" Width="24" Height="24" Padding="0" Click="MinimizeButton_Click"
+                                Background="Transparent" Foreground="{StaticResource Brush.Paper}" BorderThickness="0" Margin="0,0,4,0"/>
+                        <Button Content="✕" Width="24" Height="24" Padding="0" Click="CloseButton_Click"
+                                Background="Transparent" Foreground="{StaticResource Brush.Paper}" BorderThickness="0"/>
                     </StackPanel>
-
-                    <!-- Center: Window Title Text -->
-                    <TextBlock Text="CrossDeck Pairing Info" Foreground="#8A8A93" FontFamily="Segoe UI" FontWeight="SemiBold" FontSize="11.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
             </Border>
 
             <!-- Content Grid Row 1 -->
-            <Grid Grid.Row="1" Margin="20">
+            <Grid Grid.Row="1" Margin="{StaticResource Space.24}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="1.4*"/>
                     <ColumnDefinition Width="1*"/>
@@ -36,26 +42,39 @@
 
                 <!-- Left Column: Manual Text Info -->
                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
-                    <TextBlock Text="Enter these on your phone's pairing screen:" Foreground="#FFFFFF"
-                               TextWrapping="Wrap" Margin="0,0,0,12" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Text="Enter these on your phone's pairing screen:" Foreground="{StaticResource Brush.Paper}"
+                               TextWrapping="Wrap" Margin="0,0,0,12" FontSize="13" FontWeight="SemiBold"
+                               FontFamily="Segoe UI Variable, Segoe UI"/>
 
-                    <TextBlock Text="PC IP Address" Foreground="#FFFFFF" FontWeight="Bold" FontSize="11" Opacity="0.6"/>
-                    <TextBlock x:Name="IpText" Foreground="#00d4ff" FontSize="18" FontFamily="Consolas" Margin="0,0,0,8"/>
+                    <TextBlock Text="PC IP Address" Foreground="{StaticResource Brush.Mist}" FontWeight="Bold" FontSize="11"/>
+                    <TextBlock x:Name="IpText" Foreground="{DynamicResource Brush.Accent}" FontSize="18"
+                               FontFamily="Cascadia Mono, Consolas, Courier New" Margin="0,0,0,8"/>
 
-                    <TextBlock Text="Port" Foreground="#FFFFFF" FontWeight="Bold" FontSize="11" Opacity="0.6"/>
-                    <TextBlock x:Name="PortText" Foreground="#00d4ff" FontSize="18" FontFamily="Consolas" Margin="0,0,0,8"/>
+                    <TextBlock Text="Port" Foreground="{StaticResource Brush.Mist}" FontWeight="Bold" FontSize="11"/>
+                    <TextBlock x:Name="PortText" Foreground="{DynamicResource Brush.Accent}" FontSize="18"
+                               FontFamily="Cascadia Mono, Consolas, Courier New" Margin="0,0,0,8"/>
 
-                    <TextBlock Text="PIN (expires in 5 minutes)" Foreground="#FFFFFF" FontWeight="Bold" FontSize="11" Opacity="0.6"/>
-                    <TextBlock x:Name="PinText" Foreground="#8b5cf6" FontSize="24" FontFamily="Consolas" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <TextBlock Text="PIN (expires in 5 minutes)" Foreground="{StaticResource Brush.Mist}" FontWeight="Bold" FontSize="11"/>
+                    <TextBlock x:Name="PinText" Foreground="{StaticResource Brush.VoltViolet}" FontSize="24"
+                               FontFamily="Cascadia Mono, Consolas, Courier New" FontWeight="Bold" Margin="0,0,0,4"/>
+                    <!--
+                      PIN deliberately stays VoltViolet (fixed brand color, not the live Accent)
+                      even when a custom accent is set - the PIN needs to visually stand apart
+                      from IP/Port as "the one thing you're about to type on another device,"
+                      not blend into whatever color the profile happens to be using.
+                    -->
 
-                    <TextBlock Text="Both devices must be on the same WiFi network." Foreground="#FFFFFF"
-                               TextWrapping="Wrap" FontSize="10" Opacity="0.5" Margin="0,8,0,0"/>
+                    <TextBlock Text="Both devices must be on the same WiFi network." Foreground="{StaticResource Brush.Mist}"
+                               TextWrapping="Wrap" FontSize="10" Margin="0,8,0,0"/>
                 </StackPanel>
 
                 <!-- Right Column: QR Scanner Box -->
                 <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
-                    <TextBlock Text="Or Scan QR Code" Foreground="#FFFFFF" TextWrapping="Wrap" Margin="0,0,0,8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center"/>
-                    <Border BorderBrush="#1F1F23" BorderThickness="1.5" Background="#0E0E10" Padding="8" CornerRadius="8">
+                    <TextBlock Text="Or Scan QR Code" Foreground="{StaticResource Brush.Paper}" TextWrapping="Wrap"
+                               Margin="0,0,0,8" FontSize="12" FontWeight="Bold" HorizontalAlignment="Center"
+                               FontFamily="Segoe UI Variable, Segoe UI"/>
+                    <Border BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.5"
+                            Background="{StaticResource Brush.Panel}" Padding="8" CornerRadius="{StaticResource Radius.Control}">
                         <Image x:Name="QrImage" Width="160" Height="160" Stretch="Uniform"/>
                     </Border>
                 </StackPanel>

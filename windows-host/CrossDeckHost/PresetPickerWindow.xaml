@@ -4,39 +4,18 @@
         Title="Welcome to CrossDeck" Height="380" Width="640"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
-        AllowsTransparency="True" WindowStyle="None" Background="Transparent">
-    <Border CornerRadius="12" Background="#080810" BorderBrush="#1F1F23" BorderThickness="1.5">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="32"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-
-            <!-- Custom TitleBar Row 0 -->
-            <Border Grid.Row="0" Background="#0E0E12" BorderBrush="#1F1F24" BorderThickness="0,0,0,1.2" CornerRadius="11,11,0,0" MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
-                <Grid>
-                    <!-- Left: Traffic Lights -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="14,0,0,0">
-                        <Ellipse Width="12" Height="12" Fill="#FF5F56" Cursor="Hand" MouseLeftButtonDown="CloseButton_Click" ToolTip="Close"/>
-                        <Ellipse Width="12" Height="12" Fill="#FFBD2E" Margin="8,0,8,0" Cursor="Hand" MouseLeftButtonDown="MinimizeButton_Click" ToolTip="Minimize"/>
-                        <Ellipse Width="12" Height="12" Fill="#27C93F" ToolTip="Maximize (Disabled)"/>
-                    </StackPanel>
-
-                    <!-- Center: Window Title Text -->
-                    <TextBlock Text="Welcome to CrossDeck" Foreground="#8A8A93" FontFamily="Segoe UI" FontWeight="SemiBold" FontSize="11.5" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                </Grid>
-            </Border>
-
-            <!-- Content Grid Row 1 -->
-            <Grid Grid.Row="1" Margin="24">
+        WindowStyle="SingleBorderWindow"
+        FontFamily="Segoe UI" FontSize="12" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1">
+        <Grid Margin="24">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <TextBlock Grid.Row="0" Text="Choose a Default Preset" Foreground="#FFFFFF" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                <TextBlock Grid.Row="1" Text="Select a template profile to configure your initial deck layout." Foreground="#FFFFFF" FontSize="13" Opacity="0.7" HorizontalAlignment="Center" Margin="0,0,0,24"/>
+                <TextBlock Grid.Row="0" Text="Choose a Default Preset" Foreground="{StaticResource Brush.Paper}" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                <TextBlock Grid.Row="1" Text="Select a template profile to configure your initial deck layout." Foreground="{StaticResource Brush.Paper}" FontSize="13" Opacity="0.7" HorizontalAlignment="Center" Margin="0,0,0,24"/>
 
                 <Grid Grid.Row="2">
                     <Grid.ColumnDefinitions>
@@ -46,20 +25,20 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- Card 1: Productivity -->
-                    <Button Grid.Column="0" Margin="8,0" Click="Productivity_Click" Background="#121216" BorderBrush="#25252E" BorderThickness="1.2">
+                    <Button Grid.Column="0" Margin="8,0" Click="Productivity_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="16">
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="💻" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                                        <TextBlock Text="Productivity" Foreground="#00d4ff" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                                        <TextBlock Text="Macros for browser, volume adjustments, lock PC, and office workflows." Foreground="#FFFFFF" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
+                                        <TextBlock Text="Productivity" Foreground="{StaticResource Brush.SignalCyan}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="Macros for browser, volume adjustments, lock PC, and office workflows." Foreground="{StaticResource Brush.Paper}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="cardBorder" Property="Background" Value="#1C1C24"/>
-                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="#444452"/>
+                                        <Setter TargetName="cardBorder" Property="Background" Value="{StaticResource Brush.Panel}"/>
+                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="{StaticResource Brush.Hairline}"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -67,20 +46,20 @@
                     </Button>
 
                     <!-- Card 2: Streaming -->
-                    <Button Grid.Column="1" Margin="8,0" Click="Streaming_Click" Background="#121216" BorderBrush="#25252E" BorderThickness="1.2">
+                    <Button Grid.Column="1" Margin="8,0" Click="Streaming_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="16">
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="🎙️" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                                        <TextBlock Text="Streaming" Foreground="#8b5cf6" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                                        <TextBlock Text="Macros for media triggers, volume control, mic mute, and stream tools." Foreground="#FFFFFF" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
+                                        <TextBlock Text="Streaming" Foreground="{StaticResource Brush.VoltViolet}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="Macros for media triggers, volume control, mic mute, and stream tools." Foreground="{StaticResource Brush.Paper}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="cardBorder" Property="Background" Value="#1C1C24"/>
-                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="#444452"/>
+                                        <Setter TargetName="cardBorder" Property="Background" Value="{StaticResource Brush.Panel}"/>
+                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="{StaticResource Brush.Hairline}"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -88,20 +67,20 @@
                     </Button>
 
                     <!-- Card 3: Blank -->
-                    <Button Grid.Column="2" Margin="8,0" Click="Blank_Click" Background="#121216" BorderBrush="#25252E" BorderThickness="1.2">
+                    <Button Grid.Column="2" Margin="8,0" Click="Blank_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="12" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="16">
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="📄" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                                        <TextBlock Text="Blank" Foreground="#FFFFFF" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                                        <TextBlock Text="Start with an empty profile. Add your own buttons and macros from scratch." Foreground="#FFFFFF" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
+                                        <TextBlock Text="Blank" Foreground="{StaticResource Brush.Paper}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="Start with an empty profile. Add your own buttons and macros from scratch." Foreground="{StaticResource Brush.Paper}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="cardBorder" Property="Background" Value="#1C1C24"/>
-                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="#444452"/>
+                                        <Setter TargetName="cardBorder" Property="Background" Value="{StaticResource Brush.Panel}"/>
+                                        <Setter TargetName="cardBorder" Property="BorderBrush" Value="{StaticResource Brush.Hairline}"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -109,6 +88,5 @@
                     </Button>
                 </Grid>
             </Grid>
-        </Grid>
     </Border>
 </Window>

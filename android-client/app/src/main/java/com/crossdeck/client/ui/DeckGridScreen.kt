@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.width
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -96,6 +97,8 @@ import android.view.HapticFeedbackConstants
 import androidx.compose.ui.platform.LocalView
 import com.crossdeck.client.model.ActionModel
 import com.crossdeck.client.model.AppSettings
+import com.crossdeck.client.ui.theme.Go
+import com.crossdeck.client.ui.theme.SignalCyan
 import com.crossdeck.client.model.ButtonModel
 import com.crossdeck.client.model.Position
 import com.crossdeck.client.model.Profile
@@ -156,7 +159,7 @@ fun DeckGridScreen(
     val accentColor = try {
         Color(android.graphics.Color.parseColor(accentColorHex))
     } catch (e: Exception) {
-        Color(0xFF00F2FE)
+        SignalCyan
     }
 
     // Dynamic scale oscillation for selector
@@ -223,9 +226,9 @@ fun DeckGridScreen(
         AlertDialog(
             onDismissRequest = { showCreateDialog = false },
             modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
-            containerColor = Color(0xFF0E0E10),
+            containerColor = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(16.dp),
-            title = { Text("Create New Profile", color = Color.White) },
+            title = { Text("Create New Profile", color = MaterialTheme.colorScheme.onSurface) },
             text = {
                 CrossDeckTextField(
                     value = newProfileName,
@@ -249,7 +252,7 @@ fun DeckGridScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
-                    Text("Cancel", color = Color.Gray)
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -259,9 +262,9 @@ fun DeckGridScreen(
         AlertDialog(
             onDismissRequest = { showRenameDialog = false },
             modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
-            containerColor = Color(0xFF0E0E10),
+            containerColor = MaterialTheme.colorScheme.surface,
             shape = RoundedCornerShape(16.dp),
-            title = { Text("Rename Profile", color = Color.White) },
+            title = { Text("Rename Profile", color = MaterialTheme.colorScheme.onSurface) },
             text = {
                 CrossDeckTextField(
                     value = renameProfileName,
@@ -284,7 +287,7 @@ fun DeckGridScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showRenameDialog = false }) {
-                    Text("Cancel", color = Color.Gray)
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -296,20 +299,18 @@ fun DeckGridScreen(
                 val isSuccess = toastMessage?.second != false
                 Snackbar(
                     snackbarData = data,
-                    containerColor = if (isSuccess)
-                        Color(0xFF1B8040)
-                    else
-                        Color(0xFFC62828),
-                    contentColor = Color.White
+                    containerColor = if (isSuccess) Go else MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
     ) { innerPadding ->
-        val bgBrush = remember(accentColor) {
+        val backgroundColor = MaterialTheme.colorScheme.background
+        val bgBrush = remember(accentColor, backgroundColor) {
             Brush.radialGradient(
                 colors = listOf(
                     accentColor.copy(alpha = 0.08f),
-                    Color(0xFF080810)
+                    backgroundColor
                 ),
                 radius = 1200f
             )
@@ -326,8 +327,8 @@ fun DeckGridScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp)
-                        .background(Color(0xFF0E0E10).copy(alpha = 0.8f), RoundedCornerShape(16.dp))
-                        .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(16.dp))
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
@@ -342,14 +343,14 @@ fun DeckGridScreen(
                                 .menuAnchor()
                                 .scale(pulseScale)
                                 .clickable { expanded = !expanded }
-                                .background(Color(0xFF14141A), RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
                                 .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                                 .padding(horizontal = 16.dp, vertical = 10.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = profile.name,
-                                    color = Color.White,
+                                    color = MaterialTheme.colorScheme.onSurface,
                                     style = MaterialTheme.typography.bodyLarge,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -392,7 +393,7 @@ fun DeckGridScreen(
                             )
                             if (profiles.size > 1) {
                                 DropdownMenuItem(
-                                    text = { Text("🗑 Delete Current", color = Color.Red) },
+                                    text = { Text("🗑 Delete Current", color = MaterialTheme.colorScheme.error) },
                                     onClick = {
                                         expanded = false
                                         onProfileDelete(activeProfileId)
@@ -410,17 +411,17 @@ fun DeckGridScreen(
                                 isEditMode = !isEditMode
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isEditMode) accentColor else Color(0xFF14141A),
-                                contentColor = if (isEditMode) Color.Black else Color.White
+                                containerColor = if (isEditMode) accentColor else MaterialTheme.colorScheme.surface,
+                                contentColor = if (isEditMode) MaterialTheme.colorScheme.background else MaterialTheme.colorScheme.onSurface
                             ),
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.border(1.dp, if (isEditMode) accentColor else Color(0xFF1F1F23), RoundedCornerShape(10.dp))
+                            modifier = Modifier.border(1.dp, if (isEditMode) accentColor else MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
                                     imageVector = Icons.Default.Edit,
                                     contentDescription = null,
-                                    tint = if (isEditMode) Color.Black else accentColor,
+                                    tint = if (isEditMode) MaterialTheme.colorScheme.background else accentColor,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -438,11 +439,11 @@ fun DeckGridScreen(
                                 showSettingsPanel = !showSettingsPanel
                             },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF14141A),
-                                contentColor = Color.White
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                contentColor = MaterialTheme.colorScheme.onSurface
                             ),
                             shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(10.dp))
+                            modifier = Modifier.border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
@@ -456,6 +457,7 @@ fun DeckGridScreen(
 
                 // Grid layout wrapper with 3D Flip capability
                 Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
@@ -471,13 +473,15 @@ fun DeckGridScreen(
                         var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
                         val gridSpacing = if (settings.compactGrid) 4.dp else 8.dp
+                        // Content-sized + parent Box centers it, instead of top-anchoring with dead space below.
                         LazyVerticalGrid(
                             columns = GridCells.Fixed(cols),
                             contentPadding = PaddingValues(4.dp),
                             horizontalArrangement = Arrangement.spacedBy(gridSpacing),
                             verticalArrangement = Arrangement.spacedBy(gridSpacing),
                             modifier = Modifier
-                                .fillMaxSize()
+                                .fillMaxWidth()
+                                .wrapContentHeight()
                                 .onGloballyPositioned { gridCoordinates = it }
                         ) {
                             items(rows * cols) { index ->
@@ -616,8 +620,8 @@ fun DeckGridScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(12.dp))
-                                                    .background(Color(0xFF0E0E10), RoundedCornerShape(12.dp)),
+                                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                                                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Box(
@@ -640,7 +644,7 @@ fun DeckGridScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f))
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.5f))
                         .clickable { showSettingsPanel = false },
                     contentAlignment = Alignment.BottomCenter
                 ) {
@@ -665,21 +669,21 @@ fun DeckGridScreen(
                 AlertDialog(
                     onDismissRequest = { pendingRunCommandButton = null },
                     modifier = Modifier.border(1.dp, accentColor.copy(alpha = 0.5f), RoundedCornerShape(16.dp)),
-                    containerColor = Color(0xFF0E0E10),
+                    containerColor = MaterialTheme.colorScheme.surface,
                     shape = RoundedCornerShape(16.dp),
-                    title = { Text("Run Command?", color = Color.White) },
-                    text = { Text("Run '${button.action.command}'?", color = Color.White.copy(alpha = 0.8f)) },
+                    title = { Text("Run Command?", color = MaterialTheme.colorScheme.onSurface) },
+                    text = { Text("Run '${button.action.command}'?", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                     confirmButton = {
                         TextButton(onClick = {
                             onButtonTap(button)
                             pendingRunCommandButton = null
                         }) {
-                            Text("Run", color = Color(0xFFE63946))
+                            Text("Run", color = MaterialTheme.colorScheme.error)
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { pendingRunCommandButton = null }) {
-                            Text("Cancel", color = Color.Gray)
+                            Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 )
@@ -703,21 +707,21 @@ fun DeckGridScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.6f))
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.6f))
                         .clickable { activeDialButton = null }
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .align(Alignment.BottomCenter)
-                            .background(Color(0xFF0E0E10), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
-                            .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
                             .padding(24.dp)
                             .clickable(enabled = false) {},
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         val labelIcon = if (button.action.dialTarget == "brightness") "☀️" else "🔊"
-                        Text(button.label, style = MaterialTheme.typography.titleMedium, color = Color.White)
+                        Text(button.label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "$labelIcon ${localSliderValue.toInt()}%",
@@ -754,7 +758,7 @@ fun DeckGridScreen(
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
                             onClick = { activeDialButton = null },
-                            colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = Color.Black),
+                            colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = MaterialTheme.colorScheme.background),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text("Dismiss", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
@@ -769,7 +773,8 @@ fun DeckGridScreen(
                     buttonId = "b_" + UUID.randomUUID().toString().substring(0, 8),
                     position = creatingAtPosition!!,
                     label = "",
-                    action = ActionModel(type = "hotkey")
+                    action = ActionModel(type = "hotkey"),
+                    parentFolderId = currentFolderId
                 )
                 EditButtonDialog(
                     button = newButtonPlaceholder,
@@ -890,15 +895,15 @@ private fun DeckButton(
 
     val glossyBg = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF2E2E36).copy(alpha = 0.85f),
-            Color(0xFF16161A).copy(alpha = 0.85f)
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+            MaterialTheme.colorScheme.background.copy(alpha = 0.85f)
         )
     )
 
     val glossyBorder = Brush.verticalGradient(
         colors = listOf(
-            Color.White.copy(alpha = 0.18f),
-            Color.White.copy(alpha = 0.03f)
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
+            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f)
         )
     )
 
@@ -963,7 +968,7 @@ private fun DeckButton(
                         text = button.label,
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                        color = Color(0xFFE2E2E8),
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 2.dp)
@@ -987,15 +992,15 @@ private fun DeckButton(
 private fun EmptyEditButton(onClick: () -> Unit) {
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = Color(0xFF0C0C0E).copy(alpha = 0.4f),
+        color = MaterialTheme.colorScheme.background.copy(alpha = 0.4f),
         modifier = Modifier
             .aspectRatio(1f)
             .border(
                 1.dp,
                 Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.08f),
-                        Color.White.copy(alpha = 0.02f)
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.02f)
                     )
                 ),
                 RoundedCornerShape(18.dp)
@@ -1006,7 +1011,7 @@ private fun EmptyEditButton(onClick: () -> Unit) {
             Icon(
                 imageVector = Icons.Default.Add,
                 contentDescription = "Add Button",
-                tint = Color.White.copy(alpha = 0.2f),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
                 modifier = Modifier.size(22.dp)
             )
         }
@@ -1034,7 +1039,7 @@ fun ReconnectOverlay(accentColor: Color, onManualConnect: () -> Unit, modifier: 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xCC080810))
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.8f))
             // Consumes all touches so the dimmed grid underneath can't be interacted with.
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
         contentAlignment = Alignment.Center
@@ -1045,7 +1050,7 @@ fun ReconnectOverlay(accentColor: Color, onManualConnect: () -> Unit, modifier: 
                 modifier = Modifier.size(48.dp)
             )
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Reconnecting…", color = Color.White, style = MaterialTheme.typography.bodyLarge)
+            Text("Reconnecting…", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(24.dp))
             OutlinedButton(
                 onClick = onManualConnect,
@@ -1162,6 +1167,7 @@ private fun EditButtonDialog(
 
     LaunchedEffect(url, actionType) {
         if (actionType == "open_url" && url.isNotBlank()) {
+            kotlinx.coroutines.delay(700)
             onRequestExtractIcon(url)
         }
     }
@@ -1171,7 +1177,7 @@ private fun EditButtonDialog(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = Color(0xFF0C0C0E),
+        containerColor = MaterialTheme.colorScheme.background,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = {
             Box(
@@ -1179,7 +1185,7 @@ private fun EditButtonDialog(
                     .padding(vertical = 12.dp)
                     .width(36.dp)
                     .height(4.dp)
-                    .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
             )
         },
         windowInsets = WindowInsets(0)
@@ -1198,12 +1204,12 @@ private fun EditButtonDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onClick = onDismiss) {
-                    Text("Cancel", color = Color(0xFF9CA3AF))
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
                     text = if (onDelete == null) "Create Button" else "Edit Button",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onBackground
                 )
                 TextButton(
                     onClick = {
@@ -1265,7 +1271,7 @@ private fun EditButtonDialog(
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("Icon", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+            Text("Icon", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                 IconPreview(icon = iconValue, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(40.dp))
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1274,7 +1280,7 @@ private fun EditButtonDialog(
                     Text(if (isUploading) "Uploading…" else "Upload", color = accentColor)
                 }
                 if (iconValue != null) {
-                    TextButton(onClick = { iconValue = null }) { Text("Clear", color = Color.Red) }
+                    TextButton(onClick = { iconValue = null }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -1311,15 +1317,15 @@ private fun EditButtonDialog(
             // Action Details Collapsible Panel
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF16161A).copy(alpha = 0.5f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
                 modifier = Modifier
                     .fillMaxWidth()
                     .border(
                         1.dp,
                         Brush.verticalGradient(
                             listOf(
-                                Color.White.copy(alpha = 0.08f),
-                                Color.White.copy(alpha = 0.02f)
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.02f)
                             )
                         ),
                         RoundedCornerShape(12.dp)
@@ -1459,7 +1465,7 @@ private fun EditButtonDialog(
                             CrossDeckTextField(
                                 value = multiActionText,
                                 onValueChange = { multiActionText = it },
-                                label = "Actions (e.g. hotkey:Ctrl,C then delay:500)",
+                                label = "Actions (e.g. Keyboard Shortcut:Ctrl,C then delay:500)",
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -1500,11 +1506,11 @@ private fun EditButtonDialog(
                 Spacer(modifier = Modifier.height(20.dp))
                 Button(
                     onClick = onDelete,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3F1616)),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error.copy(alpha = 0.15f)),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Delete Button", color = Color(0xFFFFA0A0), fontWeight = FontWeight.Bold)
+                    Text("Delete Button", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
@@ -1535,7 +1541,7 @@ private fun IconPreview(icon: String?, connectedHostUrl: String?, authToken: Str
     }
 
     Box(
-        modifier = modifier.background(Color(0xFF0E0E10), RoundedCornerShape(6.dp)),
+        modifier = modifier.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp)),
         contentAlignment = Alignment.Center
     ) {
         bitmap?.let { Image(bitmap = it, contentDescription = null, modifier = Modifier.size(28.dp)) }
@@ -1546,7 +1552,6 @@ private fun IconPreview(icon: String?, connectedHostUrl: String?, authToken: Str
 @Composable
 private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) -> Unit) {
     val context = LocalContext.current
-    val accentColor = MaterialTheme.colorScheme.primary
     var names by remember { mutableStateOf<List<String>>(emptyList()) }
 
     LaunchedEffect(Unit) {
@@ -1565,8 +1570,8 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
             .background(
                 Brush.verticalGradient(
                     listOf(
-                        Color(0xFF22222A).copy(alpha = 0.95f),
-                        Color(0xFF0E0E12).copy(alpha = 0.95f)
+                        MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                        MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
                     )
                 ),
                 RoundedCornerShape(20.dp)
@@ -1575,15 +1580,15 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
                 1.dp,
                 Brush.verticalGradient(
                     listOf(
-                        Color.White.copy(alpha = 0.16f),
-                        Color.White.copy(alpha = 0.02f)
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f),
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.02f)
                     )
                 ),
                 RoundedCornerShape(20.dp)
             ),
         containerColor = Color.Transparent,
         shape = RoundedCornerShape(20.dp),
-        title = { Text("Choose Built-in Icon", color = Color.White) },
+        title = { Text("Choose Built-in Icon", color = MaterialTheme.colorScheme.onSurface) },
         text = {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(5),
@@ -1604,8 +1609,8 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
                         modifier = Modifier
                             .padding(4.dp)
                             .size(48.dp)
-                            .background(Color(0xFF14141A), RoundedCornerShape(6.dp))
-                            .border(1.dp, Color(0xFF1F1F23), RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp))
+                            .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
                             .clickable { onSelect(name) },
                         contentAlignment = Alignment.Center
                     ) {
@@ -1615,7 +1620,7 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = Color.Gray) }
+            TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     )
 }
@@ -1625,13 +1630,16 @@ private fun formatMultiAction(actions: List<ActionModel>?, delays: List<Int>?): 
     val sb = StringBuilder()
     for (i in actions.indices) {
         val act = actions[i]
-        when (act.type) {
-            "hotkey" -> sb.append("hotkey:${act.keys?.joinToString(",") ?: ""}")
-            "launch_app" -> sb.append("launch_app:${act.path ?: ""}")
-            "media_control" -> sb.append("media_control:${act.mediaCommand ?: ""}")
-            "open_url" -> sb.append("open_url:${act.url ?: ""}")
-            "run_command" -> sb.append("run_command:${act.command ?: ""}")
-            "text_snippet" -> sb.append("text_snippet:${act.text ?: ""}")
+        val label = actionTypeLabels[act.type]
+        if (label != null) {
+            when (act.type) {
+                "hotkey" -> sb.append("$label:${act.keys?.joinToString(",") ?: ""}")
+                "launch_app" -> sb.append("$label:${act.path ?: ""}")
+                "media_control" -> sb.append("$label:${act.mediaCommand ?: ""}")
+                "open_url" -> sb.append("$label:${act.url ?: ""}")
+                "run_command" -> sb.append("$label:${act.command ?: ""}")
+                "text_snippet" -> sb.append("$label:${act.text ?: ""}")
+            }
         }
         if (delays != null && i < delays.size && delays[i] > 0) {
             sb.append(" then delay:${delays[i]}")
@@ -1657,7 +1665,8 @@ private fun parseMultiAction(text: String): Pair<List<ActionModel>, List<Int>> {
         } else {
             val colonIdx = clean.indexOf(":")
             if (colonIdx != -1) {
-                val type = clean.substring(0, colonIdx).trim()
+                val enteredLabel = clean.substring(0, colonIdx).trim()
+                val type = actionTypeLabels.entries.firstOrNull { it.value.equals(enteredLabel, ignoreCase = true) }?.key ?: enteredLabel
                 val valStr = clean.substring(colonIdx + 1).trim()
                 val act = when (type) {
                     "hotkey" -> ActionModel(type = type, keys = valStr.split(",").map { it.trim() })
@@ -1694,14 +1703,14 @@ private fun CrossDeckTextField(
         trailingIcon = trailingIcon,
         keyboardOptions = keyboardOptions,
         colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-            focusedTextColor = Color.White,
-            unfocusedTextColor = Color.White,
+            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
             focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = Color(0xFF1F1F23),
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
             focusedLabelColor = MaterialTheme.colorScheme.primary,
-            unfocusedLabelColor = Color.Gray,
-            focusedContainerColor = Color(0xFF0E0E10),
-            unfocusedContainerColor = Color(0xFF0E0E10)
+            unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            focusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface
         ),
         shape = RoundedCornerShape(10.dp),
         modifier = modifier

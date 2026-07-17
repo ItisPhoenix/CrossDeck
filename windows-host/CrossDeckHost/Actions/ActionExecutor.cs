@@ -28,6 +28,8 @@ public class ActionExecutor
                     return await ExecuteMultiActionAsync(action);
                 case "dial":
                     return (true, null); // dial actions only execute via dial_adjust, ignore tap/press
+                case "open_folder":
+                    return (true, null); // folder navigation is client-side only, nothing to run on the PC
                 default:
                     return (false, $"Unknown action type '{action.Type}'");
             }

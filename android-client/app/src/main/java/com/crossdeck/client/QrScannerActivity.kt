@@ -27,10 +27,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.crossdeck.client.ui.theme.CrossDeckTheme
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -69,7 +69,7 @@ class QrScannerActivity : ComponentActivity() {
 
     private fun startCamera() {
         setContent {
-            MaterialTheme {
+            CrossDeckTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     Box(modifier = Modifier.fillMaxSize()) {
                         CameraPreview(onBarcodeDetected = { data ->
@@ -77,12 +77,12 @@ class QrScannerActivity : ComponentActivity() {
                         })
                         Text(
                             text = "Align QR Code inside camera view",
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .padding(bottom = 48.dp)
-                                .background(Color.Black.copy(alpha = 0.6f), shape = MaterialTheme.shapes.small)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f), shape = MaterialTheme.shapes.small)
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
                         )
                     }

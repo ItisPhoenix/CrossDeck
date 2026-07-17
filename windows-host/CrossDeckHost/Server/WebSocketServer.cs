@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -730,6 +731,14 @@ public class WebSocketServer
             if (method == "GET")
             {
                 var hash = path["/assets/".Length..].Trim('/');
+                // Icon hashes are always a bare SHA256 hex string (see SaveIconFromBytes) — reject
+                // anything else before it reaches Path.Combine, so "../" or extra path segments
+                // can't escape the Assets folder.
+                if (hash.Length == 0 || !hash.All(Uri.IsHexDigit))
+                {
+                    await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                    return;
+                }
                 var assetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CrossDeckHost", "Assets");
                 var filePath = Path.Combine(assetsDir, hash + ".png");
 

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 
 namespace CrossDeckHost.Server;
 
@@ -44,7 +45,12 @@ public class DiscoveryBeacon
 
                 if (requestText == "CROSSDECK_DISCOVER")
                 {
-                    var responseJson = $"{{\"ip\":\"{_localIp}\",\"port\":{_webSocketPort},\"hostName\":\"{Environment.MachineName}\"}}";
+                    var responseJson = JsonSerializer.Serialize(new
+                    {
+                        ip = _localIp,
+                        port = _webSocketPort,
+                        hostName = Environment.MachineName
+                    });
                     var responseBytes = Encoding.UTF8.GetBytes(responseJson);
                     await _udpClient.SendAsync(responseBytes, responseBytes.Length, result.RemoteEndPoint);
                 }
