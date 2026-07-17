@@ -74,8 +74,15 @@ The full source code is auditable in this repository.
 
 ## Download
 
-- **Windows Host**: [`windows-host/Setup/CrossDeckSetup.exe`](windows-host/Setup/CrossDeckSetup.exe) — run it. Windows will show a SmartScreen "Unknown Publisher" warning (no code-signing cert) — click **More info → Run anyway**.
-- **Android Client**: [`android-client/Release/CrossDeck Client.apk`](<android-client/Release/CrossDeck Client.apk>) — install directly (not on Play Store). Enable **Install unknown apps** for your browser/file manager under Android Settings → Apps, then open the downloaded APK.
+| | |
+|---|---|
+| 🖥️ **Windows Host** | [**Download CrossDeckSetup.exe**](https://github.com/ItisPhoenix/CrossDeck/raw/main/windows-host/Setup/CrossDeckSetup.exe) |
+| 📱 **Android Client** | [**Download CrossDeck Client.apk**](https://github.com/ItisPhoenix/CrossDeck/raw/main/android-client/Release/CrossDeck%20Client.apk) |
+
+Both links download the file directly — no extra clicks.
+
+- **Windows**: run the installer. Windows will show a SmartScreen "Unknown Publisher" warning (no code-signing cert) — click **More info → Run anyway**.
+- **Android**: install the APK directly (not on Play Store). Enable **Install unknown apps** for your browser/file manager under Android Settings → Apps, then open the downloaded file.
 
 ---
 
