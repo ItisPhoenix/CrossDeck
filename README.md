@@ -1,9 +1,9 @@
 # CrossDeck
 
-Open source Stream-Deck-style app: your Android phone becomes a customizable button deck that controls your Windows PC over local WiFi.
+A Stream-Deck-style app: your Android phone becomes a customizable button deck that controls your Windows PC over local WiFi.
 
 <!--
-  Demo GIF goes here before the first release. Capture steps:
+  Demo GIF goes here. Capture steps:
   1. Pair a phone with a running Windows Host (same WiFi).
   2. Screen-record the Android app (Android 11+: swipe-down quick settings > Screen record,
      or `adb shell screenrecord /sdcard/demo.mp4`) covering: pairing, a few button taps, a
@@ -27,28 +27,23 @@ Open source Stream-Deck-style app: your Android phone becomes a customizable but
 ```
 /windows-host      .NET 8 / WPF tray app — runs on the PC being controlled
 /android-client    Kotlin / Jetpack Compose app — runs on the phone (the "deck")
-/shared-schema     Wire protocol documentation (source of truth for both sides)
-/docs              Architecture notes and design specs
-LICENSE            MIT
-DESIGN.md          Obsidian Cyber-Intelligence design system tokens
-MASTER-PLAN.md     Full decision log, architecture, and milestone tracker
 ```
 
 ## Features
 
-- [x] **Windows Host**: WebSocket server + borderless WPF tray app + profile editor.
-- [x] **Android Client**: Full-screen Jetpack Compose grid, edge-to-edge, dark Obsidian theme.
-- [x] **Unified Design Language**: Both apps share the same **Obsidian Cyber-Intelligence** dark tech aesthetic — matching color palettes, typography, and interaction patterns across platforms.
-- [x] **Dynamic Accent Colors**: Choose from Neon Cyan, Neon Purple, Cyberpunk Yellow, Toxic Green, or Crimson Red. Color syncs live over WebSocket between both apps.
-- [x] **UDP Auto-Discovery**: Scan and connect instantly on the local network (saves last connection).
-- [x] **QR Pairing**: Scan a QR code in the Windows pairing window for instant connection.
-- [x] **Multi-Profile Management**: Create, rename, delete, and switch profiles from either the Android deck or the PC.
-- [x] **3D Profile Transitions**: Animated 3D flip card transition on the Android app whenever profiles are switched.
-- [x] **Bidirectional Grid Editor**: Edit actions, labels, folder layout, and grid positions on the fly from either client or host.
-- [x] **Folders**: Scoped button pages with nesting navigation hierarchy and back navigation.
-- [x] **First-Run Preset Picker**: Select Streaming, Productivity, or Blank preset on first launch.
-- [x] **Auto-Profile-Switch**: Windows Host watches the foreground process and switches profiles automatically.
-- [x] **Actions Engine**:
+- **Windows Host**: WebSocket server + borderless WPF tray app + profile editor.
+- **Android Client**: Full-screen Jetpack Compose grid, edge-to-edge, dark Obsidian theme.
+- **Unified Design Language**: Both apps share the same **Obsidian Cyber-Intelligence** dark tech aesthetic — matching color palettes, typography, and interaction patterns across platforms.
+- **Dynamic Accent Colors**: Choose from Neon Cyan, Neon Purple, Cyberpunk Yellow, Toxic Green, or Crimson Red. Color syncs live over WebSocket between both apps.
+- **UDP Auto-Discovery**: Scan and connect instantly on the local network (saves last connection).
+- **QR Pairing**: Scan a QR code in the Windows pairing window for instant connection.
+- **Multi-Profile Management**: Create, rename, delete, and switch profiles from either the Android deck or the PC.
+- **3D Profile Transitions**: Animated 3D flip card transition on the Android app whenever profiles are switched.
+- **Bidirectional Grid Editor**: Edit actions, labels, folder layout, and grid positions on the fly from either client or host.
+- **Folders**: Scoped button pages with nesting navigation hierarchy and back navigation.
+- **First-Run Preset Picker**: Select Streaming, Productivity, or Blank preset on first launch.
+- **Auto-Profile-Switch**: Windows Host watches the foreground process and switches profiles automatically.
+- **Actions Engine**:
   - `hotkey` — Standard keyboard keystrokes via `SendInput`
   - `media_control` — Play, pause, skip, mute, volume up/down
   - `launch_app` — Launch programs/executables
@@ -57,14 +52,14 @@ MASTER-PLAN.md     Full decision log, architecture, and milestone tracker
   - `text_snippet` — Send raw text snippets via clipboard injection
   - `multi_action` — Sequenced combinations with custom delay intervals
   - `open_folder` — Navigate into sub-folder button pages
-- [x] **Dials / System Controls**: Tap a dial button to open a full-screen bottom-sheet touch-bar slider with haptic detent ticks to control:
+- **Dials / System Controls**: Tap a dial button to open a full-screen bottom-sheet touch-bar slider with haptic detent ticks to control:
   - System volume via WASAPI COM
   - Monitor brightness via DDC/CI (`dxva2.dll`) with WMI fallback for laptops
-- [x] **Haptic Feedback**: KEYBOARD_TAP, CONFIRM, and CLOCK_TICK haptics on the Android app for taps, connections, and slider steps.
-- [x] **Custom Tray Menu**: Dark-styled Windows system tray context menu matching the Obsidian UI theme.
-- [x] **Icon System**: 94-icon built-in pack (Lucide) or upload your own image per button, synced over a token-authenticated asset server.
-- [x] **Resilient Reconnect**: Android auto-retries with backoff and shows the last-known deck (greyed out) behind a reconnect overlay instead of dropping straight to the pairing screen.
-- [x] **Revoke Device**: Kick the paired phone and issue a new PIN from the Windows tray menu.
+- **Haptic Feedback**: KEYBOARD_TAP, CONFIRM, and CLOCK_TICK haptics on the Android app for taps, connections, and slider steps.
+- **Custom Tray Menu**: Dark-styled Windows system tray context menu matching the Obsidian UI theme.
+- **Icon System**: 94-icon built-in pack (Lucide) or upload your own image per button, synced over a token-authenticated asset server.
+- **Resilient Reconnect**: Android auto-retries with backoff and shows the last-known deck (greyed out) behind a reconnect overlay instead of dropping straight to the pairing screen.
+- **Revoke Device**: Kick the paired phone and issue a new PIN from the Windows tray menu.
 
 ## Why does this app need these permissions?
 
@@ -74,6 +69,13 @@ MASTER-PLAN.md     Full decision log, architecture, and milestone tracker
 - **Camera (Android)**: used only by the QR scanner for pairing. Not used at any other time.
 
 The full source code is auditable in this repository.
+
+---
+
+## Download
+
+- **Windows Host**: [`windows-host/Setup/CrossDeckSetup.exe`](windows-host/Setup/CrossDeckSetup.exe) — run it. Windows will show a SmartScreen "Unknown Publisher" warning (no code-signing cert) — click **More info → Run anyway**.
+- **Android Client**: [`android-client/Release/CrossDeck Client.apk`](<android-client/Release/CrossDeck Client.apk>) — install directly (not on Play Store). Enable **Install unknown apps** for your browser/file manager under Android Settings → Apps, then open the downloaded APK.
 
 ---
 
@@ -119,4 +121,4 @@ Or open `android-client/` in Android Studio and run on your device.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+Personal project — no license granted. Code is here for reference and personal use only; not licensed for reuse or redistribution.

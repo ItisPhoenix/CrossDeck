@@ -81,18 +81,60 @@ public class ActionExecutor
         }
 
         // Press all keys down in order, then release in reverse order (standard combo behavior).
-        var inputs = new List<INPUT>();
-        foreach (var vk in vks)
-            inputs.Add(KeyInput(vk, keyUp: false));
-        for (int i = vks.Count - 1; i >= 0; i--)
-            inputs.Add(KeyInput(vks[i], keyUp: true));
+        var downs = vks.Select(vk => KeyInput(vk, keyUp: false)).ToArray();
+        var ups = ((IEnumerable<ushort>)vks).Reverse().Select(vk => KeyInput(vk, keyUp: true)).ToArray();
 
-        var arr = inputs.ToArray();
-        var sent = SendInput((uint)arr.Length, arr, Marshal.SizeOf(typeof(INPUT)));
-        if (sent != arr.Length)
-            return (false, $"SendInput only sent {sent}/{arr.Length} inputs");
+        var sentDown = SendInput((uint)downs.Length, downs, Marshal.SizeOf(typeof(INPUT)));
+        if (sentDown != downs.Length)
+            return (false, $"SendInput only sent {sentDown}/{downs.Length} key-down inputs (Win32 error {Marshal.GetLastWin32Error()}, foreground: {DescribeForegroundWindow()})");
+
+        // Media/volume keys are picked up by a low-level hook that some apps debounce — a down+up
+        // pair batched into the same instant can get coalesced and silently dropped. A short real
+        // gap between them fixes the intermittent "media control doesn't work" reports.
+        if (vks.Any(VirtualKey.IsExtended))
+            Thread.Sleep(15);
+
+        var sentUp = SendInput((uint)ups.Length, ups, Marshal.SizeOf(typeof(INPUT)));
+        if (sentUp != ups.Length)
+            return (false, $"SendInput only sent {sentUp}/{ups.Length} key-up inputs (Win32 error {Marshal.GetLastWin32Error()}, foreground: {DescribeForegroundWindow()})");
 
         return (true, null);
+    }
+
+    /// <summary>
+    /// Foreground process name at failure time, plus whether it's likely running elevated (we can't
+    /// open its token from a non-elevated process, so ACCESS_DENIED there is itself the tell). Lets
+    /// a UIPI-blocked SendInput ("elevated window stole focus") be confirmed from the error toast
+    /// instead of needing someone to catch the PC screen at the exact moment it happens.
+    /// </summary>
+    private static string DescribeForegroundWindow()
+    {
+        try
+        {
+            var hWnd = GetForegroundWindow();
+            if (hWnd == IntPtr.Zero)
+                return "none";
+
+            GetWindowThreadProcessId(hWnd, out var pid);
+            using var proc = Process.GetProcessById((int)pid);
+
+            bool likelyElevated;
+            try
+            {
+                _ = proc.Handle; // throws Win32Exception (ACCESS_DENIED) if the process outranks us
+                likelyElevated = false;
+            }
+            catch
+            {
+                likelyElevated = true;
+            }
+
+            return likelyElevated ? $"{proc.ProcessName}.exe (likely elevated — UIPI would block SendInput)" : $"{proc.ProcessName}.exe";
+        }
+        catch (Exception ex)
+        {
+            return $"unknown ({ex.Message})";
+        }
     }
 
     private (bool, string?) ExecuteLaunchApp(string? path)

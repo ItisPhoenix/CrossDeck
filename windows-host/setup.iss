@@ -12,7 +12,6 @@ SolidCompression=yes
 OutputDir=D:\CrossDeck\windows-host\Setup
 OutputBaseFilename=CrossDeckSetup
 SetupIconFile=D:\CrossDeck\windows-host\CrossDeckHost\Assets\app.ico
-LicenseFile=D:\CrossDeck\LICENSE
 PrivilegesRequired=lowest
 
 [Files]
