@@ -330,7 +330,7 @@ fun DeckGridScreen(
                 var swipeAccum by remember { mutableStateOf(0f) }
                 val canSwipeProfiles = profiles.size > 1 && currentFolderId == null && !isEditMode
                 BoxWithConstraints(
-                    contentAlignment = Alignment.TopCenter,
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .fillMaxSize()
                         .weight(1f)
@@ -372,26 +372,21 @@ fun DeckGridScreen(
                         var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
                         val gridSpacing = if (settings.compactGrid) 4.dp else 6.dp
-                        // Reserve headroom for the floating menu/back icons (top-right/top-left) so
-                        // full-height cells don't render underneath — otherwise the top-corner
-                        // buttons would be partly hidden and partly untappable.
+                        // Reserve headroom for the floating menu/back icons so the top row never
+                        // renders under them.
                         val topInset = 56.dp
-                        // Stream-Deck-style: cell size is derived from available space so the whole
-                        // grid always fits on screen — no scrolling, especially in landscape where
-                        // height (not width) is the tight dimension.
+                        // Square cells sized to the tighter axis so the whole grid always fits with
+                        // no scroll (portrait or landscape); the parent Box centers it.
                         val cellSize = remember(maxWidth, maxHeight, rows, cols, gridSpacing) {
                             val availableW = maxWidth - 4.dp - gridSpacing * (cols - 1)
                             val availableH = maxHeight - 4.dp - topInset - gridSpacing * (rows - 1)
                             minOf(availableW / cols, availableH / rows).coerceAtLeast(0.dp)
                         }
 
-                        // Content-sized + parent Box centers it horizontally; top padding clears the
-                        // floating icon row instead of centering into it.
+                        // Content-sized; the parent Box centers it in both axes.
                         Column(
                             verticalArrangement = Arrangement.spacedBy(gridSpacing),
-                            modifier = Modifier
-                                .padding(top = topInset)
-                                .onGloballyPositioned { gridCoordinates = it }
+                            modifier = Modifier.onGloballyPositioned { gridCoordinates = it }
                         ) {
                         for (r in 0 until rows) {
                         Row(horizontalArrangement = Arrangement.spacedBy(gridSpacing)) {
@@ -416,20 +411,20 @@ fun DeckGridScreen(
                                                 val coords = gridCoordinates
                                                 val startIdx = draggedIndex
                                                 if (coords != null && startIdx != null) {
-                                                    val cellWidth = coords.size.width / cols
-                                                    val cellHeight = coords.size.height / rows
-                                                    
+                                                    val cellWidthPx = coords.size.width / cols
+                                                    val cellHeightPx = coords.size.height / rows
+
                                                     val startR = startIdx / cols
                                                     val startC = startIdx % cols
-                                                    
-                                                    val startX = startC * cellWidth
-                                                    val startY = startR * cellHeight
-                                                    
-                                                    val touchX = startX + cellWidth / 2 + dragOffset.x
-                                                    val touchY = startY + cellHeight / 2 + dragOffset.y
-                                                    
-                                                    val targetC = (touchX / cellWidth).toInt().coerceIn(0, cols - 1)
-                                                    val targetR = (touchY / cellHeight).toInt().coerceIn(0, rows - 1)
+
+                                                    val startX = startC * cellWidthPx
+                                                    val startY = startR * cellHeightPx
+
+                                                    val touchX = startX + cellWidthPx / 2 + dragOffset.x
+                                                    val touchY = startY + cellHeightPx / 2 + dragOffset.y
+
+                                                    val targetC = (touchX / cellWidthPx).toInt().coerceIn(0, cols - 1)
+                                                    val targetR = (touchY / cellHeightPx).toInt().coerceIn(0, rows - 1)
                                                     val targetIdx = targetR * cols + targetC
                                                     
                                                     if (targetIdx != startIdx) {
@@ -530,8 +525,25 @@ fun DeckGridScreen(
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
-                                                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp)),
+                                                    .background(
+                                                        Brush.verticalGradient(
+                                                            listOf(
+                                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                                                                MaterialTheme.colorScheme.background.copy(alpha = 0.5f)
+                                                            )
+                                                        ),
+                                                        RoundedCornerShape(18.dp)
+                                                    )
+                                                    .border(
+                                                        1.2.dp,
+                                                        Brush.verticalGradient(
+                                                            listOf(
+                                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.02f)
+                                                            )
+                                                        ),
+                                                        RoundedCornerShape(18.dp)
+                                                    ),
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Box(
@@ -993,8 +1005,8 @@ private fun DeckButton(
         shape = RoundedCornerShape(18.dp),
         color = Color.Transparent,
         modifier = modifier
+            .fillMaxSize()
             .scale(animatedScale)
-            .aspectRatio(1f)
             .clickable(interactionSource = interactionSource, indication = null) { onTap() }
             .background(glossyBg, RoundedCornerShape(18.dp))
             .border(
@@ -1068,7 +1080,7 @@ private fun EmptyEditButton(onClick: () -> Unit) {
         shape = RoundedCornerShape(18.dp),
         color = MaterialTheme.colorScheme.background.copy(alpha = 0.4f),
         modifier = Modifier
-            .aspectRatio(1f)
+            .fillMaxSize()
             .border(
                 1.dp,
                 Brush.verticalGradient(

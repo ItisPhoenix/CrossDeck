@@ -775,12 +775,55 @@ public partial class EditorWindow : Window
         if (parts.Length != 2) return;
         if (!int.TryParse(parts[0], out int rows) || !int.TryParse(parts[1], out int cols)) return;
 
+        int capacity = rows * cols;
+        var buttons = _profileStore.Current.Buttons ?? new List<ButtonModel>();
+
+        // Each folder scope (root = null, plus every folder) shares one grid, so no scope may hold
+        // more buttons than the new grid fits. If one does, block the resize instead of silently
+        // orphaning buttons that fall outside the new bounds.
+        var scopes = buttons.GroupBy(b => b.ParentFolderId);
+        var tooFull = scopes.FirstOrDefault(g => g.Count() > capacity);
+        if (tooFull != null)
+        {
+            ShowToast($"Can't shrink to {rows}×{cols}: a page has {tooFull.Count()} buttons.", isSuccess: false);
+            SyncGridSizeCombo(); // revert the combo to the profile's real size
+            return;
+        }
+
+        // Reflow any button now out of bounds into the first free cell within its own scope.
+        int moved = 0;
+        foreach (var scope in scopes)
+        {
+            var occupied = new HashSet<(int, int)>(
+                scope.Where(b => b.Position.Row < rows && b.Position.Col < cols)
+                     .Select(b => (b.Position.Row, b.Position.Col)));
+            foreach (var b in scope.Where(b => b.Position.Row >= rows || b.Position.Col >= cols))
+            {
+                for (int r = 0; r < rows; r++)
+                {
+                    for (int c = 0; c < cols; c++)
+                    {
+                        if (occupied.Add((r, c)))
+                        {
+                            b.Position.Row = r;
+                            b.Position.Col = c;
+                            moved++;
+                            goto placed;
+                        }
+                    }
+                }
+                placed: ;
+            }
+        }
+
         _profileStore.Current.Rows = rows;
         _profileStore.Current.Columns = cols;
         _profileStore.Save();
         _profileStore.NotifyChanged();
         RefreshGrid();
         RefreshProfileSelector();
+        if (moved > 0)
+            ShowToast($"Moved {moved} button{(moved == 1 ? "" : "s")} to fit the new grid.", isSuccess: true);
     }
 
     // --------------- PROFILE EXPORT / IMPORT ---------------
@@ -993,7 +1036,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v0.1.0-beta | Licensed under the MIT License.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v0.1.0-beta | Personal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

@@ -184,5 +184,5 @@ private fun AboutSection() {
 
     Text("About", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
     Spacer(modifier = Modifier.height(8.dp))
-    Text("CrossDeck Client v$versionName | Licensed under the MIT License.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("CrossDeck Client v$versionName | Personal project — not licensed for redistribution.", color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

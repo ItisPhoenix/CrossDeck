@@ -342,13 +342,8 @@ public class ActionExecutor
         return foundWindow;
     }
 
-    /// <summary>
-    /// Plain SetForegroundWindow silently fails (or just flashes the taskbar icon) when called
-    /// from a background process that doesn't currently own input focus — which CrossDeckHost
-    /// always is, since it's a tray app reacting to a phone tap rather than a hotkey the user just
-    /// pressed. Attaching to the current foreground window's input thread first is the standard,
-    /// reliable workaround; detach in `finally` so we don't leave threads attached.
-    /// </summary>
+    // AttachThreadInput alone doesn't always beat Windows' "recent real input" gate on
+    // SetForegroundWindow (taskbar icon just blinks) — a synthetic Alt tap satisfies it too.
     private static void ForceForegroundWindow(IntPtr hWnd)
     {
         uint currentThreadId = GetCurrentThreadId();
@@ -362,6 +357,13 @@ public class ActionExecutor
             {
                 attached = AttachThreadInput(currentThreadId, foregroundThreadId, true);
             }
+
+            if (VirtualKey.TryGetCode("Alt", out var altVk))
+            {
+                var altTap = new[] { KeyInput(altVk, keyUp: false), KeyInput(altVk, keyUp: true) };
+                SendInput((uint)altTap.Length, altTap, Marshal.SizeOf(typeof(INPUT)));
+            }
+
             SetForegroundWindow(hWnd);
         }
         finally
