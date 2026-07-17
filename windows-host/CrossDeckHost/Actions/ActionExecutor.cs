@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using Windows.Media.Control;
 
 namespace CrossDeckHost.Actions;
 
@@ -17,7 +18,7 @@ public class ActionExecutor
                 case "launch_app":
                     return ExecuteLaunchApp(action.Path);
                 case "media_control":
-                    return ExecuteMediaControl(action.MediaCommand);
+                    return await ExecuteMediaControlAsync(action.MediaCommand);
                 case "open_url":
                     return ExecuteOpenUrl(action.Url);
                 case "run_command":
@@ -372,23 +373,51 @@ public class ActionExecutor
         }
     }
 
-    private (bool, string?) ExecuteMediaControl(string? command)
+    private async Task<(bool, string?)> ExecuteMediaControlAsync(string? command)
     {
         if (string.IsNullOrWhiteSpace(command))
             return (false, "media_control action has no command");
 
-        // Map command names to VirtualKey mapping keys
+        // Volume/mute are OS-level (master volume, no app involved) — the legacy hardware key
+        // already lands reliably, no session to target.
+        if (command is "VolumeUp" or "VolumeDown" or "VolumeMute")
+            return ExecuteHotkey(new List<string> { command });
+
+        // Play/Pause/Next/Prev route through whichever app currently owns the media session —
+        // same as a physical keyboard's media keys. SendInput reports "sent" even when Windows
+        // silently drops the key because the wrong (or no) app is targeted, so there's no way to
+        // tell it failed. The Media Control API talks to a specific session directly and returns
+        // a real success/failure result instead of a guess.
+        try
+        {
+            var sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+            var session = sessionManager.GetCurrentSession();
+            if (session is not null)
+            {
+                bool ok = command switch
+                {
+                    "PlayPause" => await session.TryTogglePlayPauseAsync(),
+                    "NextTrack" => await session.TrySkipNextAsync(),
+                    "PrevTrack" => await session.TrySkipPreviousAsync(),
+                    _ => false
+                };
+                if (ok)
+                    return (true, null);
+            }
+        }
+        catch
+        {
+            // No active session / API unsupported on this Windows build — fall through to the
+            // legacy hardware key below rather than failing outright.
+        }
+
         string keyName = command switch
         {
             "PlayPause" => "MediaPlayPause",
             "NextTrack" => "MediaNextTrack",
             "PrevTrack" => "MediaPrevTrack",
-            "VolumeUp" => "VolumeUp",
-            "VolumeDown" => "VolumeDown",
-            "VolumeMute" => "VolumeMute",
             _ => command
         };
-
         return ExecuteHotkey(new List<string> { keyName });
     }
 
