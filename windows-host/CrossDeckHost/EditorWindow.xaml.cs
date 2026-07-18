@@ -565,8 +565,11 @@ public partial class EditorWindow : Window
                 }
                 else
                 {
-                    // Animated pulse ring + centered "+" for empty cells
-                    var canvas = new Canvas { Width = 48, Height = 48 };
+                    // Animated pulse ring + centered "+" for empty cells.
+                    // A Grid with both children set to Center alignment centers on actual
+                    // rendered size — unlike the old Canvas.Left/Top version, which hand-computed
+                    // offsets from assumed glyph metrics and always landed the "+" off-center.
+                    var canvas = new Grid { Width = 48, Height = 48 };
 
                     var ring = new Ellipse
                     {
@@ -575,10 +578,10 @@ public partial class EditorWindow : Window
                         Stroke = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor)),
                         StrokeThickness = 1.2,
                         Fill = System.Windows.Media.Brushes.Transparent,
-                        Opacity = 0.18
+                        Opacity = 0.18,
+                        HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                        VerticalAlignment = System.Windows.VerticalAlignment.Center
                     };
-                    Canvas.SetLeft(ring, 6);
-                    Canvas.SetTop(ring, 6);
 
                     // Pulse animation: 0.12 → 0.55 → 0.12, looping every 2.4s
                     var pulse = new DoubleAnimation(0.12, 0.55, TimeSpan.FromSeconds(1.2))
@@ -599,8 +602,6 @@ public partial class EditorWindow : Window
                         HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                         VerticalAlignment = System.Windows.VerticalAlignment.Center
                     };
-                    Canvas.SetLeft(tbPlus, 17);
-                    Canvas.SetTop(tbPlus, 12);
                     canvas.Children.Add(tbPlus);
 
                     stack.Children.Add(canvas);

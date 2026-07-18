@@ -1,5 +1,6 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace CrossDeckHost;
 
@@ -24,6 +25,24 @@ public static class AppDiscovery
     };
 
     public static List<DiscoveredApp> DiscoverApps()
+    {
+        // WScript.Shell (used below to resolve .lnk targets) is an STA-only COM object. Called
+        // from a thread-pool/MTA thread — e.g. the Android app-list WebSocket handler, which runs
+        // this via Task.Run — every shortcut resolution silently throws and returns null via
+        // ResolveShortcutTarget's catch-all, making almost every real app vanish with no visible
+        // error. The WPF UI thread is already STA (callers from there hit the fast path below).
+        if (Thread.CurrentThread.GetApartmentState() == ApartmentState.STA)
+            return DiscoverAppsCore();
+
+        List<DiscoveredApp>? result = null;
+        var staThread = new Thread(() => result = DiscoverAppsCore());
+        staThread.SetApartmentState(ApartmentState.STA);
+        staThread.Start();
+        staThread.Join();
+        return result ?? new List<DiscoveredApp>();
+    }
+
+    private static List<DiscoveredApp> DiscoverAppsCore()
     {
         // Dedupe by exe path — the same app often has multiple shortcuts (Start Menu + desktop
         // folder copies under different display names).

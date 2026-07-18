@@ -108,10 +108,15 @@ public partial class App : System.Windows.Application
     {
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            ShowEditorWindow();
-
+            // Only pop the editor to the foreground for first-time onboarding (no preset chosen
+            // yet). Every routine reconnect also fires this event — e.g. the Android app
+            // resuming after a background app-switch — and unconditionally calling
+            // ShowEditorWindow()/Activate() there yanks focus back to this window each time,
+            // which reads as the window "blinking" into the foreground on every reconnect.
             if (_profileStore != null && !_profileStore.Set.PresetSelected)
             {
+                ShowEditorWindow();
+
                 var picker = new PresetPickerWindow();
                 if (picker.ShowDialog() == true)
                 {
