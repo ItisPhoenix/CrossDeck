@@ -11,6 +11,9 @@
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <AssemblyName>CrossDeckHost</AssemblyName>
     <RootNamespace>CrossDeckHost</RootNamespace>
+    <Company>ItisPhoenix</Company>
+    <Authors>ItisPhoenix</Authors>
+    <Product>CrossDeck Host</Product>
   </PropertyGroup>
 
   <ItemGroup>

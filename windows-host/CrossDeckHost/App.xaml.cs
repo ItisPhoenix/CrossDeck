@@ -1,3 +1,4 @@
+using System.Threading;
 using System.Windows;
 using CrossDeckHost.Actions;
 using CrossDeckHost.ProfileStore;
@@ -17,8 +18,21 @@ public partial class App : System.Windows.Application
     private AutoProfileWatcher? _profileWatcher;
     private LiveStateService? _liveState;
 
+    // Held for the process lifetime — releasing/disposing early would let a second launch through.
+    private Mutex? _singleInstanceMutex;
+
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Two instances would both try to bind port 7890/7891 and race over the same profile
+        // file on disk — refuse the second launch instead of limping along half-broken.
+        _singleInstanceMutex = new Mutex(true, "CrossDeckHost_SingleInstance_9F3E1A2B", out bool isNewInstance);
+        if (!isNewInstance)
+        {
+            System.Windows.MessageBox.Show("CrossDeck Host is already running — check your system tray.", "CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+            Shutdown();
+            return;
+        }
+
         base.OnStartup(e);
 
         _profileStore = new ProfileStoreService();
@@ -136,6 +150,7 @@ public partial class App : System.Windows.Application
         _liveState?.Stop();
         _server?.Stop();
         _tray?.Dispose();
+        _singleInstanceMutex?.ReleaseMutex();
         base.OnExit(e);
     }
 }
