@@ -572,6 +572,7 @@ fun DeckGridScreen(
                                             ) {
                                                 Box(
                                                     modifier = Modifier
+                                                        .align(Alignment.Center)
                                                         .size(26.dp)
                                                         .border(1.5.dp, accentColor.copy(alpha = emptyPulse), RoundedCornerShape(50))
                                                 )

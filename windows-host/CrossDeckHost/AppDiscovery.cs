@@ -91,6 +91,9 @@ public static class AppDiscovery
     {
         yield return Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
         yield return Environment.GetFolderPath(Environment.SpecialFolder.StartMenu);
+        // Some installers only drop a Desktop shortcut, no Start Menu entry — catch those too.
+        yield return Environment.GetFolderPath(Environment.SpecialFolder.CommonDesktopDirectory);
+        yield return Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
     }
 
     /// <summary>

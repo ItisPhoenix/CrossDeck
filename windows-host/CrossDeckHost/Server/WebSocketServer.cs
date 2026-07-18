@@ -163,9 +163,16 @@ public class WebSocketServer
 
             // Full live-state snapshot so buttons show correct state immediately instead of
             // waiting for the next change event (mute/media/focus/dial could be stale otherwise).
-            var states = _liveState.GetSnapshot()
-                .Select(s => new { buttonId = s.ButtonId, active = s.Active, level = s.Level });
-            await SendJsonAsync(webSocket, new { type = "button_states", states }, ct);
+            // A failure here is a nice-to-have missing, not grounds for dropping an already
+            // -authenticated connection — never let it take the socket down with it.
+            try
+            {
+                var states = _liveState.GetSnapshot()
+                    .Select(s => new { buttonId = s.ButtonId, active = s.Active, level = s.Level })
+                    .ToList();
+                await SendJsonAsync(webSocket, new { type = "button_states", states }, ct);
+            }
+            catch { }
 
             // Application-level heartbeat: send a lightweight message every 25 s.
             // This keeps NAT/WiFi power-save from dropping the connection without

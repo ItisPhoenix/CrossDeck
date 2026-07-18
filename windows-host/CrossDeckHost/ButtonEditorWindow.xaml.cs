@@ -76,8 +76,9 @@ public partial class ButtonEditorWindow : Window
         Closed += (s, e) => _macroRecorder.Dispose();
 
         // Load applications in combo
-        var apps = AppDiscovery.DiscoverApps();
-        PathComboInput.ItemsSource = apps;
+        _allApps = AppDiscovery.DiscoverApps();
+        PathComboInput.ItemsSource = _allApps;
+        Loaded += (s, e) => HookPathFilterTextBox();
 
         // Initialize values
         LabelInput.Text = button.Label;
@@ -112,8 +113,7 @@ public partial class ButtonEditorWindow : Window
         // Launch App path selection
         if (action.Type == "launch_app")
         {
-            var apps = PathComboInput.ItemsSource as System.Collections.Generic.List<DiscoveredApp>;
-            var matched = apps?.FirstOrDefault(a => a.ExePath.Equals(action.Path, StringComparison.OrdinalIgnoreCase));
+            var matched = _allApps.FirstOrDefault(a => a.ExePath.Equals(action.Path, StringComparison.OrdinalIgnoreCase));
             if (matched != null)
             {
                 PathComboInput.SelectedItem = matched;
@@ -195,7 +195,7 @@ public partial class ButtonEditorWindow : Window
                 lines.Add($"{label}: {value}");
             }
 
-            if (delays != null && i < delays.Count)
+            if (delays != null && i < delays.Count && delays[i] > 0)
             {
                 lines.Add($"Delay (ms): {delays[i]}");
             }
@@ -223,13 +223,18 @@ public partial class ButtonEditorWindow : Window
 
             if (actionLabel.Equals("Delay (ms)", StringComparison.OrdinalIgnoreCase))
             {
-                if (int.TryParse(actionVal, out var delayVal))
+                // A delay only means something relative to the step before it. Set (not append)
+                // the slot for the most recent action so delays[i] always lines up with
+                // actions[i] positionally — ExecuteMultiActionAsync indexes them together.
+                if (int.TryParse(actionVal, out var delayVal) && actions.Count > 0)
                 {
-                    delays.Add(delayVal);
+                    while (delays.Count < actions.Count) delays.Add(0);
+                    delays[actions.Count - 1] = delayVal;
                 }
             }
             else if (typeByLabel.TryGetValue(actionLabel, out var type))
             {
+                while (delays.Count < actions.Count) delays.Add(0); // pad a skipped delay before adding the next action
                 actions.Add(type switch
                 {
                     "hotkey" => new ActionModel { Type = type, Keys = actionVal.Split(',').mapStringList() },
@@ -276,6 +281,37 @@ public partial class ButtonEditorWindow : Window
                 case "multi_action": MultiActionPanel.Visibility = Visibility.Visible; break;
                 case "dial": DialPanel.Visibility = Visibility.Visible; break;
             }
+        }
+    }
+
+    private System.Collections.Generic.List<DiscoveredApp> _allApps = new();
+    private bool _suppressFilter;
+
+    /// <summary>
+    /// IsEditable + TextSearch.TextPath only jumps to the first prefix match — it doesn't hide
+    /// non-matching rows, so a long install list is still all there is to scroll through. Reaching
+    /// into the ComboBox's template for its real TextBox is the only way to get live filter-as-
+    /// you-type without replacing the control with something bigger.
+    /// </summary>
+    private void HookPathFilterTextBox()
+    {
+        if (PathComboInput.Template?.FindName("PART_EditableTextBox", PathComboInput) is System.Windows.Controls.TextBox tb)
+        {
+            tb.TextChanged += (s, e) =>
+            {
+                if (_suppressFilter) return;
+                var query = tb.Text;
+                PathComboInput.ItemsSource = string.IsNullOrWhiteSpace(query)
+                    ? _allApps
+                    : _allApps.Where(a => a.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                                        || a.ExePath.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (!PathComboInput.IsDropDownOpen) PathComboInput.IsDropDownOpen = true;
+                // Filtering ItemsSource resets the TextBox — put the user's typed text back without re-triggering this handler.
+                _suppressFilter = true;
+                tb.Text = query;
+                tb.CaretIndex = query.Length;
+                _suppressFilter = false;
+            };
         }
     }
 
