@@ -76,6 +76,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -1464,13 +1466,23 @@ private fun EditButtonDialog(
     var command by remember { mutableStateOf(button.action.command ?: "") }
     var textValue by remember { mutableStateOf(button.action.text ?: "") }
     var targetFolderId by remember { mutableStateOf(button.action.targetFolderId ?: ("f_" + UUID.randomUUID().toString().substring(0, 8))) }
-    var multiActionText by remember { mutableStateOf(formatMultiAction(button.action.actions, button.action.delays)) }
     var dialTarget by remember { mutableStateOf(button.action.dialTarget ?: "volume") }
-    var longPressText by remember {
-        mutableStateOf(button.longPressAction?.let { lp ->
-            if (lp.type == "multi_action") formatMultiAction(lp.actions, lp.delays)
-            else formatMultiAction(listOf(lp), null)
-        } ?: "")
+    val multiActionSteps = remember(button.buttonId) {
+        mutableStateListOf<StepUiState>().apply {
+            button.action.actions?.forEachIndexed { i, act -> add(StepUiState(act, button.action.delays?.getOrNull(i) ?: 0)) }
+        }
+    }
+    val longPressSteps = remember(button.buttonId) {
+        mutableStateListOf<StepUiState>().apply {
+            val lp = button.longPressAction
+            if (lp != null) {
+                if (lp.type == "multi_action") {
+                    lp.actions?.forEachIndexed { i, act -> add(StepUiState(act, lp.delays?.getOrNull(i) ?: 0)) }
+                } else {
+                    add(StepUiState(lp, 0))
+                }
+            }
+        }
     }
     
     var dropdownExpanded by remember { mutableStateOf(false) }
@@ -1584,11 +1596,10 @@ private fun EditButtonDialog(
                                 targetFolderId = targetFolderId.trim()
                             )
                             "multi_action" -> {
-                                val (parsedActs, parsedDelays) = parseMultiAction(multiActionText)
                                 ActionModel(
                                     type = actionType,
-                                    actions = parsedActs,
-                                    delays = parsedDelays
+                                    actions = multiActionSteps.map { it.toActionModel() },
+                                    delays = multiActionSteps.map { it.delayAfterMs }
                                 )
                             }
                             "dial" -> ActionModel(
@@ -1597,11 +1608,14 @@ private fun EditButtonDialog(
                             )
                             else -> ActionModel(type = actionType)
                         }
-                        val (lpActs, lpDelays) = parseMultiAction(longPressText)
-                        val longPress = when (lpActs.size) {
+                        val longPress = when (longPressSteps.size) {
                             0 -> null
-                            1 -> lpActs[0]
-                            else -> ActionModel(type = "multi_action", actions = lpActs, delays = lpDelays)
+                            1 -> longPressSteps[0].toActionModel()
+                            else -> ActionModel(
+                                type = "multi_action",
+                                actions = longPressSteps.map { it.toActionModel() },
+                                delays = longPressSteps.map { it.delayAfterMs }
+                            )
                         }
                         onSave(button.copy(label = label.trim(), icon = iconValue, action = act, longPressAction = longPress))
                     }
@@ -1803,25 +1817,7 @@ private fun EditButtonDialog(
                             )
                         }
                         "multi_action" -> {
-                            CrossDeckTextField(
-                                value = multiActionText,
-                                onValueChange = { multiActionText = it },
-                                label = "Action chain — one step per line",
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            // Tap-to-append starter lines so nobody has to memorize the format.
-                            Row(modifier = Modifier.padding(top = 4.dp)) {
-                                listOf(
-                                    "+ Shortcut" to "Keyboard Shortcut: Ctrl,C",
-                                    "+ Media" to "Media Control: PlayPause",
-                                    "+ Delay" to "Delay (ms): 500"
-                                ).forEach { (chip, line) ->
-                                    TextButton(onClick = {
-                                        multiActionText = if (multiActionText.isBlank()) line
-                                            else multiActionText.trimEnd() + "\n" + line
-                                    }) { Text(chip, color = accentColor, style = MaterialTheme.typography.bodySmall) }
-                                }
-                            }
+                            ActionStepListEditor(steps = multiActionSteps)
                         }
                         "dial" -> {
                             InlineDropdownField(
@@ -1851,12 +1847,13 @@ private fun EditButtonDialog(
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            CrossDeckTextField(
-                value = longPressText,
-                onValueChange = { longPressText = it },
-                label = "Long-press action (optional, e.g. Media Control: VolumeMute)",
-                modifier = Modifier.fillMaxWidth()
+            Text(
+                text = "Long-Press Action (optional)",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(4.dp))
+            ActionStepListEditor(steps = longPressSteps)
 
             if (onDelete != null) {
                 Spacer(modifier = Modifier.height(20.dp))
@@ -1981,64 +1978,129 @@ private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) ->
     )
 }
 
-private fun formatMultiAction(actions: List<ActionModel>?, delays: List<Int>?): String {
-    if (actions == null) return ""
-    val sb = StringBuilder()
-    for (i in actions.indices) {
-        val act = actions[i]
-        val label = actionTypeLabels[act.type]
-        if (label != null) {
-            when (act.type) {
-                "hotkey" -> sb.append("$label:${act.keys?.joinToString(",") ?: ""}")
-                "launch_app" -> sb.append("$label:${act.path ?: ""}")
-                "media_control" -> sb.append("$label:${act.mediaCommand ?: ""}")
-                "open_url" -> sb.append("$label:${act.url ?: ""}")
-                "run_command" -> sb.append("$label:${act.command ?: ""}")
-                "text_snippet" -> sb.append("$label:${act.text ?: ""}")
-            }
-        }
-        if (delays != null && i < delays.size && delays[i] > 0) {
-            sb.append(" then delay:${delays[i]}")
-        }
-        if (i < actions.size - 1) {
-            sb.append(" then ")
-        }
+/** Mutable per-field state so Compose recomposes on in-place edits (delay, etc.) without replacing the list item. */
+class StepUiState(action: ActionModel, delayAfterMs: Int) {
+    var type by mutableStateOf(action.type)
+    var keys by mutableStateOf(action.keys?.joinToString(",") ?: "")
+    var path by mutableStateOf(action.path ?: "")
+    var mediaCommand by mutableStateOf(action.mediaCommand ?: "PlayPause")
+    var url by mutableStateOf(action.url ?: "")
+    var command by mutableStateOf(action.command ?: "")
+    var text by mutableStateOf(action.text ?: "")
+    var mouseX by mutableStateOf(action.mouseX)
+    var mouseY by mutableStateOf(action.mouseY)
+    var mouseButton by mutableStateOf(action.mouseButton)
+    var delayAfterMs by mutableStateOf(delayAfterMs)
+
+    fun toActionModel(): ActionModel = when (type) {
+        "hotkey" -> ActionModel(type = type, keys = keys.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+        "launch_app" -> ActionModel(type = type, path = path.trim())
+        "media_control" -> ActionModel(type = type, mediaCommand = mediaCommand)
+        "open_url" -> ActionModel(type = type, url = url.trim())
+        "run_command" -> ActionModel(type = type, command = command.trim())
+        "text_snippet" -> ActionModel(type = type, text = text)
+        "mouse_click" -> ActionModel(type = type, mouseX = mouseX, mouseY = mouseY, mouseButton = mouseButton)
+        else -> ActionModel(type = type)
     }
-    return sb.toString()
 }
 
-private fun parseMultiAction(text: String): Pair<List<ActionModel>, List<Int>> {
-    val actions = mutableListOf<ActionModel>()
-    val delays = mutableListOf<Int>()
-    val parts = text.split(" then ")
-    for (part in parts) {
-        val clean = part.trim()
-        if (clean.startsWith("delay:")) {
-            val dVal = clean.removePrefix("delay:").toIntOrNull() ?: 0
-            if (delays.isNotEmpty()) {
-                delays[delays.size - 1] = dVal
-            }
-        } else {
-            val colonIdx = clean.indexOf(":")
-            if (colonIdx != -1) {
-                val enteredLabel = clean.substring(0, colonIdx).trim()
-                val type = actionTypeLabels.entries.firstOrNull { it.value.equals(enteredLabel, ignoreCase = true) }?.key ?: enteredLabel
-                val valStr = clean.substring(colonIdx + 1).trim()
-                val act = when (type) {
-                    "hotkey" -> ActionModel(type = type, keys = valStr.split(",").map { it.trim() })
-                    "launch_app" -> ActionModel(type = type, path = valStr)
-                    "media_control" -> ActionModel(type = type, mediaCommand = valStr)
-                    "open_url" -> ActionModel(type = type, url = valStr)
-                    "run_command" -> ActionModel(type = type, command = valStr)
-                    "text_snippet" -> ActionModel(type = type, text = valStr)
-                    else -> ActionModel(type = type)
+private fun describeStep(step: StepUiState): String = when (step.type) {
+    "hotkey" -> "${actionTypeLabels["hotkey"]}: ${step.keys}"
+    "launch_app" -> "${actionTypeLabels["launch_app"]}: ${step.path}"
+    "media_control" -> "${actionTypeLabels["media_control"]}: ${step.mediaCommand}"
+    "open_url" -> "${actionTypeLabels["open_url"]}: ${step.url}"
+    "run_command" -> "${actionTypeLabels["run_command"]}: ${step.command}"
+    "text_snippet" -> "${actionTypeLabels["text_snippet"]}: ${step.text}"
+    "mouse_click" -> "Mouse Click (${step.mouseButton}) at ${step.mouseX},${step.mouseY}"
+    else -> step.type
+}
+
+@Composable
+private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modifier = Modifier) {
+    var newType by remember { mutableStateOf("hotkey") }
+    var newValue by remember { mutableStateOf("") }
+    var typeDropdownExpanded by remember { mutableStateOf(false) }
+    val accentColor = MaterialTheme.colorScheme.primary
+    val addableTypes = listOf("hotkey", "media_control", "launch_app", "open_url", "run_command", "text_snippet")
+
+    Column(modifier = modifier) {
+        steps.forEachIndexed { index, step ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = describeStep(step),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    value = step.delayAfterMs.toString(),
+                    onValueChange = { v -> v.toIntOrNull()?.let { if (it >= 0) step.delayAfterMs = it } },
+                    label = { Text("ms") },
+                    singleLine = true,
+                    modifier = Modifier.width(72.dp)
+                )
+                IconButton(onClick = { if (index > 0) { val s = steps.removeAt(index); steps.add(index - 1, s) } }, enabled = index > 0) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up")
                 }
-                actions.add(act)
-                delays.add(0) // default delay placeholder
+                IconButton(onClick = { if (index < steps.size - 1) { val s = steps.removeAt(index); steps.add(index + 1, s) } }, enabled = index < steps.size - 1) {
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down")
+                }
+                IconButton(onClick = { steps.removeAt(index) }) {
+                    Icon(Icons.Default.Close, contentDescription = "Remove step", tint = MaterialTheme.colorScheme.error)
+                }
             }
         }
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+            InlineDropdownField(
+                label = "Step type",
+                selectedLabel = actionTypeLabels[newType] ?: newType,
+                expanded = typeDropdownExpanded,
+                onExpandedChange = { typeDropdownExpanded = it },
+                modifier = Modifier.width(150.dp)
+            ) {
+                addableTypes.forEach { t ->
+                    Text(
+                        text = actionTypeLabels[t] ?: t,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { newType = t; typeDropdownExpanded = false }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            CrossDeckTextField(
+                value = newValue,
+                onValueChange = { newValue = it },
+                label = "Value",
+                modifier = Modifier.weight(1f)
+            )
+            TextButton(onClick = {
+                if (newValue.isNotBlank()) {
+                    val step = StepUiState(ActionModel(type = newType), 0)
+                    when (newType) {
+                        "hotkey" -> step.keys = newValue
+                        "launch_app" -> step.path = newValue
+                        "media_control" -> step.mediaCommand = newValue
+                        "open_url" -> step.url = newValue
+                        "run_command" -> step.command = newValue
+                        "text_snippet" -> step.text = newValue
+                    }
+                    steps.add(step)
+                    newValue = ""
+                }
+            }) { Text("+ Add", color = accentColor) }
+        }
     }
-    return actions to delays
 }
 
 @Composable

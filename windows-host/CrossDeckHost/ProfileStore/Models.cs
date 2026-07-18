@@ -115,4 +115,13 @@ public class ActionModel
 
     [JsonPropertyName("dialTarget")]
     public string? DialTarget { get; set; }
+
+    [JsonPropertyName("mouseX")]
+    public int? MouseX { get; set; }
+
+    [JsonPropertyName("mouseY")]
+    public int? MouseY { get; set; }
+
+    [JsonPropertyName("mouseButton")]
+    public string? MouseButton { get; set; }
 }

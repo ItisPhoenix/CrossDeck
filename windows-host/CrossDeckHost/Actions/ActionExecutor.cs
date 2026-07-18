@@ -15,6 +15,8 @@ public class ActionExecutor
             {
                 case "hotkey":
                     return ExecuteHotkey(action.Keys);
+                case "mouse_click":
+                    return ExecuteMouseClick(action.MouseX, action.MouseY, action.MouseButton);
                 case "launch_app":
                     return ExecuteLaunchApp(action.Path);
                 case "media_control":
@@ -98,6 +100,28 @@ public class ActionExecutor
         var sentUp = SendInput((uint)ups.Length, ups, Marshal.SizeOf(typeof(INPUT)));
         if (sentUp != ups.Length)
             return (false, $"SendInput only sent {sentUp}/{ups.Length} key-up inputs (Win32 error {Marshal.GetLastWin32Error()}, foreground: {DescribeForegroundWindow()})");
+
+        return (true, null);
+    }
+
+    private (bool, string?) ExecuteMouseClick(int? x, int? y, string? button)
+    {
+        if (x is null || y is null || string.IsNullOrEmpty(button))
+            return (false, "mouse_click action is missing coordinates or button");
+
+        SetCursorPos(x.Value, y.Value);
+
+        uint down = button == "right" ? MOUSEEVENTF_RIGHTDOWN : MOUSEEVENTF_LEFTDOWN;
+        uint up = button == "right" ? MOUSEEVENTF_RIGHTUP : MOUSEEVENTF_LEFTUP;
+
+        var inputs = new[]
+        {
+            new INPUT { type = INPUT_MOUSE, U = new InputUnion { mi = new MOUSEINPUT { dwFlags = down } } },
+            new INPUT { type = INPUT_MOUSE, U = new InputUnion { mi = new MOUSEINPUT { dwFlags = up } } }
+        };
+        var sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
+        if (sent != inputs.Length)
+            return (false, $"SendInput only sent {sent}/{inputs.Length} mouse inputs (Win32 error {Marshal.GetLastWin32Error()})");
 
         return (true, null);
     }
@@ -568,11 +592,19 @@ public class ActionExecutor
     // ---- P/Invoke boilerplate for SendInput ----
 
     private const int INPUT_KEYBOARD = 1;
+    private const int INPUT_MOUSE = 0;
     private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
     private const uint KEYEVENTF_KEYUP = 0x0002;
+    private const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    private const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    private const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+    private const uint MOUSEEVENTF_RIGHTUP = 0x0010;
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetCursorPos(int X, int Y);
 
     // ---- P/Invoke boilerplate for focus-existing-window (TryFocusExistingWindow) ----
 

@@ -22,49 +22,7 @@ public partial class ButtonEditorWindow : Window
     private CancellationTokenSource? _faviconCts;
     private static readonly HttpClient _faviconHttpClient = new() { Timeout = TimeSpan.FromSeconds(4) };
 
-    private readonly Actions.MacroRecorder _macroRecorder = new();
-
     private void DialogClose_Click(object sender, RoutedEventArgs e) => Close();
-
-    private void AddStep_Click(object sender, RoutedEventArgs e)
-    {
-        var label = (StepTypeCombo.SelectedItem as ComboBoxItem)?.Content?.ToString();
-        var value = StepValueInput.Text.Trim();
-        if (string.IsNullOrEmpty(label) || string.IsNullOrEmpty(value)) return;
-        AppendMultiActionLine($"{label}: {value}");
-        StepValueInput.Clear();
-    }
-
-    private void AddDelay_Click(object sender, RoutedEventArgs e) => AppendMultiActionLine("Delay (ms): 500");
-
-    private void AppendMultiActionLine(string line)
-    {
-        MultiActionInput.Text = string.IsNullOrWhiteSpace(MultiActionInput.Text)
-            ? line
-            : MultiActionInput.Text.TrimEnd() + "\n" + line;
-    }
-
-    private void RecordMacro_Click(object sender, RoutedEventArgs e)
-    {
-        if (_macroRecorder.IsRecording)
-        {
-            var recorded = _macroRecorder.Stop();
-            if (!string.IsNullOrWhiteSpace(recorded))
-            {
-                MultiActionInput.Text = string.IsNullOrWhiteSpace(MultiActionInput.Text)
-                    ? recorded
-                    : MultiActionInput.Text.TrimEnd() + "\n" + recorded;
-            }
-            RecordMacroButton.Content = "● Record Keystrokes";
-            RecordMacroHint.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            _macroRecorder.Start();
-            RecordMacroButton.Content = "■ Stop Recording";
-            RecordMacroHint.Visibility = Visibility.Visible;
-        }
-    }
 
     public ButtonEditorWindow(ButtonModel button)
     {
@@ -73,7 +31,7 @@ public partial class ButtonEditorWindow : Window
         
         // Apply styling theme after window loaded
         Loaded += (s, e) => ThemeManager.ApplyTheme(this);
-        Closed += (s, e) => _macroRecorder.Dispose();
+        Closed += (s, e) => { MultiActionStepList.Dispose(); LongPressStepList.Dispose(); };
 
         // Load applications in combo
         _allApps = AppDiscovery.DiscoverApps();
@@ -139,15 +97,15 @@ public partial class ButtonEditorWindow : Window
         CommandInput.Text = action.Command ?? "";
         SnippetTextInput.Text = action.Text ?? "";
         TargetFolderIdInput.Text = action.TargetFolderId ?? "";
-        MultiActionInput.Text = FormatMultiAction(action.Actions, action.Delays);
+        PopulateSteps(MultiActionStepList, action.Actions, action.Delays);
 
-        // Long-press action renders in the same line format; a single non-chain action shows as one line.
         if (Button.LongPressAction != null)
         {
             var lp = Button.LongPressAction;
-            LongPressInput.Text = lp.Type == "multi_action"
-                ? FormatMultiAction(lp.Actions, lp.Delays)
-                : FormatMultiAction(new System.Collections.Generic.List<ActionModel> { lp }, null);
+            if (lp.Type == "multi_action")
+                PopulateSteps(LongPressStepList, lp.Actions, lp.Delays);
+            else
+                PopulateSteps(LongPressStepList, new System.Collections.Generic.List<ActionModel> { lp }, null);
         }
 
         // Dial target selection
@@ -162,93 +120,18 @@ public partial class ButtonEditorWindow : Window
         }
     }
 
-    // User-facing labels for the Multi-Action editor — not the internal wire-protocol Type strings.
-    private static readonly System.Collections.Generic.Dictionary<string, string> MultiActionLabels = new()
+    private static void PopulateSteps(Controls.ActionStepListControl control, System.Collections.Generic.List<ActionModel>? actions, System.Collections.Generic.List<int>? delays)
     {
-        ["hotkey"] = "Keyboard Shortcut",
-        ["launch_app"] = "Launch App",
-        ["run_command"] = "Run Command",
-        ["media_control"] = "Media Control",
-        ["open_url"] = "Open Website",
-        ["text_snippet"] = "Text Snippet",
-    };
-
-    private string FormatMultiAction(System.Collections.Generic.List<ActionModel>? actions, System.Collections.Generic.List<int>? delays)
-    {
-        if (actions == null) return "";
-        var lines = new System.Collections.Generic.List<string>();
+        control.Steps.Clear();
+        if (actions == null) return;
         for (int i = 0; i < actions.Count; i++)
         {
-            var act = actions[i];
-            if (MultiActionLabels.TryGetValue(act.Type, out var label))
+            control.Steps.Add(new Actions.ActionStep
             {
-                var value = act.Type switch
-                {
-                    "hotkey" => act.Keys != null ? string.Join(",", act.Keys) : "",
-                    "launch_app" => act.Path,
-                    "run_command" => act.Command,
-                    "media_control" => act.MediaCommand,
-                    "open_url" => act.Url,
-                    "text_snippet" => act.Text,
-                    _ => ""
-                };
-                lines.Add($"{label}: {value}");
-            }
-
-            if (delays != null && i < delays.Count && delays[i] > 0)
-            {
-                lines.Add($"Delay (ms): {delays[i]}");
-            }
+                Action = actions[i],
+                DelayAfterMs = delays != null && i < delays.Count ? delays[i] : 0
+            });
         }
-        return string.Join("\n", lines);
-    }
-
-    private (System.Collections.Generic.List<ActionModel> actions, System.Collections.Generic.List<int> delays) ParseMultiAction(string text)
-    {
-        var actions = new System.Collections.Generic.List<ActionModel>();
-        var delays = new System.Collections.Generic.List<int>();
-        var lines = text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-        var typeByLabel = MultiActionLabels.ToDictionary(kv => kv.Value, kv => kv.Key, StringComparer.OrdinalIgnoreCase);
-
-        foreach (var rawLine in lines)
-        {
-            var line = rawLine.Trim();
-            if (string.IsNullOrEmpty(line)) continue;
-
-            var colonIdx = line.IndexOf(':');
-            if (colonIdx == -1) continue;
-
-            var actionLabel = line.Substring(0, colonIdx).Trim();
-            var actionVal = line.Substring(colonIdx + 1).Trim();
-
-            if (actionLabel.Equals("Delay (ms)", StringComparison.OrdinalIgnoreCase))
-            {
-                // A delay only means something relative to the step before it. Set (not append)
-                // the slot for the most recent action so delays[i] always lines up with
-                // actions[i] positionally — ExecuteMultiActionAsync indexes them together.
-                if (int.TryParse(actionVal, out var delayVal) && actions.Count > 0)
-                {
-                    while (delays.Count < actions.Count) delays.Add(0);
-                    delays[actions.Count - 1] = delayVal;
-                }
-            }
-            else if (typeByLabel.TryGetValue(actionLabel, out var type))
-            {
-                while (delays.Count < actions.Count) delays.Add(0); // pad a skipped delay before adding the next action
-                actions.Add(type switch
-                {
-                    "hotkey" => new ActionModel { Type = type, Keys = actionVal.Split(',').mapStringList() },
-                    "launch_app" => new ActionModel { Type = type, Path = actionVal },
-                    "run_command" => new ActionModel { Type = type, Command = actionVal },
-                    "media_control" => new ActionModel { Type = type, MediaCommand = actionVal },
-                    "open_url" => new ActionModel { Type = type, Url = actionVal },
-                    "text_snippet" => new ActionModel { Type = type, Text = actionVal },
-                    _ => new ActionModel { Type = type }
-                });
-            }
-        }
-
-        return (actions, delays);
     }
 
     private void ActionTypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -515,9 +398,8 @@ public partial class ButtonEditorWindow : Window
                     : TargetFolderIdInput.Text;
                 break;
             case "multi_action":
-                var parsed = ParseMultiAction(MultiActionInput.Text);
-                action.Actions = parsed.actions;
-                action.Delays = parsed.delays;
+                action.Actions = MultiActionStepList.Steps.Select(s => s.Action).ToList();
+                action.Delays = MultiActionStepList.Steps.Select(s => s.DelayAfterMs).ToList();
                 break;
             case "dial":
                 action.DialTarget = (DialTargetCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "volume";
@@ -528,13 +410,17 @@ public partial class ButtonEditorWindow : Window
         Button.Icon = string.IsNullOrEmpty(IconPathText.Text) ? null : IconPathText.Text;
         Button.Action = action;
 
-        // Long-press: one parsed step = that action directly; several = a multi_action wrapper.
-        var (lpActions, lpDelays) = ParseMultiAction(LongPressInput.Text);
-        Button.LongPressAction = lpActions.Count switch
+        // Long-press: one step = that action directly; several = a multi_action wrapper.
+        Button.LongPressAction = LongPressStepList.Steps.Count switch
         {
             0 => null,
-            1 => lpActions[0],
-            _ => new ActionModel { Type = "multi_action", Actions = lpActions, Delays = lpDelays }
+            1 => LongPressStepList.Steps[0].Action,
+            _ => new ActionModel
+            {
+                Type = "multi_action",
+                Actions = LongPressStepList.Steps.Select(s => s.Action).ToList(),
+                Delays = LongPressStepList.Steps.Select(s => s.DelayAfterMs).ToList()
+            }
         };
 
         DialogResult = true;

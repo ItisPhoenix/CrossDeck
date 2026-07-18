@@ -1,0 +1,28 @@
+<UserControl x:Class="CrossDeckHost.Controls.ActionStepListControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel>
+        <StackPanel x:Name="StepsPanel"/>
+        <Grid Margin="0,6,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="130"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <ComboBox x:Name="StepTypeCombo" Height="28" FontSize="11" Margin="0,0,6,0" SelectedIndex="0">
+                <ComboBoxItem Content="Keyboard Shortcut" Tag="hotkey"/>
+                <ComboBoxItem Content="Media Control" Tag="media_control"/>
+                <ComboBoxItem Content="Launch App" Tag="launch_app"/>
+                <ComboBoxItem Content="Open Website" Tag="open_url"/>
+                <ComboBoxItem Content="Run Command" Tag="run_command"/>
+                <ComboBoxItem Content="Text Snippet" Tag="text_snippet"/>
+            </ComboBox>
+            <TextBox x:Name="StepValueInput" Grid.Column="1" Height="28" Padding="6,4" Margin="0,0,6,0"
+                     ToolTip="e.g. Ctrl,C — or PlayPause — or C:\...\app.exe"/>
+            <Button Grid.Column="2" Style="{StaticResource StandardButton}" Content="+ Add Step" Click="AddStep_Click"/>
+        </Grid>
+        <Button x:Name="RecordMacroButton" Style="{StaticResource AccentButton}" Content="● Record Keystrokes &amp; Clicks" Click="RecordMacro_Click" Margin="0,6,0,0"/>
+        <TextBlock x:Name="RecordMacroHint" Text="Recording… perform keystrokes or clicks anywhere, then click Stop." Visibility="Collapsed"
+                   Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+    </StackPanel>
+</UserControl>

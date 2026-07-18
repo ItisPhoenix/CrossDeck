@@ -52,5 +52,8 @@ data class ActionModel(
     val targetFolderId: String? = null,
     val actions: List<ActionModel>? = null,
     val delays: List<Int>? = null,
-    val dialTarget: String? = null
+    val dialTarget: String? = null,
+    val mouseX: Int? = null,
+    val mouseY: Int? = null,
+    val mouseButton: String? = null
 )
