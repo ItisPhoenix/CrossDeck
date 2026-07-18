@@ -32,8 +32,7 @@ import com.crossdeck.client.model.AppSettings
 import com.crossdeck.client.ui.theme.SignalCyan
 
 /**
- * Settings drawer content — accent picker (pre-existing) plus the Milestone 4 additions. Extracted
- * from DeckGridScreen.kt so that file (already large per the handover notes) doesn't keep growing;
+ * Settings drawer content, extracted from DeckGridScreen.kt to keep that file from growing;
  * this owns nothing beyond rendering + calling back, all persistence lives in ConnectionManager.
  */
 @Composable
@@ -184,5 +183,7 @@ private fun AboutSection() {
 
     Text("About", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
     Spacer(modifier = Modifier.height(8.dp))
-    Text("CrossDeck Client v$versionName | Personal project — not licensed for redistribution.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("CrossDeck Client v$versionName", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("Made by ItisPhoenix — github.com/ItisPhoenix", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text("Personal project — not licensed for redistribution.", color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

@@ -2,9 +2,8 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!--
-      Dark theme only for now (matches current app behavior); light-theme values are included
-      as *Light so Milestone 3's dark/light toggle has a real source to switch to instead of
-      inventing values then.
+      Dark theme only for now; light-theme values are included as *Light so a future dark/light
+      toggle has a real source to switch to.
     -->
 
     <!-- Neutrals -->

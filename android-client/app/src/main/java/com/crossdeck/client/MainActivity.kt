@@ -59,6 +59,8 @@ class MainActivity : ComponentActivity() {
                     val error by connectionManager.lastError.collectAsState()
                     val toastMessage by connectionManager.toastMessage.collectAsState()
                     val dialLevels by connectionManager.dialLevels.collectAsState()
+                    val activeButtons by connectionManager.activeButtons.collectAsState()
+                    val runningApps by connectionManager.runningApps.collectAsState()
                     val connectedHostUrl by connectionManager.connectedHostUrl.collectAsState()
                     val appList by connectionManager.appList.collectAsState()
                     val extractedIcon by connectionManager.extractedIcon.collectAsState()
@@ -85,6 +87,7 @@ class MainActivity : ComponentActivity() {
                                 authToken = connectionManager.getToken(),
                                 toastMessage = toastMessage,
                                 dialLevels = dialLevels,
+                                activeButtons = activeButtons,
                                 accentColorHex = accentColorHex,
                                 onAccentColorChange = { color ->
                                     connectionManager.sendStyleChange(color)
@@ -129,6 +132,13 @@ class MainActivity : ComponentActivity() {
                                 onForgetHost = { connectionManager.forgetPairing() },
                                 onClearIconCache = {
                                     File(applicationContext.cacheDir, "assets").listFiles()?.forEach { it.delete() }
+                                },
+                                runningApps = runningApps,
+                                onRunningAppsSubscribe = { connectionManager.sendRunningAppsSubscribe(it) },
+                                onWindowFocus = { connectionManager.sendWindowFocus(it) },
+                                onWindowClose = { connectionManager.sendWindowClose(it) },
+                                onButtonLongPress = { button ->
+                                    connectionManager.sendButtonPress(button.buttonId, "long")
                                 }
                             )
                         }
@@ -145,6 +155,7 @@ class MainActivity : ComponentActivity() {
                                         authToken = null,
                                         toastMessage = null,
                                         dialLevels = dialLevels,
+                                activeButtons = activeButtons,
                                         accentColorHex = accentColorHex,
                                         onAccentColorChange = {},
                                         onButtonTap = {},

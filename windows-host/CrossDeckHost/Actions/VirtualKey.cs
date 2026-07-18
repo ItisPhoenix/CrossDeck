@@ -51,6 +51,19 @@ public static class VirtualKey
 
     public static bool TryGetCode(string keyName, out ushort code) => Map.TryGetValue(keyName, out code);
 
+    private static readonly Dictionary<ushort, string> Reverse = new();
+
+    /// <summary>Reverse lookup (VK code -> protocol key name) for the macro recorder.</summary>
+    public static bool TryGetName(ushort code, out string name)
+    {
+        if (Reverse.Count == 0)
+        {
+            foreach (var kv in Map)
+                Reverse.TryAdd(kv.Value, kv.Key);
+        }
+        return Reverse.TryGetValue(code, out name!);
+    }
+
     /// <summary>
     /// Windows volume/media keys are "extended keys" — real hardware sends them as 0xE0-prefixed
     /// scan codes. SendInput needs KEYEVENTF_EXTENDEDKEY set for these or the system audio driver

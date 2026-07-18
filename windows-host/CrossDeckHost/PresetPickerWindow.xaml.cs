@@ -14,6 +14,8 @@ public partial class PresetPickerWindow : Window
         Loaded += (s, e) => ThemeManager.ApplyTheme(this);
     }
 
+    private void DialogClose_Click(object sender, RoutedEventArgs e) => Close();
+
     private void Productivity_Click(object sender, RoutedEventArgs e)
     {
         SelectedPreset = "Productivity";

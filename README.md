@@ -2,6 +2,8 @@
 
 A Stream-Deck-style app: your Android phone becomes a customizable button deck that controls your Windows PC over local WiFi.
 
+Made by [ItisPhoenix](https://github.com/ItisPhoenix).
+
 <!--
   Demo GIF goes here. Capture steps:
   1. Pair a phone with a running Windows Host (same WiFi).
@@ -60,6 +62,9 @@ A Stream-Deck-style app: your Android phone becomes a customizable button deck t
 - **Icon System**: 94-icon built-in pack (Lucide) or upload your own image per button, synced over a token-authenticated asset server.
 - **Resilient Reconnect**: Android auto-retries with backoff and shows the last-known deck (greyed out) behind a reconnect overlay instead of dropping straight to the pairing screen.
 - **Revoke Device**: Kick the paired phone and issue a new PIN from the Windows tray menu.
+- **Live State Buttons**: Buttons reflect real PC state, pushed live — Mute glows when actually muted, Play/Pause when actually playing, a `launch_app` button when its app is the focused window, and dial buttons show the live volume/brightness level.
+- **Running Apps Switcher**: A live grid of every open PC window on the phone — tap to focus, long-press to close. Alt-Tab from your phone, including apps you never made a button for.
+- **Macro Recorder**: Hit Record in the PC editor's multi-action panel, perform your keystrokes anywhere, hit Stop — the captured combos and timing become a button.
 
 ## Why does this app need these permissions?
 

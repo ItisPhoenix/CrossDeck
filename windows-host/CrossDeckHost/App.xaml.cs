@@ -15,7 +15,7 @@ public partial class App : System.Windows.Application
     private ProfileStoreService? _profileStore;
     private DiscoveryBeacon? _discoveryBeacon;
     private AutoProfileWatcher? _profileWatcher;
-    private PairingWindow? _pairingWindow;
+    private LiveStateService? _liveState;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -25,8 +25,8 @@ public partial class App : System.Windows.Application
 
         _profileStore.LoadOrCreateDefault("Blank");
 
-        // Must happen before any window is shown, or PairingWindow (shown immediately below)
-        // renders with the default accent for a frame instead of the user's saved custom color.
+        // Must happen before any window is shown, or the first window renders with the default
+        // accent for a frame instead of the user's saved custom color.
         ThemeManager.AccentColor = _profileStore.Set.AccentColor;
 
         var actionExecutor = new ActionExecutor();
@@ -34,7 +34,10 @@ public partial class App : System.Windows.Application
         _pairing = new PairingManager();
         _pairing.GenerateNewPin();
 
-        _server = new WebSocketServer(port: 7890, pairing: _pairing, profileStore: _profileStore, actionExecutor: actionExecutor);
+        _liveState = new LiveStateService(_profileStore);
+        _liveState.Start();
+
+        _server = new WebSocketServer(port: 7890, pairing: _pairing, profileStore: _profileStore, actionExecutor: actionExecutor, liveState: _liveState);
         _server.ClientAuthenticated += OnClientAuthenticated;
         _server.Start();
 
@@ -46,18 +49,19 @@ public partial class App : System.Windows.Application
 
         _tray = new TrayIconManager(
             profileStore: _profileStore,
-            onShowPairingInfo: ShowPairingWindow,
+            onShowPairingInfo: ShowEditorWindow,
             onShowEditor: ShowEditorWindow,
             onRevokeDevice: () =>
             {
                 _pairing.RevokeAllTokens();
+                _pairing.GenerateNewPin(); // before disconnect, so the editor's pairing card refreshes with the new PIN
                 _server?.DisconnectAllClients();
-                _pairing.GenerateNewPin();
-                ShowPairingWindow();
+                ShowEditorWindow();
             },
             onExit: () =>
             {
                 _profileWatcher?.Stop();
+                _liveState?.Stop();
                 _discoveryBeacon?.Stop();
                 _server?.Stop();
                 Shutdown();
@@ -78,24 +82,8 @@ public partial class App : System.Windows.Application
 
         if (!startInBackground)
         {
-            ShowPairingWindow();
+            ShowEditorWindow();
         }
-    }
-
-    private void ShowPairingWindow()
-    {
-        if (_pairing is null || _server is null) return;
-
-        if (_pairingWindow != null)
-        {
-            _pairingWindow.Activate();
-            return;
-        }
-
-        _pairingWindow = new PairingWindow(_pairing.CurrentPin, _server.LocalIpAddress, _server.Port);
-        _pairingWindow.Closed += (s, e) => _pairingWindow = null;
-        _pairingWindow.Show();
-        _pairingWindow.Activate();
     }
 
     private void ShowEditorWindow()
@@ -111,7 +99,7 @@ public partial class App : System.Windows.Application
             }
         }
 
-        var window = new EditorWindow(_profileStore, _server);
+        var window = new EditorWindow(_profileStore, _server, _pairing);
         window.Show();
         window.Activate();
     }
@@ -120,12 +108,6 @@ public partial class App : System.Windows.Application
     {
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (_pairingWindow != null)
-            {
-                _pairingWindow.Close();
-                _pairingWindow = null;
-            }
-
             ShowEditorWindow();
 
             if (_profileStore != null && !_profileStore.Set.PresetSelected)
@@ -146,6 +128,7 @@ public partial class App : System.Windows.Application
     protected override void OnExit(ExitEventArgs e)
     {
         _profileWatcher?.Stop();
+        _liveState?.Stop();
         _server?.Stop();
         _tray?.Dispose();
         base.OnExit(e);

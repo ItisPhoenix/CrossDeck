@@ -223,6 +223,14 @@ public class ActionExecutor
         return false;
     }
 
+    /// <summary>Restore-if-minimized + bring to front. Used by the running-apps switcher.</summary>
+    internal static void FocusWindow(IntPtr hWnd)
+    {
+        if (IsIconic(hWnd))
+            ShowWindow(hWnd, SW_RESTORE);
+        ForceForegroundWindow(hWnd);
+    }
+
     private static List<Process> FindProcessesByExePath(string exePath)
     {
         var result = new List<Process>();
@@ -257,9 +265,18 @@ public class ActionExecutor
                 }
 
                 // 2. Safe alias match
-                if (string.Equals(processName, "calc", StringComparison.OrdinalIgnoreCase) && 
-                    (string.Equals(proc.ProcessName, "CalculatorApp", StringComparison.OrdinalIgnoreCase) || 
+                if (string.Equals(processName, "calc", StringComparison.OrdinalIgnoreCase) &&
+                    (string.Equals(proc.ProcessName, "CalculatorApp", StringComparison.OrdinalIgnoreCase) ||
                      string.Equals(proc.ProcessName, "Calculator", StringComparison.OrdinalIgnoreCase)))
+                {
+                    result.Add(proc);
+                    continue;
+                }
+
+                // wt.exe is a launcher stub that hands off to the real WindowsTerminal.exe process
+                // and exits — same launcher/real-process name mismatch as the class comment above.
+                if (string.Equals(processName, "wt", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(proc.ProcessName, "WindowsTerminal", StringComparison.OrdinalIgnoreCase))
                 {
                     result.Add(proc);
                     continue;
@@ -333,6 +350,36 @@ public class ActionExecutor
                         }
                     }
                     catch { }
+                }
+            }
+
+            // Console-host fallback: powershell.exe/cmd.exe/pwsh.exe don't own their visible
+            // window. On older Windows a per-instance conhost.exe does (ConsoleWindowClass check
+            // below). On Windows 11 with the default "Windows Terminal" setting, the OS silently
+            // hosts it inside WindowsTerminal.exe instead — a completely different process from
+            // the one that was actually launched. Match either.
+            if (IsWindowVisible(hWnd) && foundWindow == IntPtr.Zero &&
+                (string.Equals(proc.ProcessName, "powershell", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(proc.ProcessName, "pwsh", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(proc.ProcessName, "cmd", StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    var winProc = Process.GetProcessById((int)processId);
+                    if (string.Equals(winProc.ProcessName, "WindowsTerminal", StringComparison.OrdinalIgnoreCase))
+                    {
+                        foundWindow = hWnd;
+                        return false; // Stop enumeration
+                    }
+                }
+                catch { }
+
+                var cls = new System.Text.StringBuilder(256);
+                GetClassName(hWnd, cls, 256);
+                if (string.Equals(cls.ToString(), "ConsoleWindowClass", StringComparison.OrdinalIgnoreCase))
+                {
+                    foundWindow = hWnd;
+                    return false; // Stop enumeration
                 }
             }
 
@@ -541,6 +588,9 @@ public class ActionExecutor
 
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
 
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);

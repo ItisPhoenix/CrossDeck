@@ -83,7 +83,44 @@ public class ProfileStoreService
     {
         lock (_lock)
         {
+            AutoAssignIcons();
             SaveLocked();
+        }
+    }
+
+    /// <summary>
+    /// Buttons saved without an icon get a builtin one matching their action type, so decks look
+    /// finished without the user hand-picking every icon. Runs on every save from either editor
+    /// (PC or phone) — this is the single choke point both write paths go through.
+    /// </summary>
+    private void AutoAssignIcons()
+    {
+        foreach (var profile in Set.Profiles)
+        {
+            foreach (var b in profile.Buttons)
+            {
+                if (!string.IsNullOrEmpty(b.Icon)) continue;
+                b.Icon = b.Action.Type switch
+                {
+                    "hotkey" => "builtin:keyboard",
+                    "media_control" => b.Action.MediaCommand switch
+                    {
+                        "PlayPause" => "builtin:play",
+                        "NextTrack" => "builtin:skip-forward",
+                        "PrevTrack" => "builtin:skip-back",
+                        "VolumeMute" => "builtin:volume-x",
+                        _ => "builtin:volume-2"
+                    },
+                    "launch_app" => "builtin:zap",
+                    "open_url" => "builtin:globe",
+                    "run_command" => "builtin:terminal",
+                    "text_snippet" => "builtin:file-text",
+                    "multi_action" => "builtin:layers",
+                    "open_folder" => "builtin:folder",
+                    "dial" => b.Action.DialTarget == "brightness" ? "builtin:sun" : "builtin:volume-2",
+                    _ => null
+                };
+            }
         }
     }
 

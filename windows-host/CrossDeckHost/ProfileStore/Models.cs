@@ -58,6 +58,10 @@ public class ButtonModel
     [JsonPropertyName("action")]
     public ActionModel Action { get; set; } = new();
 
+    /// <summary>Optional second action fired by long-pressing the button on the phone.</summary>
+    [JsonPropertyName("longPressAction")]
+    public ActionModel? LongPressAction { get; set; }
+
     [JsonPropertyName("parentFolderId")]
     public string? ParentFolderId { get; set; }
 }
@@ -72,11 +76,8 @@ public class Position
 }
 
 /// <summary>
-/// Milestone 1 supports "hotkey" and "launch_app" only. Rather than full polymorphic JSON
-/// (which needs a custom System.Text.Json converter), this flattens all possible fields onto
-/// one class, discriminated by Type. Simpler for now — revisit with a proper converter in
-/// Milestone 2 when action types multiply (media_control, open_url, run_command, text_snippet,
-/// multi_action).
+/// Rather than full polymorphic JSON (which needs a custom System.Text.Json converter), this
+/// flattens all possible action fields onto one class, discriminated by Type.
 /// </summary>
 public class ActionModel
 {

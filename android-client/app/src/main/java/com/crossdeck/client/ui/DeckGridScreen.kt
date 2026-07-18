@@ -2,11 +2,14 @@ package com.crossdeck.client.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -29,12 +32,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -67,6 +69,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -122,6 +125,8 @@ fun DeckGridScreen(
     /** Pair(message, isSuccess) — non-null for ~2.5 s when a toast should show. */
     toastMessage: Pair<String, Boolean>?,
     dialLevels: Map<String, Int>,
+    /** buttonId -> live "active" state (Mute actually muted, Play/Pause actually playing, launch_app actually focused). */
+    activeButtons: Map<String, Boolean>,
     accentColorHex: String,
     onAccentColorChange: (String) -> Unit,
     onButtonTap: (ButtonModel) -> Unit,
@@ -141,7 +146,12 @@ fun DeckGridScreen(
     onSettingsChange: (AppSettings) -> Unit,
     connectionHostInfo: String?,
     onForgetHost: () -> Unit,
-    onClearIconCache: () -> Unit
+    onClearIconCache: () -> Unit,
+    runningApps: List<com.crossdeck.client.model.RunningApp> = emptyList(),
+    onRunningAppsSubscribe: (Boolean) -> Unit = {},
+    onWindowFocus: (Long) -> Unit = {},
+    onWindowClose: (Long) -> Unit = {},
+    onButtonLongPress: (ButtonModel) -> Unit = {}
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -197,6 +207,7 @@ fun DeckGridScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameProfileName by remember { mutableStateOf(profile.name) }
     var showSettingsPanel by remember { mutableStateOf(false) }
+    var showRunningApps by remember { mutableStateOf(false) }
 
     // Track profile change state for 3D flip card transition
     var prevActiveProfileId by remember { mutableStateOf(activeProfileId) }
@@ -396,7 +407,12 @@ fun DeckGridScreen(
                                 val isDraggingThis = draggedIndex == index
 
                                 val dragModifier = if (isEditMode && cellButton != null) {
-                                    Modifier.pointerInput(index) {
+                                    // Keyed on buttonMap, not just index: pointerInput's gesture
+                                    // coroutine captures buttonMap once per key change, and index
+                                    // never changes for a cell — after any move/edit the handler
+                                    // held a stale map, so onDragEnd saved whatever button *used*
+                                    // to be at that cell ("drag copies a random button" bug).
+                                    Modifier.pointerInput(index, buttonMap) {
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = {
                                                 haptic()
@@ -469,6 +485,7 @@ fun DeckGridScreen(
                                 ) {
                                     if (cellButton != null) {
                                         val dialValue = dialLevels[cellButton.buttonId]
+                                        val liveActive = activeButtons[cellButton.buttonId]
                                         DeckButton(
                                             button = cellButton,
                                             isEditMode = isEditMode,
@@ -476,6 +493,7 @@ fun DeckGridScreen(
                                             authToken = authToken,
                                             accentColor = accentColor,
                                             iconOnlyMode = settings.iconOnlyMode,
+                                            liveActive = liveActive,
                                             onTap = {
                                                 haptic()
                                                 if (isEditMode) {
@@ -498,6 +516,12 @@ fun DeckGridScreen(
                                                     }
                                                 }
                                             },
+                                            onLongPress = if (!isEditMode && cellButton.longPressAction != null) {
+                                                {
+                                                    haptic(HapticFeedbackConstants.LONG_PRESS)
+                                                    onButtonLongPress(cellButton)
+                                                }
+                                            } else null,
                                             modifier = dragModifier.then(visualModifier),
                                             levelValue = dialValue
                                         )
@@ -602,12 +626,29 @@ fun DeckGridScreen(
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
             ) {
+                // Pulsing border while in Edit mode — the old always-visible "Edit/Done" button
+                // got folded into this menu, so without a pulse there's no ongoing signal that
+                // taps are editing buttons rather than pressing them.
+                val editPulse by rememberInfiniteTransition(label = "editPulse")
+                    .animateFloat(
+                        initialValue = 0.35f,
+                        targetValue = 1f,
+                        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                            animation = tween(700, easing = androidx.compose.animation.core.LinearEasing),
+                            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                        ),
+                        label = "editPulseAlpha"
+                    )
                 IconButton(
                     onClick = { expanded = true },
                     modifier = Modifier
                         .size(36.dp)
                         .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f), RoundedCornerShape(50))
-                        .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(50))
+                        .border(
+                            if (isEditMode) 2.dp else 1.dp,
+                            accentColor.copy(alpha = if (isEditMode) editPulse else 0.4f),
+                            RoundedCornerShape(50)
+                        )
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
@@ -647,6 +688,21 @@ fun DeckGridScreen(
                         onClick = {
                             haptic()
                             showSettingsPanel = true
+                            expanded = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Running Apps") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        onClick = {
+                            haptic()
+                            showRunningApps = true
                             expanded = false
                         }
                     )
@@ -725,8 +781,12 @@ fun DeckGridScreen(
                 }
             }
 
-            // Settings drawer — accent picker (pre-existing) + Milestone 4 additions.
-            if (showSettingsPanel) {
+            // Settings drawer — backdrop fades, sheet slides up from the bottom.
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showSettingsPanel,
+                enter = androidx.compose.animation.fadeIn(tween(200)),
+                exit = androidx.compose.animation.fadeOut(tween(200))
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -734,22 +794,56 @@ fun DeckGridScreen(
                         .clickable { showSettingsPanel = false },
                     contentAlignment = Alignment.BottomCenter
                 ) {
-                    Box(modifier = Modifier.clickable(enabled = false) {}) {
-                        SettingsPanel(
-                            accentColorHex = accentColorHex,
-                            onAccentColorChange = onAccentColorChange,
-                            settings = settings,
-                            onSettingsChange = onSettingsChange,
-                            connectionHostInfo = connectionHostInfo,
-                            onForgetHost = onForgetHost,
-                            onClearIconCache = onClearIconCache,
-                            haptic = { haptic() }
-                        )
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showSettingsPanel,
+                        enter = androidx.compose.animation.slideInVertically(tween(250)) { it },
+                        exit = androidx.compose.animation.slideOutVertically(tween(200)) { it }
+                    ) {
+                        Box(modifier = Modifier.clickable(enabled = false) {}) {
+                            SettingsPanel(
+                                accentColorHex = accentColorHex,
+                                onAccentColorChange = onAccentColorChange,
+                                settings = settings,
+                                onSettingsChange = onSettingsChange,
+                                connectionHostInfo = connectionHostInfo,
+                                onForgetHost = onForgetHost,
+                                onClearIconCache = onClearIconCache,
+                                haptic = { haptic() }
+                            )
+                        }
                     }
                 }
             }
 
-            // Confirm-before-Run-Command safety prompt (Milestone 4 setting)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showRunningApps,
+                enter = androidx.compose.animation.fadeIn(tween(220)) +
+                        androidx.compose.animation.scaleIn(tween(220), initialScale = 0.94f),
+                exit = androidx.compose.animation.fadeOut(tween(180)) +
+                        androidx.compose.animation.scaleOut(tween(180), targetScale = 0.94f)
+            ) {
+                LaunchedEffect(Unit) { onRunningAppsSubscribe(true) }
+                DisposableEffect(Unit) { onDispose { onRunningAppsSubscribe(false) } }
+                RunningAppsOverlay(
+                    apps = runningApps,
+                    connectedHostUrl = connectedHostUrl,
+                    authToken = authToken,
+                    accentColor = accentColor,
+                    onFocus = { hwnd ->
+                        haptic()
+                        onWindowFocus(hwnd)
+                        showRunningApps = false
+                    },
+                    onClose = { hwnd ->
+                        haptic()
+                        onWindowClose(hwnd)
+                    },
+                    onDismiss = { showRunningApps = false }
+                )
+            }
+
+            // Confirm-before-Run-Command safety prompt
+
             if (pendingRunCommandButton != null) {
                 val button = pendingRunCommandButton!!
                 AlertDialog(
@@ -954,6 +1048,7 @@ private fun resolveIconBitmap(context: android.content.Context, icon: String?, c
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DeckButton(
     button: ButtonModel,
@@ -963,8 +1058,12 @@ private fun DeckButton(
     accentColor: Color,
     iconOnlyMode: Boolean = false,
     onTap: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    levelValue: Int? = null
+    levelValue: Int? = null,
+    /** Live PC-side state: Mute actually muted, Play/Pause actually playing, launch_app actually
+     *  focused. Null = no live state tracked for this button (most action types). */
+    liveActive: Boolean? = null
 ) {
     val context = LocalContext.current
     var imageBitmap by remember(button.icon) { mutableStateOf<ImageBitmap?>(null) }
@@ -997,6 +1096,10 @@ private fun DeckButton(
         Brush.verticalGradient(listOf(accentColor, accentColor.copy(alpha = 0.4f)))
     } else if (isEditMode) {
         Brush.verticalGradient(listOf(accentColor.copy(alpha = 0.6f), accentColor.copy(alpha = 0.1f)))
+    } else if (liveActive == true) {
+        // Reflects real PC state (actually muted / actually playing / actually focused) rather
+        // than just "the tap fired" — closes the fire-and-forget feedback gap.
+        Brush.verticalGradient(listOf(accentColor, accentColor.copy(alpha = 0.5f)))
     } else {
         glossyBorder
     }
@@ -1007,7 +1110,12 @@ private fun DeckButton(
         modifier = modifier
             .fillMaxSize()
             .scale(animatedScale)
-            .clickable(interactionSource = interactionSource, indication = null) { onTap() }
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onTap,
+                onLongClick = onLongPress
+            )
             .background(glossyBg, RoundedCornerShape(18.dp))
             .border(
                 1.2.dp,
@@ -1104,10 +1212,141 @@ private fun EmptyEditButton(onClick: () -> Unit) {
     }
 }
 
+/** Full-screen live grid of open PC windows. Tap = focus on the PC, long-press = close (confirmed). */
+@Composable
+private fun RunningAppsOverlay(
+    apps: List<com.crossdeck.client.model.RunningApp>,
+    connectedHostUrl: String?,
+    authToken: String?,
+    accentColor: Color,
+    onFocus: (Long) -> Unit,
+    onClose: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var pendingClose by remember { mutableStateOf<com.crossdeck.client.model.RunningApp?>(null) }
+    BackHandler { onDismiss() }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.97f))
+    ) {
+        Text(
+            text = "RUNNING APPS",
+            style = MaterialTheme.typography.labelSmall,
+            color = accentColor,
+            modifier = Modifier.align(Alignment.TopStart).padding(20.dp)
+        )
+        Text(
+            text = "✕",
+            color = MaterialTheme.colorScheme.onSurface,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(16.dp)
+                .clickable { onDismiss() }
+                .padding(8.dp)
+        )
+
+        if (apps.isEmpty()) {
+            Text(
+                text = "Waiting for the PC…",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        } else {
+            BoxWithConstraints(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.fillMaxSize().padding(top = 56.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
+            ) {
+                val n = apps.size
+                val spacing = 6.dp
+                val cols = kotlin.math.ceil(
+                    kotlin.math.sqrt(n * (maxWidth.value / maxHeight.value).toDouble())
+                ).toInt().coerceIn(1, n)
+                val rows = kotlin.math.ceil(n / cols.toDouble()).toInt()
+                val cellSize = minOf(
+                    (maxWidth - spacing * (cols - 1)) / cols,
+                    (maxHeight - spacing * (rows - 1)) / rows
+                ).coerceIn(0.dp, 200.dp) // cap so 2-3 open windows don't become giant tiles
+
+                Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
+                    for (r in 0 until rows) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(spacing)) {
+                            for (c in 0 until cols) {
+                                val app = apps.getOrNull(r * cols + c) ?: continue
+                                val bmp by produceState<ImageBitmap?>(initialValue = null, app.icon, connectedHostUrl) {
+                                    value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        resolveIconBitmap(context, app.icon, connectedHostUrl, authToken)
+                                    }
+                                }
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier
+                                        .size(cellSize)
+                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), RoundedCornerShape(18.dp))
+                                        .border(
+                                            if (app.focused) 1.5.dp else 1.dp,
+                                            if (app.focused) accentColor else MaterialTheme.colorScheme.outline,
+                                            RoundedCornerShape(18.dp)
+                                        )
+                                        .pointerInput(app.hwnd) {
+                                            detectTapGestures(
+                                                onTap = { onFocus(app.hwnd) },
+                                                onLongPress = { pendingClose = app }
+                                            )
+                                        }
+                                        .padding(6.dp)
+                                ) {
+                                    bmp?.let {
+                                        Image(bitmap = it, contentDescription = null, modifier = Modifier.size(cellSize * 0.4f))
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                    }
+                                    Text(
+                                        text = app.title,
+                                        textAlign = TextAlign.Center,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pendingClose?.let { app ->
+        AlertDialog(
+            onDismissRequest = { pendingClose = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(16.dp),
+            title = { Text("Close app?", color = MaterialTheme.colorScheme.onSurface) },
+            text = { Text("Close \"${app.title}\" on the PC?", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+            confirmButton = {
+                TextButton(onClick = {
+                    onClose(app.hwnd)
+                    pendingClose = null
+                }) { Text("Close", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingClose = null }) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        )
+    }
+}
+
 /**
- * Frosted overlay shown when a previously-connected session drops (Milestone 3b). Meant to be
- * stacked on top of a dimmed, touch-blocked DeckGridScreen showing the last-known profile —
- * see MainActivity's `profile != null && state != Connected` branch.
+ * Frosted overlay shown when a previously-connected session drops. Meant to be stacked on top of
+ * a dimmed, touch-blocked DeckGridScreen showing the last-known profile — see MainActivity's
+ * `profile != null && state != Connected` branch.
  */
 @Composable
 fun ReconnectOverlay(accentColor: Color, onManualConnect: () -> Unit, modifier: Modifier = Modifier) {
@@ -1226,6 +1465,12 @@ private fun EditButtonDialog(
     var targetFolderId by remember { mutableStateOf(button.action.targetFolderId ?: ("f_" + UUID.randomUUID().toString().substring(0, 8))) }
     var multiActionText by remember { mutableStateOf(formatMultiAction(button.action.actions, button.action.delays)) }
     var dialTarget by remember { mutableStateOf(button.action.dialTarget ?: "volume") }
+    var longPressText by remember {
+        mutableStateOf(button.longPressAction?.let { lp ->
+            if (lp.type == "multi_action") formatMultiAction(lp.actions, lp.delays)
+            else formatMultiAction(listOf(lp), null)
+        } ?: "")
+    }
     
     var dropdownExpanded by remember { mutableStateOf(false) }
     var mediaDropdownExpanded by remember { mutableStateOf(false) }
@@ -1351,7 +1596,13 @@ private fun EditButtonDialog(
                             )
                             else -> ActionModel(type = actionType)
                         }
-                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act))
+                        val (lpActs, lpDelays) = parseMultiAction(longPressText)
+                        val longPress = when (lpActs.size) {
+                            0 -> null
+                            1 -> lpActs[0]
+                            else -> ActionModel(type = "multi_action", actions = lpActs, delays = lpDelays)
+                        }
+                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act, longPressAction = longPress))
                     }
                 ) {
                     Text("Save", color = accentColor, fontWeight = FontWeight.Bold)
@@ -1380,31 +1631,25 @@ private fun EditButtonDialog(
             }
             Spacer(modifier = Modifier.height(16.dp))
 
-            ExposedDropdownMenuBox(
+            InlineDropdownField(
+                label = "Action Type",
+                selectedLabel = actionTypeLabels[actionType] ?: actionType,
                 expanded = dropdownExpanded,
-                onExpandedChange = { dropdownExpanded = !dropdownExpanded }
+                onExpandedChange = { dropdownExpanded = it },
+                modifier = Modifier.fillMaxWidth()
             ) {
-                CrossDeckTextField(
-                    readOnly = true,
-                    value = actionTypeLabels[actionType] ?: actionType,
-                    onValueChange = {},
-                    label = "Action Type",
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dropdownExpanded) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor()
-                )
-                ExposedDropdownMenu(
-                    expanded = dropdownExpanded,
-                    onDismissRequest = { dropdownExpanded = false }
-                ) {
-                    actionTypeLabels.forEach { (type, friendly) ->
-                        DropdownMenuItem(
-                            text = { Text(friendly) },
-                            onClick = {
+                actionTypeLabels.forEach { (type, friendly) ->
+                    Text(
+                        text = friendly,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
                                 actionType = type
                                 dropdownExpanded = false
                             }
-                        )
-                    }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -1453,35 +1698,41 @@ private fun EditButtonDialog(
                                     it.path.contains(searchQuery, ignoreCase = true) 
                                 }
                             }
-                            ExposedDropdownMenuBox(
-                                expanded = pathDropdownExpanded && filteredApps.isNotEmpty(),
-                                onExpandedChange = { pathDropdownExpanded = it }
-                            ) {
-                                CrossDeckTextField(
-                                    value = searchQuery,
-                                    onValueChange = { newValue ->
-                                        searchQuery = newValue
-                                        val matched = appList.find { it.name.equals(newValue, ignoreCase = true) }
-                                        path = matched?.path ?: newValue
-                                        pathDropdownExpanded = true
-                                    },
-                                    label = "Application Path (pick or type custom)",
-                                    modifier = Modifier.fillMaxWidth().menuAnchor()
-                                )
-                                ExposedDropdownMenu(
-                                    expanded = pathDropdownExpanded && filteredApps.isNotEmpty(),
-                                    onDismissRequest = { pathDropdownExpanded = false }
+                            CrossDeckTextField(
+                                value = searchQuery,
+                                onValueChange = { newValue ->
+                                    searchQuery = newValue
+                                    val matched = appList.find { it.name.equals(newValue, ignoreCase = true) }
+                                    path = matched?.path ?: newValue
+                                    pathDropdownExpanded = true
+                                },
+                                label = "Application Path (pick or type custom)",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            // Inline, not a Popup-based ExposedDropdownMenu — that broke inside
+                            // this ModalBottomSheet (Popup nested in a Popup).
+                            if (pathDropdownExpanded && filteredApps.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                                 ) {
-                                    filteredApps.forEach { app ->
-                                        DropdownMenuItem(
-                                            text = { Text(app.name) },
-                                            onClick = {
-                                                path = app.path
-                                                searchQuery = app.name
-                                                pathDropdownExpanded = false
-                                                if (iconValue == null) onRequestExtractIcon(app.path)
-                                            }
-                                        )
+                                    Column {
+                                        filteredApps.forEach { app ->
+                                            Text(
+                                                text = app.name,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        path = app.path
+                                                        searchQuery = app.name
+                                                        pathDropdownExpanded = false
+                                                        if (iconValue == null) onRequestExtractIcon(app.path)
+                                                    }
+                                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1496,31 +1747,25 @@ private fun EditButtonDialog(
                             }
                         }
                         "media_control" -> {
-                            ExposedDropdownMenuBox(
+                            InlineDropdownField(
+                                label = "Media Command",
+                                selectedLabel = mediaCommandLabels[mediaCommand] ?: mediaCommand,
                                 expanded = mediaDropdownExpanded,
-                                onExpandedChange = { mediaDropdownExpanded = !mediaDropdownExpanded }
+                                onExpandedChange = { mediaDropdownExpanded = it },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                CrossDeckTextField(
-                                    readOnly = true,
-                                    value = mediaCommandLabels[mediaCommand] ?: mediaCommand,
-                                    onValueChange = {},
-                                    label = "Media Command",
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = mediaDropdownExpanded) },
-                                    modifier = Modifier.fillMaxWidth().menuAnchor()
-                                )
-                                ExposedDropdownMenu(
-                                    expanded = mediaDropdownExpanded,
-                                    onDismissRequest = { mediaDropdownExpanded = false }
-                                ) {
-                                    mediaCommandLabels.forEach { (cmd, friendly) ->
-                                        DropdownMenuItem(
-                                            text = { Text(friendly) },
-                                            onClick = {
+                                mediaCommandLabels.forEach { (cmd, friendly) ->
+                                    Text(
+                                        text = friendly,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
                                                 mediaCommand = cmd
                                                 mediaDropdownExpanded = false
                                             }
-                                        )
-                                    }
+                                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    )
                                 }
                             }
                         }
@@ -1560,42 +1805,57 @@ private fun EditButtonDialog(
                             CrossDeckTextField(
                                 value = multiActionText,
                                 onValueChange = { multiActionText = it },
-                                label = "Actions (e.g. Keyboard Shortcut:Ctrl,C then delay:500)",
+                                label = "Action chain — one step per line",
                                 modifier = Modifier.fillMaxWidth()
                             )
+                            // Tap-to-append starter lines so nobody has to memorize the format.
+                            Row(modifier = Modifier.padding(top = 4.dp)) {
+                                listOf(
+                                    "+ Shortcut" to "Keyboard Shortcut: Ctrl,C",
+                                    "+ Media" to "Media Control: PlayPause",
+                                    "+ Delay" to "Delay (ms): 500"
+                                ).forEach { (chip, line) ->
+                                    TextButton(onClick = {
+                                        multiActionText = if (multiActionText.isBlank()) line
+                                            else multiActionText.trimEnd() + "\n" + line
+                                    }) { Text(chip, color = accentColor, style = MaterialTheme.typography.bodySmall) }
+                                }
+                            }
                         }
                         "dial" -> {
-                            ExposedDropdownMenuBox(
+                            InlineDropdownField(
+                                label = "Dial Target",
+                                selectedLabel = dialTargetLabels[dialTarget] ?: dialTarget,
                                 expanded = dialDropdownExpanded,
-                                onExpandedChange = { dialDropdownExpanded = !dialDropdownExpanded }
+                                onExpandedChange = { dialDropdownExpanded = it },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                CrossDeckTextField(
-                                    readOnly = true,
-                                    value = dialTargetLabels[dialTarget] ?: dialTarget,
-                                    onValueChange = {},
-                                    label = "Dial Target",
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = dialDropdownExpanded) },
-                                    modifier = Modifier.fillMaxWidth().menuAnchor()
-                                )
-                                ExposedDropdownMenu(
-                                    expanded = dialDropdownExpanded,
-                                    onDismissRequest = { dialDropdownExpanded = false }
-                                ) {
-                                    dialTargetLabels.forEach { (target, friendly) ->
-                                        DropdownMenuItem(
-                                            text = { Text(friendly) },
-                                            onClick = {
+                                dialTargetLabels.forEach { (target, friendly) ->
+                                    Text(
+                                        text = friendly,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
                                                 dialTarget = target
                                                 dialDropdownExpanded = false
                                             }
-                                        )
-                                    }
+                                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                                    )
                                 }
                             }
                         }
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            CrossDeckTextField(
+                value = longPressText,
+                onValueChange = { longPressText = it },
+                label = "Long-press action (optional, e.g. Media Control: VolumeMute)",
+                modifier = Modifier.fillMaxWidth()
+            )
 
             if (onDelete != null) {
                 Spacer(modifier = Modifier.height(20.dp))
@@ -1810,4 +2070,55 @@ private fun CrossDeckTextField(
         shape = RoundedCornerShape(10.dp),
         modifier = modifier
     )
+}
+
+/**
+ * Popup-free dropdown: expands inline instead of via ExposedDropdownMenuBox's ExposedDropdownMenu,
+ * which is itself a Popup — nesting that inside EditButtonDialog's ModalBottomSheet (also a Popup)
+ * broke the dropdown from opening at all. Options render as a plain Column directly below the
+ * field, in the same composition/window layer as the sheet, so there's nothing to nest.
+ */
+@Composable
+private fun InlineDropdownField(
+    label: String,
+    selectedLabel: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    optionsContent: @Composable ColumnScope.() -> Unit
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onExpandedChange(!expanded) }
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Text(selectedLabel, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (expanded) {
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            ) {
+                Column(content = optionsContent)
+            }
+        }
+    }
 }

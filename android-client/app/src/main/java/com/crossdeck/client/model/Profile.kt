@@ -25,6 +25,8 @@ data class ButtonModel(
     val label: String,
     val icon: String? = null,
     val action: ActionModel,
+    /** Optional second action fired by long-pressing the button. */
+    val longPressAction: ActionModel? = null,
     val parentFolderId: String? = null
 )
 
@@ -35,10 +37,8 @@ data class Position(
 )
 
 /**
- * Milestone 1 supports "hotkey" and "launch_app" only — see ActionModel.kt equivalent on the
- * Windows Host side for why this is flattened rather than a sealed-class-per-type. Keeping the
- * two sides structurally identical make the protocol easier to reason about while it's still
- * this small; revisit with a polymorphic serializer in Milestone 2.
+ * Flattened rather than sealed-class-per-type, mirroring the Windows Host's ActionModel —
+ * keeping the two sides structurally identical makes the protocol easier to reason about.
  */
 @Serializable
 data class ActionModel(

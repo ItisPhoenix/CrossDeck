@@ -22,6 +22,50 @@ public partial class ButtonEditorWindow : Window
     private CancellationTokenSource? _faviconCts;
     private static readonly HttpClient _faviconHttpClient = new() { Timeout = TimeSpan.FromSeconds(4) };
 
+    private readonly Actions.MacroRecorder _macroRecorder = new();
+
+    private void DialogClose_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void AddStep_Click(object sender, RoutedEventArgs e)
+    {
+        var label = (StepTypeCombo.SelectedItem as ComboBoxItem)?.Content?.ToString();
+        var value = StepValueInput.Text.Trim();
+        if (string.IsNullOrEmpty(label) || string.IsNullOrEmpty(value)) return;
+        AppendMultiActionLine($"{label}: {value}");
+        StepValueInput.Clear();
+    }
+
+    private void AddDelay_Click(object sender, RoutedEventArgs e) => AppendMultiActionLine("Delay (ms): 500");
+
+    private void AppendMultiActionLine(string line)
+    {
+        MultiActionInput.Text = string.IsNullOrWhiteSpace(MultiActionInput.Text)
+            ? line
+            : MultiActionInput.Text.TrimEnd() + "\n" + line;
+    }
+
+    private void RecordMacro_Click(object sender, RoutedEventArgs e)
+    {
+        if (_macroRecorder.IsRecording)
+        {
+            var recorded = _macroRecorder.Stop();
+            if (!string.IsNullOrWhiteSpace(recorded))
+            {
+                MultiActionInput.Text = string.IsNullOrWhiteSpace(MultiActionInput.Text)
+                    ? recorded
+                    : MultiActionInput.Text.TrimEnd() + "\n" + recorded;
+            }
+            RecordMacroButton.Content = "● Record Keystrokes";
+            RecordMacroHint.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            _macroRecorder.Start();
+            RecordMacroButton.Content = "■ Stop Recording";
+            RecordMacroHint.Visibility = Visibility.Visible;
+        }
+    }
+
     public ButtonEditorWindow(ButtonModel button)
     {
         InitializeComponent();
@@ -29,6 +73,7 @@ public partial class ButtonEditorWindow : Window
         
         // Apply styling theme after window loaded
         Loaded += (s, e) => ThemeManager.ApplyTheme(this);
+        Closed += (s, e) => _macroRecorder.Dispose();
 
         // Load applications in combo
         var apps = AppDiscovery.DiscoverApps();
@@ -95,6 +140,15 @@ public partial class ButtonEditorWindow : Window
         SnippetTextInput.Text = action.Text ?? "";
         TargetFolderIdInput.Text = action.TargetFolderId ?? "";
         MultiActionInput.Text = FormatMultiAction(action.Actions, action.Delays);
+
+        // Long-press action renders in the same line format; a single non-chain action shows as one line.
+        if (Button.LongPressAction != null)
+        {
+            var lp = Button.LongPressAction;
+            LongPressInput.Text = lp.Type == "multi_action"
+                ? FormatMultiAction(lp.Actions, lp.Delays)
+                : FormatMultiAction(new System.Collections.Generic.List<ActionModel> { lp }, null);
+        }
 
         // Dial target selection
         string dialTgt = action.DialTarget ?? "volume";
@@ -437,6 +491,15 @@ public partial class ButtonEditorWindow : Window
         Button.Label = LabelInput.Text;
         Button.Icon = string.IsNullOrEmpty(IconPathText.Text) ? null : IconPathText.Text;
         Button.Action = action;
+
+        // Long-press: one parsed step = that action directly; several = a multi_action wrapper.
+        var (lpActions, lpDelays) = ParseMultiAction(LongPressInput.Text);
+        Button.LongPressAction = lpActions.Count switch
+        {
+            0 => null,
+            1 => lpActions[0],
+            _ => new ActionModel { Type = "multi_action", Actions = lpActions, Delays = lpDelays }
+        };
 
         DialogResult = true;
         Close();

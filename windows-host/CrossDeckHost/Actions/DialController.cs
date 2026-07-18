@@ -40,6 +40,22 @@ public static class DialController
         }
     }
 
+    public static bool? IsMuted()
+    {
+        try
+        {
+            var volume = GetVolumeObject();
+            if (volume == null) return null;
+
+            volume.GetMute(out bool muted);
+            return muted;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static int SetBrightness(int value)
     {
         int target = Math.Clamp(value, 0, 100);
@@ -232,6 +248,9 @@ public static class DialController
         int Activate(ref Guid iid, int dwClsContext, IntPtr pActivationParams, [MarshalAs(UnmanagedType.IUnknown)] out object ppInterface);
     }
 
+    // Vtable order must match the real IAudioEndpointVolume exactly (COM interop calls by slot
+    // index, not by name) — the unused Channel*/SetMute members below exist only to keep GetMute
+    // at its real slot; they're never called.
     [Guid("5CDF2C82-841E-4546-9722-0CF74078229A")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IAudioEndpointVolume
@@ -245,5 +264,12 @@ public static class DialController
         int GetMasterVolumeLevel(out float levelDB);
         [PreserveSig]
         int GetMasterVolumeLevelScalar(out float level);
+        int SetChannelVolumeLevel(uint channel, float levelDB, Guid eventContext);
+        int SetChannelVolumeLevelScalar(uint channel, float level, Guid eventContext);
+        int GetChannelVolumeLevel(uint channel, out float levelDB);
+        int GetChannelVolumeLevelScalar(uint channel, out float level);
+        int SetMute([MarshalAs(UnmanagedType.Bool)] bool isMuted, Guid eventContext);
+        [PreserveSig]
+        int GetMute([MarshalAs(UnmanagedType.Bool)] out bool isMuted);
     }
 }

@@ -14,8 +14,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -31,9 +34,7 @@ import okhttp3.WebSocketListener
 enum class ConnectionState { Disconnected, Connecting, Connected, AuthFailed, Error }
 
 /**
- * Owns the WebSocket connection to the Windows Host. See shared-schema/protocol.md for the
- * exact message formats this implements (Milestone 1 subset: auth, profile_sync, button_press,
- * ack).
+ * Owns the WebSocket connection to the Windows Host and all message send/receive handling.
  */
 class ConnectionManager(context: Context) {
 
@@ -74,11 +75,18 @@ class ConnectionManager(context: Context) {
     private val _dialLevels = MutableStateFlow<Map<String, Int>>(emptyMap())
     val dialLevels: StateFlow<Map<String, Int>> = _dialLevels.asStateFlow()
 
+    /** buttonId -> live "active" state (Mute actually muted, Play/Pause actually playing, launch_app actually focused). */
+    private val _activeButtons = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val activeButtons: StateFlow<Map<String, Boolean>> = _activeButtons.asStateFlow()
+
     private val _connectedHostUrl = MutableStateFlow<String?>(null)
     val connectedHostUrl: StateFlow<String?> = _connectedHostUrl.asStateFlow()
 
     private val _appList = MutableStateFlow<List<DiscoveredApp>>(emptyList())
     val appList: StateFlow<List<DiscoveredApp>> = _appList.asStateFlow()
+
+    private val _runningApps = MutableStateFlow<List<com.crossdeck.client.model.RunningApp>>(emptyList())
+    val runningApps: StateFlow<List<com.crossdeck.client.model.RunningApp>> = _runningApps.asStateFlow()
 
     /** Pair(path, iconHashOrNull) — the most recent response to sendExtractIconRequest(). */
     private val _extractedIcon = MutableStateFlow<Pair<String, String?>?>(null)
@@ -178,7 +186,7 @@ class ConnectionManager(context: Context) {
         _connectionState.value = ConnectionState.Disconnected
     }
 
-    // ---- Reconnect backoff (Milestone 3b) ----
+    // ---- Reconnect backoff ----
     // Only kicks in after we've synced a profile at least once this run (_currentProfile != null)
     // — a bad PIN on first pairing should fall straight back to PairingScreen, not retry forever.
 
@@ -233,6 +241,7 @@ class ConnectionManager(context: Context) {
                 _connectionState.value = ConnectionState.Error
                 _lastError.value = t.message
                 _connectedHostUrl.value = null
+                _runningApps.value = emptyList()
                 if (loadSettings().autoReconnect) scheduleReconnect()
             }
 
@@ -240,6 +249,7 @@ class ConnectionManager(context: Context) {
                 if (ws !== webSocket) return
                 _connectionState.value = ConnectionState.Disconnected
                 _connectedHostUrl.value = null
+                _runningApps.value = emptyList()
                 if (loadSettings().autoReconnect) scheduleReconnect()
             }
         })
@@ -309,6 +319,37 @@ class ConnectionManager(context: Context) {
                     val newVal = obj["value"]?.jsonPrimitive?.content?.toIntOrNull()
                     if (btnId != null && newVal != null) {
                         _dialLevels.value = _dialLevels.value + (btnId to newVal)
+                    }
+                }
+                "button_state" -> {
+                    val btnId = obj["buttonId"]?.jsonPrimitive?.content
+                    if (btnId != null) {
+                        obj["active"]?.let {
+                            if (it !is kotlinx.serialization.json.JsonNull) _activeButtons.value = _activeButtons.value + (btnId to it.jsonPrimitive.boolean)
+                        }
+                        obj["level"]?.let {
+                            if (it !is kotlinx.serialization.json.JsonNull) _dialLevels.value = _dialLevels.value + (btnId to it.jsonPrimitive.int)
+                        }
+                    }
+                }
+                "button_states" -> {
+                    obj["states"]?.let { statesEl ->
+                        var active = _activeButtons.value
+                        var levels = _dialLevels.value
+                        for (stateEl in statesEl.jsonArray) {
+                            val btnId = stateEl.jsonObject["buttonId"]?.jsonPrimitive?.content ?: continue
+                            stateEl.jsonObject["active"]?.let { if (it !is kotlinx.serialization.json.JsonNull) active = active + (btnId to it.jsonPrimitive.boolean) }
+                            stateEl.jsonObject["level"]?.let { if (it !is kotlinx.serialization.json.JsonNull) levels = levels + (btnId to it.jsonPrimitive.int) }
+                        }
+                        _activeButtons.value = active
+                        _dialLevels.value = levels
+                    }
+                }
+                "running_apps" -> {
+                    obj["apps"]?.let {
+                        _runningApps.value = json.decodeFromJsonElement(
+                            kotlinx.serialization.builtins.ListSerializer(com.crossdeck.client.model.RunningApp.serializer()), it
+                        )
                     }
                 }
                 "app_list" -> {
@@ -395,6 +436,20 @@ class ConnectionManager(context: Context) {
     fun sendListAppsRequest() {
         val ws = webSocket ?: return
         ws.send(buildJsonObject { put("type", "list_apps") }.toString())
+    }
+
+    fun sendRunningAppsSubscribe(subscribe: Boolean) {
+        val ws = webSocket ?: return
+        ws.send(buildJsonObject { put("type", if (subscribe) "running_apps_subscribe" else "running_apps_unsubscribe") }.toString())
+        if (!subscribe) _runningApps.value = emptyList()
+    }
+
+    fun sendWindowFocus(hwnd: Long) {
+        webSocket?.send(buildJsonObject { put("type", "window_focus"); put("hwnd", hwnd) }.toString())
+    }
+
+    fun sendWindowClose(hwnd: Long) {
+        webSocket?.send(buildJsonObject { put("type", "window_close"); put("hwnd", hwnd) }.toString())
     }
 
     /** Asks the host to extract+save an icon for one specific exe path — called right after the

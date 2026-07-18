@@ -3,11 +3,24 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Configure Button" Height="500" Width="480"
         WindowStartupLocation="CenterOwner"
-        ResizeMode="NoResize"
-        WindowStyle="SingleBorderWindow"
-        FontFamily="Segoe UI" FontSize="12" UseLayoutRounding="True" SnapsToDevicePixels="True">
-    <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1">
-        <ScrollViewer Margin="16" VerticalScrollBarVisibility="Auto">
+        ResizeMode="NoResize" Background="Transparent"
+        WindowStyle="None"
+        FontFamily="Segoe UI Variable, Segoe UI" FontSize="12" UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="36" ResizeBorderThickness="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+    <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="12">
+        <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="36"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid Grid.Row="0" Margin="16,0,8,0">
+            <TextBlock Text="CONFIGURE BUTTON" Foreground="{StaticResource Brush.Paper}" FontWeight="Bold" FontSize="11" VerticalAlignment="Center"/>
+            <Button Style="{StaticResource CaptionButton}" Content="✕" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    WindowChrome.IsHitTestVisibleInChrome="True" Click="DialogClose_Click"/>
+        </Grid>
+        <ScrollViewer Grid.Row="1" Margin="16,4,16,16" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                     <!-- Label Field -->
                     <TextBlock Text="Label" FontWeight="SemiBold" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,4"/>
@@ -125,9 +138,33 @@
 
                             <!-- Multi-Action Panel -->
                             <StackPanel x:Name="MultiActionPanel" Visibility="Collapsed">
-                                <TextBlock Text="Action Chain Sequence — one step per line, e.g. &quot;Launch App: C:\...\chrome.exe&quot; or &quot;Delay (ms): 500&quot;"
+                                <TextBlock Text="Action Chain — build steps below, or type/edit lines directly"
                                            Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                                <!-- Step builder: pick a type, enter its value, Add appends a correctly formatted line -->
+                                <Grid Margin="0,0,0,6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="130"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="StepTypeCombo" Height="28" FontSize="11" Margin="0,0,6,0" SelectedIndex="0">
+                                        <ComboBoxItem Content="Keyboard Shortcut"/>
+                                        <ComboBoxItem Content="Media Control"/>
+                                        <ComboBoxItem Content="Launch App"/>
+                                        <ComboBoxItem Content="Open Website"/>
+                                        <ComboBoxItem Content="Run Command"/>
+                                        <ComboBoxItem Content="Text Snippet"/>
+                                    </ComboBox>
+                                    <TextBox x:Name="StepValueInput" Grid.Column="1" Height="28" Padding="6,4" Margin="0,0,6,0"
+                                             ToolTip="e.g. Ctrl,C — or PlayPause — or C:\...\app.exe"/>
+                                    <Button Grid.Column="2" Style="{StaticResource StandardButton}" Content="+ Step" Click="AddStep_Click" Margin="0,0,6,0"/>
+                                    <Button Grid.Column="3" Style="{StaticResource StandardButton}" Content="+ Delay" Click="AddDelay_Click" ToolTip="Adds a 500 ms pause — edit the number after adding"/>
+                                </Grid>
                                 <TextBox x:Name="MultiActionInput" Padding="6" Height="80" AcceptsReturn="True" TextWrapping="Wrap" Background="{StaticResource Brush.Void}"/>
+                                <Button x:Name="RecordMacroButton" Style="{StaticResource AccentButton}" Content="● Record Keystrokes" Click="RecordMacro_Click" Margin="0,6,0,0"/>
+                                <TextBlock x:Name="RecordMacroHint" Text="Recording… perform your keystrokes anywhere, then click Stop." Visibility="Collapsed"
+                                           Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
 
                             <!-- Dial Panel -->
@@ -141,6 +178,12 @@
                         </Grid>
                     </Border>
 
+                    <!-- Optional long-press action — same line format as the multi-action chain -->
+                    <TextBlock Text="Long-Press Action (optional)" FontWeight="SemiBold" Foreground="{StaticResource Brush.Paper}" Margin="0,12,0,4"/>
+                    <TextBlock Text="Fires when the button is held on the phone. Same format as the action chain, e.g. &quot;Media Control: VolumeMute&quot;"
+                               Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                    <TextBox x:Name="LongPressInput" Padding="6" Height="48" AcceptsReturn="True" TextWrapping="Wrap" Background="{StaticResource Brush.Void}" Margin="0,0,0,12"/>
+
                     <!-- Save / Delete Actions Grid -->
                     <Grid Margin="0,4,0,0">
                         <Grid.ColumnDefinitions>
@@ -152,5 +195,6 @@
                     </Grid>
                 </StackPanel>
             </ScrollViewer>
+        </Grid>
     </Border>
 </Window>

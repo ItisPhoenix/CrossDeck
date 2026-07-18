@@ -28,7 +28,10 @@ public class WebSocketServer
     private readonly PairingManager _pairing;
     private readonly ProfileStoreService _profileStore;
     private readonly ActionExecutor _actionExecutor;
+    private readonly LiveStateService _liveState;
     private readonly List<WebSocket> _activeSockets = new();
+    private readonly HashSet<WebSocket> _runningAppsSubs = new();
+    private readonly HashSet<WebSocket> _runningAppsLoops = new(); // sockets with a push loop alive, so re-subscribe can't spawn a second
     private readonly object _lock = new();
 
     private TcpListener? _listener;
@@ -51,12 +54,14 @@ public class WebSocketServer
         }
     }
 
-    public WebSocketServer(int port, PairingManager pairing, ProfileStoreService profileStore, ActionExecutor actionExecutor)
+    public WebSocketServer(int port, PairingManager pairing, ProfileStoreService profileStore, ActionExecutor actionExecutor, LiveStateService liveState)
     {
         _port = port;
         _pairing = pairing;
         _profileStore = profileStore;
         _actionExecutor = actionExecutor;
+        _liveState = liveState;
+        _liveState.StateChanged += (buttonId, active, level) => Task.Run(() => BroadcastButtonStateAsync(buttonId, active, level));
         LocalIpAddress = DetectLocalIpAddress();
 
         // Broadcast profile changes to all connected clients.
@@ -156,6 +161,12 @@ public class WebSocketServer
             await SendJsonAsync(webSocket, BuildProfileList(), ct);
             await SendJsonAsync(webSocket, BuildProfileSync(), ct);
 
+            // Full live-state snapshot so buttons show correct state immediately instead of
+            // waiting for the next change event (mute/media/focus/dial could be stale otherwise).
+            var states = _liveState.GetSnapshot()
+                .Select(s => new { buttonId = s.ButtonId, active = s.Active, level = s.Level });
+            await SendJsonAsync(webSocket, new { type = "button_states", states }, ct);
+
             // Application-level heartbeat: send a lightweight message every 25 s.
             // This keeps NAT/WiFi power-save from dropping the connection without
             // touching the WebSocket ping/pong protocol (which races with sends).
@@ -228,6 +239,31 @@ public class WebSocketServer
                         break;
                     case "list_apps":
                         await HandleListApps(webSocket, ct);
+                        break;
+                    case "running_apps_subscribe":
+                        bool startLoop;
+                        lock (_lock)
+                        {
+                            _runningAppsSubs.Add(webSocket);
+                            startLoop = _runningAppsLoops.Add(webSocket);
+                        }
+                        if (startLoop)
+                        {
+                            var pushLoop = Task.Run(() => RunningAppsPushLoopAsync(webSocket, ct), ct);
+                        }
+                        break;
+                    case "running_apps_unsubscribe":
+                        lock (_lock) { _runningAppsSubs.Remove(webSocket); }
+                        break;
+                    case "window_focus":
+                        if (msg.Value.TryGetProperty("hwnd", out var fEl) && fEl.TryGetInt64(out var fHwnd))
+                        {
+                            var focusTask = Task.Run(() => ActionExecutor.FocusWindow(new IntPtr(fHwnd)));
+                        }
+                        break;
+                    case "window_close":
+                        if (msg.Value.TryGetProperty("hwnd", out var clEl) && clEl.TryGetInt64(out var clHwnd))
+                            RunningApps.CloseWindow(clHwnd);
                         break;
                     case "extract_icon":
                         await HandleExtractIcon(webSocket, msg.Value, ct);
@@ -310,6 +346,7 @@ public class WebSocketServer
     private async Task HandleButtonPress(WebSocket webSocket, JsonElement msg, CancellationToken ct)
     {
         var buttonId = msg.TryGetProperty("buttonId", out var idEl) ? idEl.GetString() : null;
+        var pressType = msg.TryGetProperty("pressType", out var ptEl) ? ptEl.GetString() : "short";
         var button = _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
 
         if (button is null)
@@ -318,11 +355,13 @@ public class WebSocketServer
             return;
         }
 
+        var action = pressType == "long" && button.LongPressAction != null ? button.LongPressAction : button.Action;
+
         _ = Task.Run(async () =>
         {
             try
             {
-                var (success, error) = await _actionExecutor.ExecuteAsync(button.Action);
+                var (success, error) = await _actionExecutor.ExecuteAsync(action);
                 await SendJsonAsync(webSocket, success
                     ? new { type = "ack", buttonId, status = "ok" }
                     : new { type = "ack", buttonId, status = "error", message = error }, CancellationToken.None);
@@ -422,6 +461,65 @@ public class WebSocketServer
                 await SendJsonAsync(ws, payload, CancellationToken.None);
             }
             catch { }
+        }
+    }
+
+    /// <summary>
+    /// Delta push for live button state (Mute/Play-Pause/launch_app-focus glow, dial level) — see
+    /// LiveStateService. active/level are independent; whichever doesn't apply to this button type
+    /// is null and the client just ignores it.
+    /// </summary>
+    private async Task BroadcastButtonStateAsync(string buttonId, bool? active, int? level)
+    {
+        var payload = new { type = "button_state", buttonId, active, level };
+        List<WebSocket> targets;
+        lock (_lock)
+        {
+            _activeSockets.RemoveAll(ws => ws.State != WebSocketState.Open);
+            targets = new List<WebSocket>(_activeSockets);
+        }
+        foreach (var ws in targets)
+        {
+            try
+            {
+                await SendJsonAsync(ws, payload, CancellationToken.None);
+            }
+            catch { }
+        }
+    }
+
+    /// <summary>Pushes the live window list every 1s while this socket stays subscribed; skips sends when nothing changed.</summary>
+    private async Task RunningAppsPushLoopAsync(WebSocket webSocket, CancellationToken ct)
+    {
+        string lastKey = "";
+        try
+        {
+            while (webSocket.State == WebSocketState.Open && !ct.IsCancellationRequested)
+            {
+                bool subscribed;
+                lock (_lock) { subscribed = _runningAppsSubs.Contains(webSocket); }
+                if (!subscribed) return;
+
+                var windows = await Task.Run(() => RunningApps.GetWindows(), ct);
+                var key = string.Join("|", windows.Select(w => $"{w.Hwnd}:{w.Title}:{w.Icon}:{w.Focused}"));
+                if (key != lastKey)
+                {
+                    lastKey = key;
+                    var apps = windows.Select(w => new { hwnd = w.Hwnd, title = w.Title, processName = w.ProcessName, icon = w.Icon, focused = w.Focused });
+                    await SendJsonAsync(webSocket, new { type = "running_apps", apps }, ct);
+                }
+
+                await Task.Delay(1000, ct);
+            }
+        }
+        catch { }
+        finally
+        {
+            lock (_lock)
+            {
+                _runningAppsSubs.Remove(webSocket);
+                _runningAppsLoops.Remove(webSocket);
+            }
         }
     }
 

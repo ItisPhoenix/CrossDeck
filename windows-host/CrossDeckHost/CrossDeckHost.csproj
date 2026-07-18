@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- QR code generation for pairing screen (add when you get to it — Milestone 1 uses text PIN + manual IP entry) -->
+    <!-- QR code generation for the pairing screen -->
     <PackageReference Include="QRCoder" Version="1.6.0" />
   </ItemGroup>
 

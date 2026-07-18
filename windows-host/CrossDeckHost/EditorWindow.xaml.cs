@@ -27,11 +27,14 @@ public partial class EditorWindow : Window
     // True while a cross-fade is happening — blocks re-entrant RefreshGrid calls
     private bool _isFading;
 
-    public EditorWindow(ProfileStoreService profileStore, Server.WebSocketServer? server)
+    private readonly Server.PairingManager? _pairing;
+
+    public EditorWindow(ProfileStoreService profileStore, Server.WebSocketServer? server, Server.PairingManager? pairing = null)
     {
         InitializeComponent();
         _profileStore = profileStore;
         _server = server;
+        _pairing = pairing;
 
         // Listen for changes from phone or other sources to keep grid in sync
         _profileStore.ProfileChanged += OnProfileChangedOnThread;
@@ -1003,7 +1006,47 @@ public partial class EditorWindow : Window
         DeviceNameText.Text = isConnected ? (_server!.ConnectedDeviceName ?? "Android Client") : "Offline";
         ConnectionDetailsText.Text = isConnected ? $"IP: {_server!.LocalIpAddress}:{_server!.Port}" : "Waiting for client...";
         ConnectionDot.Fill = ThemeManager.Brush(isConnected ? "Brush.Go" : "Brush.Alarm");
+
+        // Inline pairing details replace the old separate PairingWindow — shown only while
+        // no phone is connected.
+        bool showPairing = !isConnected && _pairing != null && _server != null;
+        PairingPanel.Visibility = showPairing ? Visibility.Visible : Visibility.Collapsed;
+        if (showPairing)
+        {
+            PairingAddressText.Text = $"{_server!.LocalIpAddress}:{_server.Port}";
+            PairingPinText.Text = _pairing!.CurrentPin;
+            GeneratePairingQr(_server.LocalIpAddress, _server.Port, _pairing.CurrentPin);
+        }
     }
+
+    private string? _lastQrContent;
+
+    private void GeneratePairingQr(string ip, int port, string pin)
+    {
+        string content = $"{ip},{port},{pin}";
+        if (content == _lastQrContent) return;
+        try
+        {
+            using var qrGenerator = new QRCoder.QRCodeGenerator();
+            using var qrCodeData = qrGenerator.CreateQrCode(content, QRCoder.QRCodeGenerator.ECCLevel.Q);
+            using var qrCode = new QRCoder.PngByteQRCode(qrCodeData);
+            byte[] qrCodeBytes = qrCode.GetGraphic(20);
+            using var ms = new MemoryStream(qrCodeBytes);
+            var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+            bitmap.BeginInit();
+            bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmap.StreamSource = ms;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            QrImage.Source = bitmap;
+            _lastQrContent = content;
+        }
+        catch { }
+    }
+
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+
+    private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
     private System.Windows.Threading.DispatcherTimer? _toastTimer;
 
@@ -1036,7 +1079,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v0.1.0-beta | Personal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v0.1.0-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nPersonal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

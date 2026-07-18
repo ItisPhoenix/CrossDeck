@@ -18,6 +18,8 @@ public partial class IconPickerWindow : Window
         LoadIcons();
     }
 
+    private void DialogClose_Click(object sender, RoutedEventArgs e) => Close();
+
     private void LoadIcons()
     {
         var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Builtin");
