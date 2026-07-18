@@ -45,12 +45,19 @@ class ConnectionManager(context: Context) {
         .build()
 
     private val json = Json { ignoreUnknownKeys = true }
-    private var webSocket: WebSocket? = null
+    private var activeSocket: WebSocket? = null
     private val prefs = context.getSharedPreferences("crossdeck_pairing", Context.MODE_PRIVATE)
     private val settingsPrefs = context.getSharedPreferences("crossdeck_settings", Context.MODE_PRIVATE)
 
     private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+
+    // Socket can stay open even if the PC hung without closing it — watch for heartbeat silence.
+    private var lastMessageAtMs = System.currentTimeMillis()
+    private var staleWatchdogJob: kotlinx.coroutines.Job? = null
+    private val _isPcResponding = MutableStateFlow(true)
+    val isPcResponding: StateFlow<Boolean> = _isPcResponding.asStateFlow()
+    private val staleTimeoutMs = 45_000L
 
     private val _currentProfile = MutableStateFlow<Profile?>(null)
     val currentProfile: StateFlow<Profile?> = _currentProfile.asStateFlow()
@@ -123,7 +130,7 @@ class ConnectionManager(context: Context) {
             put("buttonId", buttonId)
             put("pressType", pressType)
         }
-        webSocket?.send(obj.toString())
+        activeSocket?.send(obj.toString())
     }
 
     fun sendProfileEditUpdate(profileId: String, button: com.crossdeck.client.model.ButtonModel) {
@@ -133,7 +140,7 @@ class ConnectionManager(context: Context) {
             put("op", "update_button")
             put("button", json.encodeToJsonElement(com.crossdeck.client.model.ButtonModel.serializer(), button))
         }
-        webSocket?.send(obj.toString())
+        activeSocket?.send(obj.toString())
     }
 
     fun sendProfileEditDelete(profileId: String, buttonId: String) {
@@ -143,7 +150,7 @@ class ConnectionManager(context: Context) {
             put("op", "delete_button")
             put("buttonId", buttonId)
         }
-        webSocket?.send(obj.toString())
+        activeSocket?.send(obj.toString())
     }
 
     fun sendProfileSwitch(profileId: String) {
@@ -151,7 +158,7 @@ class ConnectionManager(context: Context) {
             put("type", "profile_switch")
             put("profileId", profileId)
         }
-        webSocket?.send(obj.toString())
+        activeSocket?.send(obj.toString())
     }
 
     fun sendProfileCreate(name: String) {
@@ -159,7 +166,7 @@ class ConnectionManager(context: Context) {
             put("type", "profile_create")
             put("name", name)
         }
-        webSocket?.send(obj.toString())
+        activeSocket?.send(obj.toString())
     }
 
     fun sendProfileDelete(profileId: String) {
@@ -167,7 +174,7 @@ class ConnectionManager(context: Context) {
             put("type", "profile_delete")
             put("profileId", profileId)
         }
-        webSocket?.send(obj.toString())
+        activeSocket?.send(obj.toString())
     }
 
     fun sendProfileRename(profileId: String, name: String) {
@@ -176,13 +183,13 @@ class ConnectionManager(context: Context) {
             put("profileId", profileId)
             put("name", name)
         }
-        webSocket?.send(obj.toString())
+        activeSocket?.send(obj.toString())
     }
 
     fun disconnect() {
         cancelReconnect()
-        webSocket?.close(1000, "user disconnect")
-        webSocket = null
+        activeSocket?.close(1000, "user disconnect")
+        activeSocket = null
         _connectionState.value = ConnectionState.Disconnected
     }
 
@@ -192,6 +199,12 @@ class ConnectionManager(context: Context) {
 
     private var reconnectJob: kotlinx.coroutines.Job? = null
 
+    /** Pulses true once the 10s auto-reconnect window gives up without success — the UI uses
+     * this to jump straight to manual pairing instead of leaving a "Reconnecting…" spinner up
+     * forever waiting for the user to notice and tap the manual-connect button themselves. */
+    private val _reconnectGaveUp = MutableStateFlow(false)
+    val reconnectGaveUp: StateFlow<Boolean> = _reconnectGaveUp.asStateFlow()
+
     private fun scheduleReconnect() {
         if (reconnectJob?.isActive == true) return
         val ip = prefs.getString(KEY_IP, null) ?: return
@@ -199,16 +212,22 @@ class ConnectionManager(context: Context) {
         val token = prefs.getString(KEY_TOKEN, null) ?: return
         if (port <= 0) return
 
+        _reconnectGaveUp.value = false
         reconnectJob = CoroutineScope(Dispatchers.IO).launch {
+            val deadline = System.currentTimeMillis() + 10_000L
             var delayMs = 1000L
-            val maxDelayMs = 30_000L
-            while (true) {
+            val maxDelayMs = 3_000L
+            while (System.currentTimeMillis() < deadline) {
                 kotlinx.coroutines.delay(delayMs)
                 if (_connectionState.value == ConnectionState.Connected) break
                 openSocket(ip, port) { ws -> sendAuth(ws, token = token) }
                 kotlinx.coroutines.delay(2000) // give the attempt a moment to resolve
                 if (_connectionState.value == ConnectionState.Connected) break
                 delayMs = (delayMs * 2).coerceAtMost(maxDelayMs)
+            }
+            // Gives up after ~10s total instead of retrying forever.
+            if (_connectionState.value != ConnectionState.Connected) {
+                _reconnectGaveUp.value = true
             }
         }
     }
@@ -221,23 +240,29 @@ class ConnectionManager(context: Context) {
     private fun openSocket(ip: String, port: Int, onOpenSendAuth: (WebSocket) -> Unit) {
         // Abandon any still-pending previous attempt first — otherwise a slow-to-fail connect
         // (e.g. a firewalled/dead IP) can leave two live sockets racing to set connectionState.
-        webSocket?.cancel()
+        activeSocket?.cancel()
         _connectionState.value = ConnectionState.Connecting
         val request = Request.Builder().url("ws://$ip:$port/ws").build()
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(ws: WebSocket, response: Response) {
-                if (ws !== webSocket) return // stale callback from a superseded attempt
+        activeSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (webSocket !== activeSocket) return // stale callback from a superseded attempt
                 _connectedHostUrl.value = "http://$ip:${port + 1}/"
-                onOpenSendAuth(ws)
+                onOpenSendAuth(webSocket)
+                lastMessageAtMs = System.currentTimeMillis()
+                _isPcResponding.value = true
+                startStaleWatchdog()
             }
 
-            override fun onMessage(ws: WebSocket, text: String) {
-                if (ws !== webSocket) return
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (webSocket !== activeSocket) return
+                lastMessageAtMs = System.currentTimeMillis()
+                _isPcResponding.value = true
                 handleMessage(text)
             }
 
-            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                if (ws !== webSocket) return
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (webSocket !== activeSocket) return
+                staleWatchdogJob?.cancel()
                 _connectionState.value = ConnectionState.Error
                 _lastError.value = t.message
                 _connectedHostUrl.value = null
@@ -245,14 +270,27 @@ class ConnectionManager(context: Context) {
                 if (loadSettings().autoReconnect) scheduleReconnect()
             }
 
-            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
-                if (ws !== webSocket) return
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (webSocket !== activeSocket) return
+                staleWatchdogJob?.cancel()
                 _connectionState.value = ConnectionState.Disconnected
                 _connectedHostUrl.value = null
                 _runningApps.value = emptyList()
                 if (loadSettings().autoReconnect) scheduleReconnect()
             }
         })
+    }
+
+    /** Polls for heartbeat silence past staleTimeoutMs. */
+    private fun startStaleWatchdog() {
+        staleWatchdogJob?.cancel()
+        staleWatchdogJob = CoroutineScope(Dispatchers.IO).launch {
+            while (true) {
+                kotlinx.coroutines.delay(10_000)
+                val silentFor = System.currentTimeMillis() - lastMessageAtMs
+                _isPcResponding.value = silentFor < staleTimeoutMs
+            }
+        }
     }
 
     private fun sendAuth(ws: WebSocket, pin: String? = null, token: String? = null) {
@@ -419,7 +457,7 @@ class ConnectionManager(context: Context) {
     }
 
     fun sendDialAdjust(buttonId: String, value: Int?) {
-        val ws = webSocket ?: return
+        val ws = activeSocket ?: return
         val obj = buildJsonObject {
             put("type", "dial_adjust")
             put("buttonId", buttonId)
@@ -434,34 +472,34 @@ class ConnectionManager(context: Context) {
      * Windows Start Menu apps, unlike the PC editor's own AppDiscovery. Response arrives async via
      * the appList StateFlow. */
     fun sendListAppsRequest() {
-        val ws = webSocket ?: return
+        val ws = activeSocket ?: return
         ws.send(buildJsonObject { put("type", "list_apps") }.toString())
     }
 
     fun sendRunningAppsSubscribe(subscribe: Boolean) {
-        val ws = webSocket ?: return
+        val ws = activeSocket ?: return
         ws.send(buildJsonObject { put("type", if (subscribe) "running_apps_subscribe" else "running_apps_unsubscribe") }.toString())
         if (!subscribe) _runningApps.value = emptyList()
     }
 
     fun sendWindowFocus(hwnd: Long) {
-        webSocket?.send(buildJsonObject { put("type", "window_focus"); put("hwnd", hwnd) }.toString())
+        activeSocket?.send(buildJsonObject { put("type", "window_focus"); put("hwnd", hwnd) }.toString())
     }
 
     fun sendWindowClose(hwnd: Long) {
-        webSocket?.send(buildJsonObject { put("type", "window_close"); put("hwnd", hwnd) }.toString())
+        activeSocket?.send(buildJsonObject { put("type", "window_close"); put("hwnd", hwnd) }.toString())
     }
 
     /** Asks the host to extract+save an icon for one specific exe path — called right after the
      * user picks an app from the list_apps dropdown, mirroring the PC editor's auto-icon-on-select.
      * Response arrives async via the extractedIcon StateFlow. */
     fun sendExtractIconRequest(path: String) {
-        val ws = webSocket ?: return
+        val ws = activeSocket ?: return
         ws.send(buildJsonObject { put("type", "extract_icon"); put("path", path) }.toString())
     }
 
     fun sendStyleChange(colorHex: String) {
-        val ws = webSocket ?: return
+        val ws = activeSocket ?: return
         val obj = buildJsonObject {
             put("type", "style_change")
             put("accentColor", colorHex)

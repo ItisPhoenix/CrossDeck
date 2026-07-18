@@ -64,12 +64,22 @@ class MainActivity : ComponentActivity() {
                     val connectedHostUrl by connectionManager.connectedHostUrl.collectAsState()
                     val appList by connectionManager.appList.collectAsState()
                     val extractedIcon by connectionManager.extractedIcon.collectAsState()
+                    val isPcResponding by connectionManager.isPcResponding.collectAsState()
+                    val reconnectGaveUp by connectionManager.reconnectGaveUp.collectAsState()
 
                     // "Manual Connection" in the reconnect overlay forces PairingScreen even though
                     // we still have a last-known profile; reset once a fresh connection succeeds.
                     var showManualPairing by remember { mutableStateOf(false) }
                     LaunchedEffect(state) {
                         if (state == ConnectionState.Connected) showManualPairing = false
+                    }
+                    // Don't leave the "Reconnecting…" spinner up forever once the 10s auto-retry
+                    // window gives up — jump to manual pairing the same as tapping the button.
+                    LaunchedEffect(reconnectGaveUp) {
+                        if (reconnectGaveUp) {
+                            connectionManager.disconnect()
+                            showManualPairing = true
+                        }
                     }
 
                     var appSettings by remember { mutableStateOf(connectionManager.loadSettings()) }
@@ -88,6 +98,7 @@ class MainActivity : ComponentActivity() {
                                 toastMessage = toastMessage,
                                 dialLevels = dialLevels,
                                 activeButtons = activeButtons,
+                                isPcResponding = isPcResponding,
                                 accentColorHex = accentColorHex,
                                 onAccentColorChange = { color ->
                                     connectionManager.sendStyleChange(color)
@@ -137,9 +148,7 @@ class MainActivity : ComponentActivity() {
                                 onRunningAppsSubscribe = { connectionManager.sendRunningAppsSubscribe(it) },
                                 onWindowFocus = { connectionManager.sendWindowFocus(it) },
                                 onWindowClose = { connectionManager.sendWindowClose(it) },
-                                onButtonLongPress = { button ->
-                                    connectionManager.sendButtonPress(button.buttonId, "long")
-                                }
+                                onButtonPress = { button, pressType -> connectionManager.sendButtonPress(button.buttonId, pressType) }
                             )
                         }
                         profile != null && !showManualPairing -> {

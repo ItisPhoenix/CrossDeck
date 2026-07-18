@@ -5,7 +5,12 @@ using System.Threading;
 namespace CrossDeckHost;
 
 /// <summary>One installed app found via Start Menu shortcut enumeration.</summary>
-public record DiscoveredApp(string Name, string ExePath);
+public record DiscoveredApp(string Name, string ExePath)
+{
+    /// <summary>Populated on first use by the picker UI, not during discovery — extracting an
+    /// icon for every installed app upfront would stutter on a machine with 100+ apps.</summary>
+    public System.Windows.Media.ImageSource? Icon { get; set; }
+}
 
 /// <summary>
 /// Enumerates installed Windows apps from Start Menu shortcuts (all-users + per-user), feeding the
@@ -17,6 +22,37 @@ public record DiscoveredApp(string Name, string ExePath);
 /// </summary>
 public static class AppDiscovery
 {
+    private static readonly Dictionary<string, System.Windows.Media.ImageSource?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Extracts and caches a small icon for an app row. UWP apps (uwp: prefix) aren't
+    /// covered here — skipped, not worth the extra Shell API surface for a picker thumbnail.</summary>
+    public static System.Windows.Media.ImageSource? GetOrLoadIcon(string exePath)
+    {
+        if (_iconCache.TryGetValue(exePath, out var cached)) return cached;
+        if (exePath.StartsWith("uwp:", StringComparison.OrdinalIgnoreCase))
+        {
+            _iconCache[exePath] = null;
+            return null;
+        }
+
+        System.Windows.Media.ImageSource? result = null;
+        try
+        {
+            using var icon = System.Drawing.Icon.ExtractAssociatedIcon(exePath);
+            if (icon != null)
+            {
+                result = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
+                    icon.Handle, System.Windows.Int32Rect.Empty,
+                    System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+                result.Freeze();
+            }
+        }
+        catch { /* not every path resolves — row just shows no icon */ }
+
+        _iconCache[exePath] = result;
+        return result;
+    }
+
     // Start Menu clutter that isn't something you'd want to assign to a deck button.
     private static readonly string[] ExcludeNameSubstrings =
     {
@@ -103,7 +139,74 @@ public static class AppDiscovery
             }
         }
 
+        foreach (var uwpApp in DiscoverUwpApps())
+        {
+            results.TryAdd(uwpApp.ExePath, uwpApp);
+        }
+
         return results.Values.OrderBy(a => a.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// Enumerates Store/UWP apps registered for the current user via the Package Manager API.
+    /// These have no plain .exe to launch (Process.Start doesn't work on them) — represented
+    /// with a "uwp:" prefix on ExePath so ActionExecutor can launch them via shell:AppsFolder
+    /// instead. Framework/runtime packages (no visible entry point) are skipped.
+    /// </summary>
+    private static IEnumerable<DiscoveredApp> DiscoverUwpApps()
+    {
+        var results = new List<DiscoveredApp>();
+        try
+        {
+            var packageManager = new Windows.Management.Deployment.PackageManager();
+            var packages = packageManager.FindPackagesForUser(string.Empty);
+
+            foreach (var package in packages)
+            {
+                if (package.IsFramework || package.IsResourcePackage) continue;
+
+                string familyName;
+                string displayName;
+                try
+                {
+                    familyName = package.Id.FamilyName;
+                    displayName = package.DisplayName;
+                }
+                catch
+                {
+                    continue; // some system packages throw reading these properties
+                }
+
+                if (string.IsNullOrWhiteSpace(displayName) || string.IsNullOrWhiteSpace(familyName)) continue;
+
+                string? appId = null;
+                try
+                {
+                    if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 19041)) continue;
+                    var installedPath = package.InstalledPath;
+                    var manifestPath = System.IO.Path.Combine(installedPath, "AppxManifest.xml");
+                    if (System.IO.File.Exists(manifestPath))
+                    {
+                        var doc = System.Xml.Linq.XDocument.Load(manifestPath);
+                        var ns = doc.Root?.GetDefaultNamespace() ?? System.Xml.Linq.XNamespace.None;
+                        appId = doc.Descendants(ns + "Application").FirstOrDefault()?.Attribute("Id")?.Value;
+                    }
+                }
+                catch
+                {
+                    // Manifest read failures just mean we skip this package below.
+                }
+
+                if (string.IsNullOrWhiteSpace(appId)) continue;
+
+                results.Add(new DiscoveredApp(displayName, $"uwp:{familyName}!{appId}"));
+            }
+        }
+        catch
+        {
+            // PackageManager unsupported/unavailable on this Windows build — return what we have.
+        }
+        return results;
     }
 
     private static IEnumerable<string> GetStartMenuDirs()
@@ -142,7 +245,15 @@ public static class AppDiscovery
             var targetPath = shortcut.GetType().InvokeMember("TargetPath",
                 System.Reflection.BindingFlags.GetProperty, null, shortcut, null) as string;
 
-            return string.IsNullOrWhiteSpace(targetPath) ? null : targetPath;
+            if (string.IsNullOrWhiteSpace(targetPath)) return null;
+
+            if (Path.GetFileName(targetPath).Equals("Update.exe", StringComparison.OrdinalIgnoreCase))
+            {
+                var resolved = ResolveSquirrelRealExe(targetPath, shortcut);
+                if (resolved != null) return resolved;
+            }
+
+            return targetPath;
         }
         catch
         {
@@ -153,5 +264,40 @@ public static class AppDiscovery
             if (shortcut != null) Marshal.ReleaseComObject(shortcut);
             if (shell != null) Marshal.ReleaseComObject(shell);
         }
+    }
+
+    /// <summary>Squirrel apps (Discord, Slack, Claude Desktop, etc.) shortcut to Update.exe with
+    /// "--processStart AppName.exe" args, not the real exe — so icon extraction hits the generic
+    /// updater stub. The real exe lives under Update.exe's sibling "app-&lt;version&gt;" folder.</summary>
+    private static string? ResolveSquirrelRealExe(string updateExePath, object shortcut)
+    {
+        try
+        {
+            var arguments = shortcut.GetType().InvokeMember("Arguments",
+                System.Reflection.BindingFlags.GetProperty, null, shortcut, null) as string;
+            if (string.IsNullOrWhiteSpace(arguments)) return null;
+
+            var match = System.Text.RegularExpressions.Regex.Match(arguments, "--processStart\\s+\"?([^\"\\s]+\\.exe)\"?", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success) return null;
+            var realExeName = match.Groups[1].Value;
+
+            var installDir = Path.GetDirectoryName(updateExePath);
+            if (installDir == null) return null;
+
+            var appFolders = Directory.GetDirectories(installDir, "app-*")
+                .OrderByDescending(d => d, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var folder in appFolders)
+            {
+                var candidate = Path.Combine(folder, realExeName);
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
+        catch
+        {
+            // Any failure here just means we fall back to the Update.exe stub icon/path.
+        }
+        return null;
     }
 }

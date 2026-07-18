@@ -54,6 +54,7 @@ public partial class EditorWindow : Window
             ThemeManager.AccentColor = _profileStore.Set.AccentColor;
             ThemeManager.ApplyTheme(this);
             RefreshProfileSelector();
+            RefreshProfileTabStrip();
             RefreshGrid();
             UpdateConnectionStatusCard();
             SyncGridSizeCombo();
@@ -86,6 +87,7 @@ public partial class EditorWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             RefreshProfileSelector();
+            RefreshProfileTabStrip();
             RefreshGrid();
         }));
     }
@@ -95,6 +97,7 @@ public partial class EditorWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             RefreshProfileSelector();
+            RefreshProfileTabStrip();
             RefreshGrid();
         }));
     }
@@ -225,12 +228,55 @@ public partial class EditorWindow : Window
         }
     }
 
+    private void RefreshProfileTabStrip()
+    {
+        if (ProfileTabStrip == null) return;
+        ProfileTabStrip.Children.Clear();
+        var activeProfileId = _profileStore.Set.ActiveProfileId;
+
+        foreach (var profile in _profileStore.Set.Profiles)
+        {
+            var isSelected = profile.ProfileId == activeProfileId;
+            var tab = new Border
+            {
+                Background = ThemeManager.Brush(isSelected ? "Brush.Panel" : "Brush.Void"),
+                BorderBrush = isSelected ? ThemeManager.Brush("Brush.Accent") : ThemeManager.Brush("Brush.Hairline"),
+                BorderThickness = new Thickness(isSelected ? 1.5 : 1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 6, 12, 6),
+                Margin = new Thickness(0, 0, 6, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Child = new TextBlock
+                {
+                    Text = profile.Name,
+                    Foreground = ThemeManager.Brush(isSelected ? "Brush.Paper" : "Brush.Mist"),
+                    FontWeight = isSelected ? System.Windows.FontWeights.SemiBold : System.Windows.FontWeights.Normal,
+                    FontSize = 12.5
+                }
+            };
+            tab.MouseLeftButtonDown += (s, e) => SwitchToProfile(profile.ProfileId);
+
+            var ctx = new ContextMenu();
+            var exportItem = new MenuItem { Header = "📤 Export Profile…" };
+            exportItem.Click += (s, e) => ExportProfile(profile);
+            var importItem = new MenuItem { Header = "📥 Import Profile…" };
+            importItem.Click += (s, e) => ImportProfile();
+            ctx.Items.Add(exportItem);
+            ctx.Items.Add(new Separator());
+            ctx.Items.Add(importItem);
+            tab.ContextMenu = ctx;
+
+            ProfileTabStrip.Children.Add(tab);
+        }
+    }
+
     private void SwitchToProfile(string profileId)
     {
         _currentFolderId = null;
         _folderHistory.Clear();
         _profileStore.SwitchProfile(profileId);
         RefreshProfileSelector();
+        RefreshProfileTabStrip();
         RefreshGridWithFade();
         SyncGridSizeCombo();
     }
@@ -443,6 +489,8 @@ public partial class EditorWindow : Window
         ButtonGrid.Children.Clear();
 
         // --- Breadcrumb panel ---
+        BreadcrumbPanel.Visibility = _currentFolderId != null ? Visibility.Visible : Visibility.Collapsed;
+        ProfileTabScroller.Visibility = _currentFolderId != null ? Visibility.Collapsed : Visibility.Visible;
         BreadcrumbPanel.Children.Clear();
         if (_currentFolderId == null)
         {
@@ -527,23 +575,32 @@ public partial class EditorWindow : Window
 
                 if (hasButton && buttonModel != null)
                 {
-                    var iconPath = ProfileStoreService.ResolveIconFilePath(buttonModel.Icon);
                     bool iconLoaded = false;
-                    if (iconPath != null)
+
+                    if (buttonModel.Action.Type == "multi_action" && buttonModel.Action.Actions?.Count > 0)
                     {
-                        try
+                        stack.Children.Add(BuildMultiActionGlyphGrid(buttonModel.Action.Actions));
+                        iconLoaded = true;
+                    }
+                    else
+                    {
+                        var iconPath = ProfileStoreService.ResolveIconFilePath(buttonModel.Icon);
+                        if (iconPath != null)
                         {
-                            var img = new System.Windows.Controls.Image
+                            try
                             {
-                                Width = 52,
-                                Height = 52,
-                                Stretch = Stretch.Uniform,
-                                Source = new BitmapImage(new Uri(iconPath))
-                            };
-                            stack.Children.Add(img);
-                            iconLoaded = true;
+                                var img = new System.Windows.Controls.Image
+                                {
+                                    Width = 52,
+                                    Height = 52,
+                                    Stretch = Stretch.Uniform,
+                                    Source = new BitmapImage(new Uri(iconPath))
+                                };
+                                stack.Children.Add(img);
+                                iconLoaded = true;
+                            }
+                            catch { }
                         }
-                        catch { }
                     }
 
                     // Icon-dominant tiles: the icon alone reads as the button once loaded.
@@ -600,14 +657,51 @@ public partial class EditorWindow : Window
                         FontSize = 20,
                         FontWeight = System.Windows.FontWeights.Bold,
                         HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                        VerticalAlignment = System.Windows.VerticalAlignment.Center
+                        VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                        Margin = new Thickness(0, 2, 0, 0),
+                        LineHeight = 20,
+                        LineStackingStrategy = LineStackingStrategy.BlockLineHeight
                     };
                     canvas.Children.Add(tbPlus);
 
                     stack.Children.Add(canvas);
                 }
 
-                btn.Content = stack;
+                if (hasButton && buttonModel != null && buttonModel.LongPressAction != null)
+                {
+                    // Small badge showing the long-press action's OWN icon — so between the
+                    // button's main icon (tap) and this badge (hold), both configured actions are
+                    // visible at a glance instead of just "something happens on hold".
+                    var cellContent = new Grid();
+                    cellContent.Children.Add(stack);
+
+                    var badge = new Border
+                    {
+                        Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor)) { Opacity = 0.92 },
+                        CornerRadius = new CornerRadius(9),
+                        Width = 20,
+                        Height = 20,
+                        HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+                        VerticalAlignment = System.Windows.VerticalAlignment.Bottom,
+                        Margin = new Thickness(0, 0, 4, 4),
+                        Child = new TextBlock
+                        {
+                            Text = GetActionGlyph(buttonModel.LongPressAction),
+                            FontSize = 11,
+                            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                            VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                            Foreground = ThemeManager.Brush("Brush.Void")
+                        }
+                    };
+                    cellContent.Children.Add(badge);
+
+                    btn.Content = cellContent;
+                    btn.ToolTip = "Long-press: " + DescribeActionForTooltip(buttonModel.LongPressAction);
+                }
+                else
+                {
+                    btn.Content = stack;
+                }
 
                 // Setup Click to edit cell
                 btn.Click += (s, e) => SelectCell(row, col);
@@ -624,6 +718,70 @@ public partial class EditorWindow : Window
             }
         }
     }
+
+    /// <summary>Small glyph representing an action's type — used on the long-press corner badge
+    /// so both a button's actions (tap icon + this) are visible at a glance.</summary>
+    private static System.Windows.Controls.Primitives.UniformGrid BuildMultiActionGlyphGrid(List<ActionModel> actions)
+    {
+        var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2, Width = 44, Height = 44 };
+        int extra = Math.Max(0, actions.Count - 4);
+        var glyphs = extra > 0
+            ? actions.Take(3).Select(GetActionGlyph).Append($"+{extra}").ToList()
+            : actions.Select(GetActionGlyph).ToList();
+
+        foreach (var g in glyphs)
+        {
+            grid.Children.Add(new TextBlock
+            {
+                Text = g,
+                FontSize = 14,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                Foreground = ThemeManager.Brush("Brush.Paper")
+            });
+        }
+        return grid;
+    }
+
+    private static string GetActionGlyph(ActionModel action) => action.Type switch
+    {
+        "hotkey" => "⌨",
+        "launch_app" => "🚀",
+        "media_control" => action.MediaCommand switch
+        {
+            "PlayPause" => "⏯",
+            "NextTrack" => "⏭",
+            "PrevTrack" => "⏮",
+            "VolumeUp" => "🔊",
+            "VolumeDown" => "🔉",
+            "VolumeMute" => "🔇",
+            _ => "🎵"
+        },
+        "open_url" => "🌐",
+        "run_command" => "💻",
+        "text_snippet" => "📋",
+        "open_folder" => "📁",
+        "multi_action" => "🔗",
+        "dial" => "🎚",
+        "mouse_click" => "🖱",
+        _ => "•"
+    };
+
+    /// <summary>Short human-readable summary for a long-press action's tooltip.</summary>
+    private static string DescribeActionForTooltip(ActionModel action) => action.Type switch
+    {
+        "hotkey" => $"Keyboard Shortcut ({(action.Keys != null ? string.Join("+", action.Keys) : "")})",
+        "launch_app" => "Launch App",
+        "media_control" => $"Media Control ({action.MediaCommand})",
+        "open_url" => "Open Website",
+        "run_command" => "Run Command",
+        "text_snippet" => "Text Snippet",
+        "open_folder" => "Open Folder",
+        "multi_action" => $"Multiple Actions ({action.Actions?.Count ?? 0} steps)",
+        "dial" => $"Dial ({action.DialTarget})",
+        "mouse_click" => "Mouse Click",
+        _ => action.Type
+    };
 
     /// <summary>Creates a styled breadcrumb text segment, optionally clickable.</summary>
     private TextBlock MakeBreadcrumbSegment(string label, bool isLast, Action? onClick)
@@ -709,6 +867,7 @@ public partial class EditorWindow : Window
             _profileStore.NotifyChanged();
             RefreshGrid();
             RefreshProfileSelector();
+            RefreshProfileTabStrip();
         }
     }
 
@@ -757,6 +916,7 @@ public partial class EditorWindow : Window
         _profileStore.NotifyChanged();
         RefreshGrid();
         RefreshProfileSelector();
+        RefreshProfileTabStrip();
 
         _lastUndoSnapshot = null;
         UndoToastCard.Visibility = Visibility.Collapsed;
@@ -826,6 +986,7 @@ public partial class EditorWindow : Window
         _profileStore.NotifyChanged();
         RefreshGrid();
         RefreshProfileSelector();
+        RefreshProfileTabStrip();
         if (moved > 0)
             ShowToast($"Moved {moved} button{(moved == 1 ? "" : "s")} to fit the new grid.", isSuccess: true);
     }
@@ -980,6 +1141,7 @@ public partial class EditorWindow : Window
                     _profileStore.NotifyChanged();
                     RefreshGrid();
                     RefreshProfileSelector();
+                    RefreshProfileTabStrip();
                 }
             }
         }
@@ -1120,6 +1282,7 @@ public partial class EditorWindow : Window
                 // Refresh grid and sidebar to paint active accent color
                 RefreshGrid();
                 RefreshProfileSelector();
+                RefreshProfileTabStrip();
             }
         }
     }

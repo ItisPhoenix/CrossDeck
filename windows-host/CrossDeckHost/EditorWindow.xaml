@@ -35,7 +35,7 @@
                             <ScaleTransform/>
                         </TextBlock.LayoutTransform>
                     </TextBlock>
-                    <TextBlock Text="PROFILE EDITOR" Foreground="{StaticResource Brush.Mist}" FontSize="10.5"
+                    <TextBlock Text="PROFILE EDITOR" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}"
                                Margin="10,1,0,0" VerticalAlignment="Center"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center"
@@ -75,7 +75,7 @@
                                         <TextBlock x:Name="DeviceNameText" Text="Offline" Foreground="{StaticResource Brush.Paper}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
                                         <Ellipse x:Name="ConnectionDot" HorizontalAlignment="Right" Width="8" Height="8" Fill="{StaticResource Brush.Alarm}" Margin="0,3,0,0" VerticalAlignment="Top"/>
                                     </Grid>
-                                    <TextBlock x:Name="ConnectionDetailsText" Text="Waiting for client..." Foreground="{StaticResource Brush.Mist}" FontSize="10" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock x:Name="ConnectionDetailsText" Text="Waiting for client..." Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
                                 </StackPanel>
                             </Grid>
 
@@ -90,7 +90,7 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="ADDRESS" Foreground="{StaticResource Brush.Mist}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    <TextBlock Text="ADDRESS" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" FontWeight="Bold" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="PairingAddressText" Grid.Column="1" Foreground="{DynamicResource Brush.Accent}" FontSize="12"
                                                FontFamily="Cascadia Mono, Consolas" HorizontalAlignment="Right"/>
                                 </Grid>
@@ -99,20 +99,18 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Text="PIN" Foreground="{StaticResource Brush.Mist}" FontSize="9" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    <TextBlock Text="PIN" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" FontWeight="Bold" VerticalAlignment="Center"/>
                                     <TextBlock x:Name="PairingPinText" Grid.Column="1" Foreground="{StaticResource Brush.VoltViolet}" FontSize="16" FontWeight="Bold"
                                                FontFamily="Cascadia Mono, Consolas" HorizontalAlignment="Right"/>
                                 </Grid>
                                 <TextBlock Text="Scan the QR in the phone app, or enter the address + PIN. Same WiFi required."
-                                           Foreground="{StaticResource Brush.Mist}" FontSize="9.5" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                           Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
 
-                    <!-- 2. Scrollable Profiles List -->
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                        <StackPanel x:Name="ProfileListContainer"/>
-                    </ScrollViewer>
+                    <!-- Profile list moved to the top tab strip (see Nav & Info Header) -->
+                    <StackPanel Grid.Row="1" x:Name="ProfileListContainer" Visibility="Collapsed"/>
 
                     <!-- 3. Sidebar Footer -->
                     <StackPanel Grid.Row="2" Margin="0,12,0,0">
@@ -132,25 +130,25 @@
                             </ComboBox>
                         </Grid>
 
-                        <Button Style="{StaticResource AccentButton}" Content="+ New Profile Page" Click="NewProfileButton_Click" Margin="0,0,0,6"/>
+                        <Button Style="{StaticResource AccentButton}" Content="➕ New Profile Page" Click="NewProfileButton_Click" Margin="0,0,0,6"/>
 
                         <Grid Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <Button Style="{StaticResource StandardButton}" Content="Rename" Click="RenameProfileButton_Click" Margin="0,0,3,0"/>
-                            <Button Style="{StaticResource DangerButton}" Grid.Column="1" Content="Delete Page" Click="DeleteProfileButton_Click" Margin="3,0,0,0"/>
+                            <Button Style="{StaticResource StandardButton}" Content="✏️ Rename" Click="RenameProfileButton_Click" Margin="0,0,3,0"/>
+                            <Button Style="{StaticResource DangerButton}" Grid.Column="1" Content="🗑️ Delete Page" Click="DeleteProfileButton_Click" Margin="3,0,0,0"/>
                         </Grid>
 
-                        <Button Style="{StaticResource StandardButton}" Content="Add Preset profile..." Click="AddPresetProfileButton_Click" Margin="0,0,0,10"/>
+                        <Button Style="{StaticResource StandardButton}" Content="📦 Add Preset Profile..." Click="AddPresetProfileButton_Click" Margin="0,0,0,10"/>
 
                         <CheckBox x:Name="RunOnBootCheck" Content="Start CrossDeck on PC startup" FontSize="11" Margin="2,0,0,12" Checked="RunOnBootCheck_Changed" Unchecked="RunOnBootCheck_Changed"/>
 
                         <Border BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,4,0,0">
                             <Grid>
-                                <TextBlock Text="About" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" TextDecorations="Underline" HorizontalAlignment="Left"/>
-                                <TextBlock Text="v0.1.0-beta" Foreground="{StaticResource Brush.Mist}" FontSize="10.5" HorizontalAlignment="Right"/>
+                                <TextBlock Text="About" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" TextDecorations="Underline" HorizontalAlignment="Left"/>
+                                <TextBlock Text="v0.2.0-beta" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" HorizontalAlignment="Right"/>
                             </Grid>
                         </Border>
                     </StackPanel>
@@ -173,7 +171,12 @@
                             </Grid.ColumnDefinitions>
 
                             <Button x:Name="BackButton" Style="{StaticResource StandardButton}" Content="◀ Go Back" VerticalAlignment="Center" Click="BackButton_Click" Visibility="Collapsed" Margin="0,0,10,0"/>
-                            <StackPanel x:Name="BreadcrumbPanel" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center"/>
+                            <Grid Grid.Column="1">
+                                <StackPanel x:Name="BreadcrumbPanel" Orientation="Horizontal" VerticalAlignment="Center"/>
+                                <ScrollViewer x:Name="ProfileTabScroller" HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled">
+                                    <StackPanel x:Name="ProfileTabStrip" Orientation="Horizontal" VerticalAlignment="Center"/>
+                                </ScrollViewer>
+                            </Grid>
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                 <TextBlock Text="Grid:" Foreground="{StaticResource Brush.Mist}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -203,7 +206,7 @@
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                         <TextBlock Text="↩" Foreground="{StaticResource Brush.VoltViolet}" FontSize="14" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                         <TextBlock x:Name="UndoToastLabel" Text="Undo last edit" Foreground="{StaticResource Brush.Paper}" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                                        <Button x:Name="UndoBtn" Content="Undo" Click="UndoBtn_Click" Padding="8,3" FontSize="10.5" Background="{StaticResource Brush.VoltViolet}" Foreground="{StaticResource Brush.Paper}" FontWeight="SemiBold"/>
+                                        <Button x:Name="UndoBtn" Content="Undo" Click="UndoBtn_Click" Padding="8,3" FontSize="{StaticResource FontSize.Caption}" Background="{StaticResource Brush.VoltViolet}" Foreground="{StaticResource Brush.Paper}" FontWeight="SemiBold"/>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>

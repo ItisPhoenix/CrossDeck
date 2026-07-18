@@ -52,7 +52,6 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -61,42 +60,26 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             {
                 Text = DescribeStep(step.Action),
                 Foreground = ThemeManager.Brush("Brush.Paper"),
-                FontSize = 11,
+                FontSize = 12,
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(summary, 0);
             grid.Children.Add(summary);
 
-            var delayBox = new TextBox
-            {
-                Text = step.DelayAfterMs.ToString(),
-                FontSize = 11,
-                Height = 24,
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = "Delay after this step (ms)"
-            };
-            delayBox.LostFocus += (s, e) =>
-            {
-                if (int.TryParse(delayBox.Text, out var ms) && ms >= 0) Steps[index].DelayAfterMs = ms;
-                else delayBox.Text = Steps[index].DelayAfterMs.ToString();
-            };
-            Grid.SetColumn(delayBox, 1);
-            grid.Children.Add(delayBox);
-
-            var upBtn = new Button { Content = "↑", Width = 24, Height = 24, FontSize = 10, Margin = new Thickness(4, 0, 0, 0), IsEnabled = index > 0 };
+            var upBtn = new Button { Content = "↑", Width = 28, Height = 28, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index > 0, ToolTip = "Move up" };
             upBtn.Click += (s, e) => Steps.Move(index, index - 1);
-            Grid.SetColumn(upBtn, 2);
+            Grid.SetColumn(upBtn, 1);
             grid.Children.Add(upBtn);
 
-            var downBtn = new Button { Content = "↓", Width = 24, Height = 24, FontSize = 10, Margin = new Thickness(4, 0, 0, 0), IsEnabled = index < Steps.Count - 1 };
+            var downBtn = new Button { Content = "↓", Width = 28, Height = 28, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index < Steps.Count - 1, ToolTip = "Move down" };
             downBtn.Click += (s, e) => Steps.Move(index, index + 1);
-            Grid.SetColumn(downBtn, 3);
+            Grid.SetColumn(downBtn, 2);
             grid.Children.Add(downBtn);
 
-            var removeBtn = new Button { Content = "✕", Width = 24, Height = 24, FontSize = 10, Margin = new Thickness(4, 0, 0, 0) };
+            var removeBtn = new Button { Content = "✕", Width = 28, Height = 28, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Remove step", Style = (Style)FindResource("DangerButton") };
             removeBtn.Click += (s, e) => Steps.RemoveAt(index);
-            Grid.SetColumn(removeBtn, 4);
+            Grid.SetColumn(removeBtn, 3);
             grid.Children.Add(removeBtn);
 
             row.Child = grid;
@@ -144,7 +127,9 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             var recorded = _macroRecorder.Stop();
             foreach (var step in recorded) Steps.Add(step);
             _activeRecorder = null;
-            RecordMacroButton.Content = "● Record Keystrokes & Clicks";
+            RecordMacroIcon.Text = "●";
+            RecordMacroText.Text = "Record Keystrokes & Clicks";
+            RecordMacroButton.Style = (Style)FindResource("StandardButton");
             RecordMacroHint.Visibility = Visibility.Collapsed;
         }
         else
@@ -152,7 +137,9 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             if (_activeRecorder != null) return; // another panel is already recording
             _activeRecorder = this;
             _macroRecorder.Start();
-            RecordMacroButton.Content = "■ Stop Recording";
+            RecordMacroIcon.Text = "■";
+            RecordMacroText.Text = "Stop Recording";
+            RecordMacroButton.Style = (Style)FindResource("DangerButton");
             RecordMacroHint.Visibility = Visibility.Visible;
         }
     }

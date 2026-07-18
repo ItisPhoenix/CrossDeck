@@ -93,9 +93,11 @@ public class ActionExecutor
 
         // Media/volume keys are picked up by a low-level hook that some apps debounce — a down+up
         // pair batched into the same instant can get coalesced and silently dropped. A short real
-        // gap between them fixes the intermittent "media control doesn't work" reports.
+        // gap between them fixes the intermittent "media control doesn't work" reports. 15ms
+        // wasn't always enough for slower/higher-latency hooks (e.g. some Electron apps); 40ms
+        // gives real headroom while still being imperceptible as a button-press delay.
         if (vks.Any(VirtualKey.IsExtended))
-            Thread.Sleep(15);
+            Thread.Sleep(40);
 
         var sentUp = SendInput((uint)ups.Length, ups, Marshal.SizeOf(typeof(INPUT)));
         if (sentUp != ups.Length)
@@ -167,7 +169,23 @@ public class ActionExecutor
         if (string.IsNullOrWhiteSpace(path))
             return (false, "launch_app action has no path");
 
-        string exe = path.Trim();
+        string trimmed = path.Trim();
+
+        if (trimmed.StartsWith("uwp:", StringComparison.OrdinalIgnoreCase))
+        {
+            var appRef = trimmed.Substring(4);
+            try
+            {
+                Process.Start(new ProcessStartInfo("explorer.exe", $"shell:AppsFolder\\{appRef}") { UseShellExecute = true });
+                return (true, null);
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Failed to launch UWP app '{appRef}': {ex.Message}");
+            }
+        }
+
+        string exe = trimmed;
         string args = "";
 
         if (File.Exists(exe))
@@ -464,25 +482,33 @@ public class ActionExecutor
         try
         {
             var sessionManager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
+            var allSessions = sessionManager.GetSessions();
 
             // GetCurrentSession() can point at a stale session — e.g. a browser tab that just
             // entered Picture-in-Picture stops being "current" from Windows' point of view even
-            // though it's still playing. Prefer whichever session is actually reporting
-            // Playing/Paused right now; only fall back to "current" if none are.
-            var activeSession = sessionManager.GetSessions().FirstOrDefault(s =>
-            {
-                var status = s.GetPlaybackInfo()?.PlaybackStatus;
-                return status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-                    || status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused;
-            }) ?? sessionManager.GetCurrentSession();
+            // though it's still playing. Previously this picked exactly one "most likely"
+            // session and gave up on it alone — if THAT session's Try*Async rejected the command
+            // (e.g. a session mid-transition that doesn't support Next/Prev at that instant), the
+            // whole thing fell through to the flaky hardware-key fallback even though a second,
+            // perfectly valid session existed. Now every plausible candidate is tried, in order of
+            // likelihood, before giving up — Playing sessions first, then Paused, then whatever
+            // Windows currently calls "current".
+            var candidates = allSessions
+                .Where(s => s.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                .Concat(allSessions.Where(s => s.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused))
+                .ToList();
 
-            if (activeSession is not null)
+            var current = sessionManager.GetCurrentSession();
+            if (current is not null && !candidates.Contains(current))
+                candidates.Add(current);
+
+            foreach (var session in candidates)
             {
                 bool ok = command switch
                 {
-                    "PlayPause" => await activeSession.TryTogglePlayPauseAsync(),
-                    "NextTrack" => await activeSession.TrySkipNextAsync(),
-                    "PrevTrack" => await activeSession.TrySkipPreviousAsync(),
+                    "PlayPause" => await session.TryTogglePlayPauseAsync(),
+                    "NextTrack" => await session.TrySkipNextAsync(),
+                    "PrevTrack" => await session.TrySkipPreviousAsync(),
                     _ => false
                 };
                 if (ok)

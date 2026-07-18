@@ -46,4 +46,23 @@ public static class ThemeManager
         brush.Freeze();
         System.Windows.Application.Current.Resources["Brush.Accent"] = brush;
     }
+
+    /// <summary>
+    /// Looks up a chrome icon (Save, Delete, etc.) from the same bundled Lucide pack button
+    /// icons use (Assets/Builtin/{name}.png). Returns null if that icon isn't in the pack —
+    /// callers must fall back to their current text/emoji rather than break.
+    /// </summary>
+    public static System.Windows.Media.Imaging.BitmapImage? GetChromeIcon(string name)
+    {
+        var path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Builtin", $"{name}.png");
+        if (!System.IO.File.Exists(path)) return null;
+        try
+        {
+            return new System.Windows.Media.Imaging.BitmapImage(new Uri(path));
+        }
+        catch
+        {
+            return null;
+        }
+    }
 }

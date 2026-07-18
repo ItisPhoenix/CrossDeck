@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
     <!--
       Dark theme only for now; light-theme values are included as *Light so a future dark/light
@@ -55,5 +56,23 @@
     <CornerRadius x:Key="Radius.Control">8</CornerRadius>
     <CornerRadius x:Key="Radius.Container">14</CornerRadius>
     <CornerRadius x:Key="Radius.DeckButton">14</CornerRadius>
+
+    <!-- Typography scale — named sizes so new XAML references a step on the scale instead of a
+         raw number. Caption = de-emphasized hint/status text. Body = field values, input text.
+         Label = section headings inside a dialog ("Label", "Action Type"). Title = window/dialog
+         chrome titles. Heading = rare, large standalone headings. -->
+    <sys:Double x:Key="FontSize.Caption">11</sys:Double>
+    <sys:Double x:Key="FontSize.Body">13</sys:Double>
+    <sys:Double x:Key="FontSize.Label">14</sys:Double>
+    <sys:Double x:Key="FontSize.Title">16</sys:Double>
+    <sys:Double x:Key="FontSize.Heading">20</sys:Double>
+
+    <!-- Motion scale — durations in ms as plain doubles (WPF Storyboards take TimeSpan, not
+         these directly; construct TimeSpan.FromMilliseconds(token) in code-behind). Ease-out
+         (fast start, slow finish) for anything appearing/growing; ease-in-out for symmetric
+         transitions like page/tab switches. Values follow Fluent's small-vs-large-element
+         duration guidance: give bigger, farther-traveling elements more time. -->
+    <sys:Double x:Key="Motion.Duration.Small">150</sys:Double>
+    <sys:Double x:Key="Motion.Duration.Large">250</sys:Double>
 
 </ResourceDictionary>

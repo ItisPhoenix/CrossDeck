@@ -5,11 +5,11 @@
         <StackPanel x:Name="StepsPanel"/>
         <Grid Margin="0,6,0,0">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="130"/>
+                <ColumnDefinition Width="150"/>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <ComboBox x:Name="StepTypeCombo" Height="28" FontSize="11" Margin="0,0,6,0" SelectedIndex="0">
+            <ComboBox x:Name="StepTypeCombo" Height="32" FontSize="12" Margin="0,0,8,0" SelectedIndex="0">
                 <ComboBoxItem Content="Keyboard Shortcut" Tag="hotkey"/>
                 <ComboBoxItem Content="Media Control" Tag="media_control"/>
                 <ComboBoxItem Content="Launch App" Tag="launch_app"/>
@@ -17,12 +17,22 @@
                 <ComboBoxItem Content="Run Command" Tag="run_command"/>
                 <ComboBoxItem Content="Text Snippet" Tag="text_snippet"/>
             </ComboBox>
-            <TextBox x:Name="StepValueInput" Grid.Column="1" Height="28" Padding="6,4" Margin="0,0,6,0"
+            <TextBox x:Name="StepValueInput" Grid.Column="1" Height="32" Padding="8,6" FontSize="12" Margin="0,0,8,0"
                      ToolTip="e.g. Ctrl,C — or PlayPause — or C:\...\app.exe"/>
-            <Button Grid.Column="2" Style="{StaticResource StandardButton}" Content="+ Add Step" Click="AddStep_Click"/>
+            <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="10,6" Click="AddStep_Click">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="12" Margin="0,0,6,0"/>
+                    <TextBlock Text="Add Step" FontSize="12"/>
+                </StackPanel>
+            </Button>
         </Grid>
-        <Button x:Name="RecordMacroButton" Style="{StaticResource AccentButton}" Content="● Record Keystrokes &amp; Clicks" Click="RecordMacro_Click" Margin="0,6,0,0"/>
+        <Button x:Name="RecordMacroButton" Style="{StaticResource StandardButton}" Click="RecordMacro_Click" Margin="0,10,0,0" HorizontalAlignment="Left" Padding="12,7">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock x:Name="RecordMacroIcon" Text="●" FontSize="12" Margin="0,0,8,0" Foreground="{StaticResource Brush.Alarm}"/>
+                <TextBlock x:Name="RecordMacroText" Text="Record Keystrokes &amp; Clicks" FontSize="12"/>
+            </StackPanel>
+        </Button>
         <TextBlock x:Name="RecordMacroHint" Text="Recording… perform keystrokes or clicks anywhere, then click Stop." Visibility="Collapsed"
-                   Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                   Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"/>
     </StackPanel>
 </UserControl>
