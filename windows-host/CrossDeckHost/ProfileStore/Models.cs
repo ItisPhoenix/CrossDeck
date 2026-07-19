@@ -124,4 +124,8 @@ public class ActionModel
 
     [JsonPropertyName("mouseButton")]
     public string? MouseButton { get; set; }
+
+    /// <summary>Optional override icon for a long-press action or a multi-action step.</summary>
+    [JsonPropertyName("icon")]
+    public string? Icon { get; set; }
 }

@@ -128,6 +128,28 @@ public class LiveStateService
                 {
                     using var proc = Process.GetProcessById((int)pid);
                     foregroundProcessName = proc.ProcessName;
+
+                    // UWP apps run inside a shared ApplicationFrameHost.exe container window.
+                    if (string.Equals(foregroundProcessName, "ApplicationFrameHost", StringComparison.OrdinalIgnoreCase))
+                    {
+                        uint realPid = 0;
+                        EnumChildWindows(hwnd, (childHwnd, _) =>
+                        {
+                            GetWindowThreadProcessId(childHwnd, out uint childPid);
+                            if (childPid != 0 && childPid != pid)
+                            {
+                                realPid = childPid;
+                                return false; // found it, stop enumerating
+                            }
+                            return true;
+                        }, IntPtr.Zero);
+
+                        if (realPid != 0)
+                        {
+                            using var realProc = Process.GetProcessById((int)realPid);
+                            foregroundProcessName = realProc.ProcessName;
+                        }
+                    }
                 }
             }
         }
@@ -211,4 +233,9 @@ public class LiveStateService
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);
 }

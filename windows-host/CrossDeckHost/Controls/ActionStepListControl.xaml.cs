@@ -1,8 +1,12 @@
 using System;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Button = System.Windows.Controls.Button;
 using TextBox = System.Windows.Controls.TextBox;
 using CrossDeckHost.Actions;
@@ -51,10 +55,28 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             };
 
             var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var iconBtn = new Button
+            {
+                Width = 28,
+                Height = 28,
+                Padding = new Thickness(2),
+                Background = ThemeManager.Brush("Brush.Void"),
+                ToolTip = "Set an icon for this step"
+            };
+            SetStepIconContent(iconBtn, step.Action.Icon);
+            iconBtn.Click += (s, e) => ShowIconPopup(iconBtn, name =>
+            {
+                step.Action.Icon = "builtin:" + name;
+                SetStepIconContent(iconBtn, step.Action.Icon);
+            });
+            Grid.SetColumn(iconBtn, 0);
+            grid.Children.Add(iconBtn);
 
             var summary = new TextBlock
             {
@@ -62,24 +84,37 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
                 Foreground = ThemeManager.Brush("Brush.Paper"),
                 FontSize = 12,
                 TextWrapping = TextWrapping.Wrap,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0)
             };
-            Grid.SetColumn(summary, 0);
+            Grid.SetColumn(summary, 1);
             grid.Children.Add(summary);
 
-            var upBtn = new Button { Content = "↑", Width = 28, Height = 28, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index > 0, ToolTip = "Move up" };
+            var upBtn = new Button { Content = "↑", Width = 28, Height = 28, Padding = new Thickness(0), FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index > 0, ToolTip = "Move up" };
             upBtn.Click += (s, e) => Steps.Move(index, index - 1);
-            Grid.SetColumn(upBtn, 1);
+            Grid.SetColumn(upBtn, 2);
             grid.Children.Add(upBtn);
 
-            var downBtn = new Button { Content = "↓", Width = 28, Height = 28, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index < Steps.Count - 1, ToolTip = "Move down" };
+            var downBtn = new Button { Content = "↓", Width = 28, Height = 28, Padding = new Thickness(0), FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index < Steps.Count - 1, ToolTip = "Move down" };
             downBtn.Click += (s, e) => Steps.Move(index, index + 1);
-            Grid.SetColumn(downBtn, 2);
+            Grid.SetColumn(downBtn, 3);
             grid.Children.Add(downBtn);
 
-            var removeBtn = new Button { Content = "✕", Width = 28, Height = 28, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), ToolTip = "Remove step", Style = (Style)FindResource("DangerButton") };
+            // A raw "✕" (U+2715) string mis-rendered as a stray chevron on some font fallback
+            // paths — Segoe MDL2 Assets' own glyph (matching Save/Delete/Add Step elsewhere in
+            // this app) renders reliably since it's a bundled system icon font, not a symbol lookup.
+            var removeBtn = new Button
+            {
+                Content = new TextBlock { Text = "", FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"), FontSize = 12 },
+                Width = 28,
+                Height = 28,
+                Padding = new Thickness(0),
+                Margin = new Thickness(6, 0, 0, 0),
+                ToolTip = "Remove step",
+                Style = (Style)FindResource("DangerButton")
+            };
             removeBtn.Click += (s, e) => Steps.RemoveAt(index);
-            Grid.SetColumn(removeBtn, 3);
+            Grid.SetColumn(removeBtn, 4);
             grid.Children.Add(removeBtn);
 
             row.Child = grid;
@@ -99,11 +134,24 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
         _ => act.Type
     };
 
+    private void StepTypeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (StepMediaCommandCombo == null) return; // UI not fully initialized
+        var type = (StepTypeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+        bool isMedia = type == "media_control";
+        StepMediaCommandCombo.Visibility = isMedia ? Visibility.Visible : Visibility.Collapsed;
+        StepValueInput.Visibility = isMedia ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     private void AddStep_Click(object sender, RoutedEventArgs e)
     {
         var type = (StepTypeCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString();
-        var value = StepValueInput.Text.Trim();
-        if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(value)) return;
+        if (string.IsNullOrEmpty(type)) return;
+
+        var value = type == "media_control"
+            ? (StepMediaCommandCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "PlayPause"
+            : StepValueInput.Text.Trim();
+        if (string.IsNullOrEmpty(value)) return;
 
         var action = type switch
         {
@@ -142,5 +190,64 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             RecordMacroButton.Style = (Style)FindResource("DangerButton");
             RecordMacroHint.Visibility = Visibility.Visible;
         }
+    }
+
+    private static void SetStepIconContent(Button btn, string? icon)
+    {
+        if (!string.IsNullOrEmpty(icon) && icon.StartsWith("builtin:"))
+        {
+            var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Builtin", icon.Substring(8) + ".png");
+            if (File.Exists(path))
+            {
+                btn.Content = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Source = new BitmapImage(new Uri(path)) };
+                return;
+            }
+        }
+        btn.Content = new TextBlock { Text = "+", FontSize = 14, Foreground = ThemeManager.Brush("Brush.Mist"), HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
+    }
+
+    // A small popup anchored to the step's icon button — lighter weight than a full dialog for
+    // picking one of the bundled built-in icons for just that step.
+    private void ShowIconPopup(Button anchor, Action<string> onSelect)
+    {
+        var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Builtin");
+        if (!Directory.Exists(dir)) return;
+
+        var popup = new Popup { PlacementTarget = anchor, Placement = PlacementMode.Bottom, StaysOpen = false };
+        var border = new Border
+        {
+            Background = ThemeManager.Brush("Brush.Panel"),
+            BorderBrush = ThemeManager.Brush("Brush.Hairline"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(8)
+        };
+        var scroller = new ScrollViewer { Height = 160, Width = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var wrap = new WrapPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+
+        foreach (var file in Directory.GetFiles(dir, "*.png").OrderBy(f => f))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            var img = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Source = new BitmapImage(new Uri(file)) };
+            var swatch = new Button
+            {
+                Width = 32,
+                Height = 32,
+                Padding = new Thickness(3),
+                Margin = new Thickness(2),
+                Content = img,
+                Background = ThemeManager.Brush("Brush.Void"),
+                BorderBrush = ThemeManager.Brush("Brush.Hairline"),
+                BorderThickness = new Thickness(1),
+                ToolTip = name
+            };
+            swatch.Click += (s, e) => { onSelect(name); popup.IsOpen = false; };
+            wrap.Children.Add(swatch);
+        }
+
+        scroller.Content = wrap;
+        border.Child = scroller;
+        popup.Child = border;
+        popup.IsOpen = true;
     }
 }

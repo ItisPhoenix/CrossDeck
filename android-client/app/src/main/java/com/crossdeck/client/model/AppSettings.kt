@@ -7,5 +7,6 @@ data class AppSettings(
     val keepScreenAwake: Boolean = false,
     val iconOnlyMode: Boolean = false,
     val autoReconnect: Boolean = true,
-    val confirmRunCommand: Boolean = false
+    val confirmRunCommand: Boolean = false,
+    val hasSeenEmptyCellHint: Boolean = false
 )

@@ -45,7 +45,9 @@
         <Setter Property="Foreground" Value="{StaticResource Brush.Paper}"/>
         <Setter Property="BorderBrush" Value="{StaticResource Brush.Hairline}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="8,6"/>
+        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="MinHeight" Value="36"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="CaretBrush" Value="{DynamicResource Brush.Accent}"/>
         <Setter Property="Template">
             <Setter.Value>
@@ -55,7 +57,10 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="8,6"/>
+                        <!-- Was a hardcoded Margin="8,6" that silently ignored whatever Padding an
+                             instance actually set — every plain TextBox in the app rendered at a
+                             fixed inset regardless of its own Padding value. Now it's live. -->
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsFocused" Value="True">
@@ -96,7 +101,8 @@
         <Setter Property="Foreground" Value="{StaticResource Brush.Paper}"/>
         <Setter Property="BorderBrush" Value="{StaticResource Brush.Hairline}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="Padding" Value="10,6"/>
+        <Setter Property="MinHeight" Value="36"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ComboBox">
@@ -288,6 +294,15 @@
         <Setter Property="BorderBrush" Value="{DynamicResource Brush.Accent}"/>
         <Setter Property="Foreground" Value="{StaticResource Brush.Void}"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
+        <Style.Triggers>
+            <!-- The base Button template's own disabled look doesn't show through a custom
+                 Background/Foreground override, so a disabled AccentButton looked identical to
+                 an enabled one — nothing told the user why Save wasn't doing anything. -->
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+                <Setter Property="Cursor" Value="Arrow"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource StandardButton}">
@@ -301,7 +316,7 @@
         <Setter Property="Background" Value="{StaticResource Brush.Panel}"/>
         <Setter Property="Foreground" Value="{StaticResource Brush.Paper}"/>
         <Setter Property="BorderBrush" Value="{StaticResource Brush.Hairline}"/>
-        <Setter Property="BorderThickness" Value="1.5"/>
+        <Setter Property="BorderThickness" Value="1.2"/>
         <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Template">

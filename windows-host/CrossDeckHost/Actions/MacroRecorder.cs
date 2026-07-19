@@ -95,9 +95,17 @@ public class MacroRecorder : IDisposable
 
             if (msg == WM_LBUTTONDOWN || msg == WM_RBUTTONDOWN)
             {
-                _pendingButton = msg == WM_LBUTTONDOWN ? "left" : "right";
-                _pendingPos = hookStruct.pt;
-                _sinceMouseDown.Restart();
+                // Skip clicks on our own window (e.g. clicking Stop Recording itself).
+                if (IsOwnWindow(hookStruct.pt))
+                {
+                    _pendingButton = null;
+                }
+                else
+                {
+                    _pendingButton = msg == WM_LBUTTONDOWN ? "left" : "right";
+                    _pendingPos = hookStruct.pt;
+                    _sinceMouseDown.Restart();
+                }
             }
             else if ((msg == WM_LBUTTONUP && _pendingButton == "left") ||
                      (msg == WM_RBUTTONUP && _pendingButton == "right"))
@@ -127,6 +135,22 @@ public class MacroRecorder : IDisposable
 
     private static bool IsModifier(int vk) =>
         vk is 0x10 or 0x11 or 0x12 or 0xA0 or 0xA1 or 0xA2 or 0xA3 or 0xA4 or 0xA5 or 0x5B or 0x5C;
+
+    private static readonly int OwnProcessId = Environment.ProcessId;
+
+    private static bool IsOwnWindow(POINT pt)
+    {
+        var hwnd = WindowFromPoint(pt);
+        if (hwnd == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(hwnd, out uint pid);
+        return pid == OwnProcessId;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(POINT point);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     private const int WH_KEYBOARD_LL = 13;
     private const int WH_MOUSE_LL = 14;

@@ -492,7 +492,9 @@ public class ActionExecutor
             // whole thing fell through to the flaky hardware-key fallback even though a second,
             // perfectly valid session existed. Now every plausible candidate is tried, in order of
             // likelihood, before giving up — Playing sessions first, then Paused, then whatever
-            // Windows currently calls "current".
+            // Windows currently calls "current", then every other session (Stopped/Changing/etc.)
+            // as a last resort — a session in an odd transient state can still legitimately
+            // accept a command right now even though its last-known status wasn't Playing/Paused.
             var candidates = allSessions
                 .Where(s => s.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
                 .Concat(allSessions.Where(s => s.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused))
@@ -502,17 +504,29 @@ public class ActionExecutor
             if (current is not null && !candidates.Contains(current))
                 candidates.Add(current);
 
+            foreach (var s in allSessions)
+                if (!candidates.Contains(s))
+                    candidates.Add(s);
+
             foreach (var session in candidates)
             {
-                bool ok = command switch
+                // A bad session throwing shouldn't sink the rest of the candidates.
+                try
                 {
-                    "PlayPause" => await session.TryTogglePlayPauseAsync(),
-                    "NextTrack" => await session.TrySkipNextAsync(),
-                    "PrevTrack" => await session.TrySkipPreviousAsync(),
-                    _ => false
-                };
-                if (ok)
-                    return (true, null);
+                    bool ok = command switch
+                    {
+                        "PlayPause" => await session.TryTogglePlayPauseAsync(),
+                        "NextTrack" => await session.TrySkipNextAsync(),
+                        "PrevTrack" => await session.TrySkipPreviousAsync(),
+                        _ => false
+                    };
+                    if (ok)
+                        return (true, null);
+                }
+                catch
+                {
+                    // Try the next candidate.
+                }
             }
         }
         catch

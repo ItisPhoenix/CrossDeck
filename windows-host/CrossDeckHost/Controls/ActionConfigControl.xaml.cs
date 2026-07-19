@@ -1,8 +1,10 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using Button = System.Windows.Controls.Button;
@@ -34,6 +36,9 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     /// <summary>Raised whenever the Action Type dropdown selection changes, with the new type's tag.</summary>
     public event Action<string>? ActionTypeChanged;
 
+    /// <summary>Raised whenever the action's type or parameters change — lets the label autofill live.</summary>
+    public event Action? ActionChanged;
+
     /// <summary>Only the primary action instance should overwrite the button's shared icon and persist fetched icons to disk.</summary>
     public bool ExtractIconOnSelect { get; set; }
 
@@ -46,6 +51,17 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         set => DialTypeItem.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>Only the long-press instance offers its own icon — the main action's icon lives on the button itself.</summary>
+    public bool ShowIconPicker
+    {
+        get => IconSection.Visibility == Visibility.Visible;
+        set
+        {
+            IconSection.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            if (value) LoadActionBuiltinIcons();
+        }
+    }
+
     public System.Collections.Generic.List<DiscoveredApp> AppList
     {
         get => _allApps;
@@ -56,6 +72,11 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     {
         InitializeComponent();
         Loaded += (s, e) => HookPathFilterTextBox();
+        // Add Step, Remove, reorder, and the macro recorder all mutate this collection directly —
+        // none of them go through a field-level TextChanged/SelectionChanged handler, so without
+        // this, Save's enabled state and its hint text go stale the moment a chain's step count
+        // changes (confirmed: hint kept saying "add at least one step" with 3 steps already listed).
+        MultiActionStepList.Steps.CollectionChanged += (s, e) => ActionChanged?.Invoke();
     }
 
     public void ShowEnterFolderShortcut() => EnterFolderButton.Visibility = Visibility.Visible;
@@ -82,6 +103,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
 
         SetActionTypeSelection(action.Type);
 
+        ActionIconText.Text = action.Icon ?? "";
         HotkeyInput.Text = action.Keys != null ? string.Join(",", action.Keys) : "";
 
         if (action.Type == "launch_app")
@@ -127,7 +149,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         var activeItem = ActionTypeCombo.SelectedItem as ComboBoxItem;
         var actionType = activeItem?.Tag?.ToString() ?? "hotkey";
 
-        var action = new ActionModel { Type = actionType };
+        var action = new ActionModel { Type = actionType, Icon = string.IsNullOrEmpty(ActionIconText.Text) ? null : ActionIconText.Text };
         switch (actionType)
         {
             case "hotkey":
@@ -164,6 +186,60 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                 break;
         }
         return action;
+    }
+
+    private void ParamField_Changed(object sender, TextChangedEventArgs e) => ActionChanged?.Invoke();
+
+    private void ParamField_SelectionChanged(object sender, SelectionChangedEventArgs e) => ActionChanged?.Invoke();
+
+    private void BrowseActionIcon_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Image Files (*.png;*.jpg;*.jpeg;*.ico)|*.png;*.jpg;*.jpeg;*.ico" };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            ActionIconText.Text = ProfileStoreService.SaveIconFromBytes(File.ReadAllBytes(dlg.FileName));
+            ActionChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show($"Couldn't load that image: {ex.Message}", "Icon Upload Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void ToggleActionBuiltinIcons_Click(object sender, RoutedEventArgs e) =>
+        ActionBuiltinIconsDrawer.Visibility = ActionBuiltinIconsDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+
+    private void LoadActionBuiltinIcons()
+    {
+        if (ActionIconWrapPanel.Children.Count > 0) return;
+        var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Builtin");
+        if (!Directory.Exists(dir)) return;
+
+        foreach (var file in Directory.GetFiles(dir, "*.png").OrderBy(f => f))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            var img = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Source = new BitmapImage(new Uri(file)) };
+            var btn = new Button
+            {
+                Width = 40,
+                Height = 40,
+                Padding = new Thickness(4),
+                Margin = new Thickness(3),
+                Content = img,
+                Background = ThemeManager.Brush("Brush.Void"),
+                BorderBrush = ThemeManager.Brush("Brush.Hairline"),
+                BorderThickness = new Thickness(1),
+                ToolTip = name
+            };
+            btn.Click += (s, e) =>
+            {
+                ActionIconText.Text = "builtin:" + name;
+                ActionBuiltinIconsDrawer.Visibility = Visibility.Collapsed;
+                ActionChanged?.Invoke();
+            };
+            ActionIconWrapPanel.Children.Add(btn);
+        }
     }
 
     private void SetActionTypeSelection(string type)
@@ -204,6 +280,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             }
             ActionTypeChanged?.Invoke(selectedItem.Tag?.ToString() ?? "");
         }
+        ActionChanged?.Invoke();
     }
 
     /// <summary>
@@ -230,6 +307,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                 tb.Text = query;
                 tb.CaretIndex = query.Length;
                 _suppressFilter = false;
+                ActionChanged?.Invoke();
             };
         }
     }
@@ -241,6 +319,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             PathComboInput.Text = app.ExePath;
             TryAutoExtractAppIcon(app.ExePath);
         }
+        ActionChanged?.Invoke();
     }
 
     private void AppRow_Loaded(object sender, RoutedEventArgs e)
@@ -268,11 +347,13 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         {
             PathComboInput.Text = dlg.FileName;
             TryAutoExtractAppIcon(dlg.FileName);
+            ActionChanged?.Invoke();
         }
     }
 
     private void UrlInput_TextChanged(object sender, TextChangedEventArgs e)
     {
+        ActionChanged?.Invoke();
         _faviconCts?.Cancel();
         _faviconCts = new CancellationTokenSource();
         var token = _faviconCts.Token;

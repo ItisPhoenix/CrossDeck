@@ -567,7 +567,7 @@ public partial class EditorWindow : Window
                     Margin = new Thickness(6),
                     Background = ThemeManager.Brush(hasButton ? "Brush.Panel" : "Brush.Void"),
                     BorderBrush = ThemeManager.Brush("Brush.Hairline"),
-                    BorderThickness = new Thickness(hasButton ? 1.5 : 1),
+                    BorderThickness = new Thickness(hasButton ? 1.2 : 1),
                     Tag = Tuple.Create(r, c)
                 };
 
@@ -579,7 +579,9 @@ public partial class EditorWindow : Window
 
                     if (buttonModel.Action.Type == "multi_action" && buttonModel.Action.Actions?.Count > 0)
                     {
-                        stack.Children.Add(BuildMultiActionGlyphGrid(buttonModel.Action.Actions));
+                        var mosaic = BuildMultiActionMosaic(buttonModel.Action.Actions);
+                        btn.SizeChanged += (s, e) => { mosaic.Width = mosaic.Height = btn.ActualWidth * 0.85; };
+                        stack.Children.Add(mosaic);
                         iconLoaded = true;
                     }
                     else
@@ -591,11 +593,12 @@ public partial class EditorWindow : Window
                             {
                                 var img = new System.Windows.Controls.Image
                                 {
-                                    Width = 52,
-                                    Height = 52,
                                     Stretch = Stretch.Uniform,
                                     Source = new BitmapImage(new Uri(iconPath))
                                 };
+                                // Icon scales with the actual cell size (set once layout resolves it)
+                                // instead of a fixed pixel size, so density settings don't throw off the ratio.
+                                btn.SizeChanged += (s, e) => { img.Width = img.Height = btn.ActualWidth * 0.42; };
                                 stack.Children.Add(img);
                                 iconLoaded = true;
                             }
@@ -678,21 +681,25 @@ public partial class EditorWindow : Window
                     var badge = new Border
                     {
                         Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor)) { Opacity = 0.92 },
-                        CornerRadius = new CornerRadius(9),
-                        Width = 20,
-                        Height = 20,
+                        CornerRadius = new CornerRadius(11),
+                        Width = 26,
+                        Height = 26,
                         HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                         VerticalAlignment = System.Windows.VerticalAlignment.Bottom,
-                        Margin = new Thickness(0, 0, 4, 4),
+                        // Negative margin overhangs the corner (matches Android's badge, which sits
+                        // outside the button's clipped content) instead of flush inside the border.
+                        Margin = new Thickness(0, 0, -6, -6),
                         Child = new TextBlock
                         {
                             Text = GetActionGlyph(buttonModel.LongPressAction),
-                            FontSize = 11,
+                            FontSize = 12,
                             HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
                             VerticalAlignment = System.Windows.VerticalAlignment.Center,
                             Foreground = ThemeManager.Brush("Brush.Void")
                         }
                     };
+                    // Badge scales with the button too — same 27%-of-cell ratio as Android.
+                    btn.SizeChanged += (s, e) => { badge.Width = badge.Height = btn.ActualWidth * 0.27; };
                     cellContent.Children.Add(badge);
 
                     btn.Content = cellContent;
@@ -719,28 +726,43 @@ public partial class EditorWindow : Window
         }
     }
 
-    /// <summary>Small glyph representing an action's type — used on the long-press corner badge
-    /// so both a button's actions (tap icon + this) are visible at a glance.</summary>
-    private static System.Windows.Controls.Primitives.UniformGrid BuildMultiActionGlyphGrid(List<ActionModel> actions)
+    /// <summary>Closed-grid preview for a multi-action button — the cell tiled into one segment
+    /// per step (hairline dividers only, no outer accent card), mirroring Android's MosaicStepGrid.
+    /// Preview-only: Windows never fires buttons locally, so there's no per-segment tap here.</summary>
+    private static Border BuildMultiActionMosaic(List<ActionModel> actions)
     {
-        var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2, Width = 44, Height = 44 };
-        int extra = Math.Max(0, actions.Count - 4);
-        var glyphs = extra > 0
-            ? actions.Take(3).Select(GetActionGlyph).Append($"+{extra}").ToList()
+        int overflow = Math.Max(0, actions.Count - 6);
+        var glyphs = overflow > 0
+            ? actions.Take(5).Select(GetActionGlyph).Append($"+{overflow + 1}").ToList()
             : actions.Select(GetActionGlyph).ToList();
 
+        var uniformGrid = new System.Windows.Controls.Primitives.UniformGrid { Columns = glyphs.Count <= 1 ? 1 : 2 };
         foreach (var g in glyphs)
         {
-            grid.Children.Add(new TextBlock
+            uniformGrid.Children.Add(new Border
             {
-                Text = g,
-                FontSize = 14,
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                Foreground = ThemeManager.Brush("Brush.Paper")
+                Margin = new Thickness(0.5),
+                Background = ThemeManager.Brush("Brush.Panel"),
+                Child = new TextBlock
+                {
+                    Text = g,
+                    FontSize = 15,
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                    VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                    Foreground = ThemeManager.Brush("Brush.Paper")
+                }
             });
         }
-        return grid;
+
+        return new Border
+        {
+            CornerRadius = new CornerRadius(14),
+            Background = ThemeManager.Brush("Brush.Hairline"),
+            ClipToBounds = true,
+            Width = 52,
+            Height = 52,
+            Child = uniformGrid
+        };
     }
 
     private static string GetActionGlyph(ActionModel action) => action.Type switch
@@ -1242,7 +1264,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v0.1.0-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nPersonal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v0.3.0-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nPersonal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

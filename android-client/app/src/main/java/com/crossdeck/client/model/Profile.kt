@@ -55,5 +55,7 @@ data class ActionModel(
     val dialTarget: String? = null,
     val mouseX: Int? = null,
     val mouseY: Int? = null,
-    val mouseButton: String? = null
+    val mouseButton: String? = null,
+    /** Optional override icon for a long-press action or a multi-action step. */
+    val icon: String? = null
 )

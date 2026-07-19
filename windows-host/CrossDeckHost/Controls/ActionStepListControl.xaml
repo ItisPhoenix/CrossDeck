@@ -9,7 +9,8 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <ComboBox x:Name="StepTypeCombo" Height="32" FontSize="12" Margin="0,0,8,0" SelectedIndex="0">
+            <ComboBox x:Name="StepTypeCombo" Height="32" FontSize="12" Margin="0,0,8,0" SelectedIndex="0" SelectionChanged="StepTypeCombo_SelectionChanged"
+                      ToolTip="What the next step in this chain does">
                 <ComboBoxItem Content="Keyboard Shortcut" Tag="hotkey"/>
                 <ComboBoxItem Content="Media Control" Tag="media_control"/>
                 <ComboBoxItem Content="Launch App" Tag="launch_app"/>
@@ -18,15 +19,26 @@
                 <ComboBoxItem Content="Text Snippet" Tag="text_snippet"/>
             </ComboBox>
             <TextBox x:Name="StepValueInput" Grid.Column="1" Height="32" Padding="8,6" FontSize="12" Margin="0,0,8,0"
-                     ToolTip="e.g. Ctrl,C — or PlayPause — or C:\...\app.exe"/>
-            <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="10,6" Click="AddStep_Click">
+                     Background="{StaticResource Brush.Void}" Foreground="{StaticResource Brush.Paper}" CaretBrush="{DynamicResource Brush.Accent}"
+                     ToolTip="e.g. Ctrl,C — or C:\...\app.exe"/>
+            <ComboBox x:Name="StepMediaCommandCombo" Grid.Column="1" Height="32" FontSize="12" Margin="0,0,8,0" SelectedIndex="0" Visibility="Collapsed">
+                <ComboBoxItem Content="Play / Pause" Tag="PlayPause"/>
+                <ComboBoxItem Content="Next Track" Tag="NextTrack"/>
+                <ComboBoxItem Content="Previous Track" Tag="PrevTrack"/>
+                <ComboBoxItem Content="Volume Up" Tag="VolumeUp"/>
+                <ComboBoxItem Content="Volume Down" Tag="VolumeDown"/>
+                <ComboBoxItem Content="Mute" Tag="VolumeMute"/>
+            </ComboBox>
+            <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="10,6" Click="AddStep_Click"
+                    ToolTip="Append this as the next step in the chain">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&#xE710;" FontFamily="Segoe MDL2 Assets" FontSize="12" Margin="0,0,6,0"/>
                     <TextBlock Text="Add Step" FontSize="12"/>
                 </StackPanel>
             </Button>
         </Grid>
-        <Button x:Name="RecordMacroButton" Style="{StaticResource StandardButton}" Click="RecordMacro_Click" Margin="0,10,0,0" HorizontalAlignment="Left" Padding="12,7">
+        <Button x:Name="RecordMacroButton" Style="{StaticResource StandardButton}" Click="RecordMacro_Click" Margin="0,10,0,0" HorizontalAlignment="Left" Padding="12,7"
+                ToolTip="Records real keystrokes and clicks anywhere on the PC as chain steps, with their actual timing">
             <StackPanel Orientation="Horizontal">
                 <TextBlock x:Name="RecordMacroIcon" Text="●" FontSize="12" Margin="0,0,8,0" Foreground="{StaticResource Brush.Alarm}"/>
                 <TextBlock x:Name="RecordMacroText" Text="Record Keystrokes &amp; Clicks" FontSize="12"/>

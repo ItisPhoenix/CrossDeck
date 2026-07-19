@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:CrossDeckHost.Controls">
     <StackPanel>
-        <ComboBox x:Name="ActionTypeCombo" Margin="0,0,0,14" Padding="10,8" FontSize="13" Height="36" SelectionChanged="ActionTypeCombo_SelectionChanged">
+        <ComboBox x:Name="ActionTypeCombo" Margin="0,0,0,14" Padding="10,8" FontSize="13" Height="36" SelectionChanged="ActionTypeCombo_SelectionChanged"
+                  ToolTip="What this button does when pressed">
             <ComboBoxItem Content="Keyboard Shortcut" Tag="hotkey"/>
             <ComboBoxItem Content="Launch App" Tag="launch_app"/>
             <ComboBoxItem Content="Media Control" Tag="media_control"/>
@@ -15,12 +16,44 @@
             <ComboBoxItem x:Name="DialTypeItem" Content="Dial / Slider" Tag="dial"/>
         </ComboBox>
 
+        <StackPanel x:Name="IconSection" Visibility="Collapsed" Margin="0,0,0,14">
+            <TextBlock Text="Icon" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
+            <Grid Margin="0,0,0,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="ActionIconText" Padding="10,8" FontSize="13" IsReadOnly="True" Margin="0,0,8,0"
+                         ToolTip="Current icon reference — read-only, use Browse or Built-in to change it"/>
+                <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Margin="0,0,8,0" Click="BrowseActionIcon_Click"
+                        ToolTip="Upload a custom image from this PC">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="📂" FontSize="13" Margin="0,0,6,0"/>
+                        <TextBlock Text="Browse"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="12,8" Click="ToggleActionBuiltinIcons_Click"
+                        ToolTip="Choose from CrossDeck's bundled icon set">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="🎨" FontSize="13" Margin="0,0,6,0"/>
+                        <TextBlock Text="Built-in"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+            <Border x:Name="ActionBuiltinIconsDrawer" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="10" Visibility="Collapsed">
+                <ScrollViewer Height="130" VerticalScrollBarVisibility="Auto">
+                    <WrapPanel x:Name="ActionIconWrapPanel" Orientation="Horizontal"/>
+                </ScrollViewer>
+            </Border>
+        </StackPanel>
+
         <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Container}" Padding="14">
             <Grid>
                 <!-- Keyboard Shortcut Panel -->
                 <StackPanel x:Name="HotkeyPanel" Visibility="Collapsed">
                     <TextBlock Text="Hotkey Combination (e.g. Ctrl,Shift,A)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <TextBox x:Name="HotkeyInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"/>
+                    <TextBox x:Name="HotkeyInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
                 </StackPanel>
 
                 <!-- Launch App Panel -->
@@ -33,7 +66,7 @@
                         </Grid.ColumnDefinitions>
                         <ComboBox x:Name="PathComboInput" IsEditable="True" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
                                   SelectionChanged="PathComboInput_SelectionChanged" TextSearch.TextPath="Name"
-                                  MaxDropDownHeight="280">
+                                  MaxDropDownHeight="280" ToolTip="Pick from discovered apps, or type/paste a full .exe path">
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal" Loaded="AppRow_Loaded">
@@ -43,7 +76,8 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Click="BrowseApp_Click" Margin="8,0,0,0">
+                        <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Click="BrowseApp_Click" Margin="8,0,0,0"
+                                ToolTip="Browse the file system for an .exe directly">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="📂" FontSize="13" Margin="0,0,6,0"/>
                                 <TextBlock Text="Browse"/>
@@ -55,7 +89,8 @@
                 <!-- Media Control Panel -->
                 <StackPanel x:Name="MediaControlPanel" Visibility="Collapsed">
                     <TextBlock Text="Media Key Trigger" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <ComboBox x:Name="MediaCommandCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}">
+                    <ComboBox x:Name="MediaCommandCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" SelectionChanged="ParamField_SelectionChanged"
+                              ToolTip="Which media command this button sends to whatever's currently playing">
                         <ComboBoxItem Content="Play / Pause" Tag="PlayPause"/>
                         <ComboBoxItem Content="Next Track" Tag="NextTrack"/>
                         <ComboBoxItem Content="Previous Track" Tag="PrevTrack"/>
@@ -76,7 +111,8 @@
                         <Border Grid.Column="0" Width="30" Height="30" CornerRadius="{StaticResource Radius.Control}" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" Margin="0,0,10,0" VerticalAlignment="Center">
                             <Image x:Name="FaviconPreview" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0"/>
                         </Border>
-                        <TextBox x:Name="UrlInput" Grid.Column="1" Padding="10,8" FontSize="13" TextChanged="UrlInput_TextChanged"/>
+                        <TextBox x:Name="UrlInput" Grid.Column="1" Padding="10,8" FontSize="13" TextChanged="UrlInput_TextChanged"
+                                 ToolTip="https:// is added automatically if you leave it off"/>
                     </Grid>
                     <TextBlock x:Name="FaviconStatusText" Text="" Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="40,0,0,0"/>
                 </StackPanel>
@@ -84,20 +120,21 @@
                 <!-- Run Command Panel -->
                 <StackPanel x:Name="RunCommandPanel" Visibility="Collapsed">
                     <TextBlock Text="Shell / Terminal Command" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <TextBox x:Name="CommandInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"/>
+                    <TextBox x:Name="CommandInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
                 </StackPanel>
 
                 <!-- Text Snippet Panel -->
                 <StackPanel x:Name="TextSnippetPanel" Visibility="Collapsed">
                     <TextBlock Text="Text to Paste" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <TextBox x:Name="SnippetTextInput" Padding="10,8" FontSize="13" Height="64" AcceptsReturn="True" TextWrapping="Wrap" Background="{StaticResource Brush.Void}"/>
+                    <TextBox x:Name="SnippetTextInput" Padding="10,8" FontSize="13" Height="64" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
                 </StackPanel>
 
                 <!-- Folder Panel -->
                 <StackPanel x:Name="FolderPanel" Visibility="Collapsed">
                     <TextBlock Text="Target Folder ID (leave empty to auto-generate)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
                     <TextBox x:Name="TargetFolderIdInput" Padding="10,8" FontSize="13" Margin="0,0,0,10" Background="{StaticResource Brush.Void}"/>
-                    <Button x:Name="EnterFolderButton" Style="{StaticResource AccentButton}" Padding="12,8" Click="EnterFolder_Click" Visibility="Collapsed">
+                    <Button x:Name="EnterFolderButton" Style="{StaticResource AccentButton}" Padding="12,8" Click="EnterFolder_Click" Visibility="Collapsed"
+                            ToolTip="Jump into this folder in the grid editor to add buttons to it">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                             <TextBlock Text="📁" FontSize="13" Margin="0,0,6,0"/>
                             <TextBlock Text="Enter Folder in Editor Grid"/>
@@ -114,7 +151,8 @@
                 <!-- Dial Panel -->
                 <StackPanel x:Name="DialPanel" Visibility="Collapsed">
                     <TextBlock Text="Dial / Slider Control target" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <ComboBox x:Name="DialTargetCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}">
+                    <ComboBox x:Name="DialTargetCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
+                              ToolTip="What the phone's dial slider adjusts when moved">
                         <ComboBoxItem Content="Volume Adjust" Tag="volume"/>
                         <ComboBoxItem Content="Brightness Adjust" Tag="brightness"/>
                     </ComboBox>

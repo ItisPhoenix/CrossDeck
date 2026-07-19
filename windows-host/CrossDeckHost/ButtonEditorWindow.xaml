@@ -2,7 +2,8 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:CrossDeckHost.Controls"
-        Title="Configure Button" Height="760" Width="620" MinHeight="520" MinWidth="520"
+        Title="Configure Button" Width="620" MinHeight="380" MinWidth="520"
+        SizeToContent="Height"
         WindowStartupLocation="CenterOwner"
         ResizeMode="CanResizeWithGrip" Background="Transparent"
         WindowStyle="None"
@@ -19,13 +20,15 @@
         <Grid Grid.Row="0" Margin="18,0,10,0">
             <TextBlock Text="CONFIGURE BUTTON" Foreground="{StaticResource Brush.Paper}" FontWeight="Bold" FontSize="13" VerticalAlignment="Center"/>
             <Button Style="{StaticResource CaptionButton}" Content="✕" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    ToolTip="Close without saving"
                     WindowChrome.IsHitTestVisibleInChrome="True" Click="DialogClose_Click"/>
         </Grid>
         <ScrollViewer Grid.Row="1" Margin="20,8,20,20" VerticalScrollBarVisibility="Auto">
             <StackPanel>
                     <!-- Label Field -->
                     <TextBlock Text="Label" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,6"/>
-                    <TextBox x:Name="LabelInput" Margin="0,0,0,18" Padding="10,8" FontSize="13"/>
+                    <TextBox x:Name="LabelInput" Margin="0,0,0,18" Padding="10,8" FontSize="13" TextChanged="LabelInput_TextChanged"
+                             ToolTip="Text shown on the button in both apps"/>
 
                     <!-- Icon Picker -->
                     <TextBlock Text="Icon" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,6"/>
@@ -35,14 +38,17 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBox x:Name="IconPathText" Padding="10,8" FontSize="13" IsReadOnly="True" Margin="0,0,8,0"/>
-                        <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Margin="0,0,8,0" Click="BrowseIcon_Click">
+                        <TextBox x:Name="IconPathText" Padding="10,8" FontSize="13" IsReadOnly="True" Margin="0,0,8,0"
+                                 ToolTip="Current icon reference — read-only, use Browse or Built-in to change it"/>
+                        <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Margin="0,0,8,0" Click="BrowseIcon_Click"
+                                ToolTip="Upload a custom image from this PC">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="📂" FontSize="13" Margin="0,0,6,0"/>
                                 <TextBlock Text="Browse"/>
                             </StackPanel>
                         </Button>
-                        <Button Grid.Column="2" x:Name="BuiltinIconBtn" Style="{StaticResource StandardButton}" Padding="12,8" Click="ToggleBuiltinIcons_Click">
+                        <Button Grid.Column="2" x:Name="BuiltinIconBtn" Style="{StaticResource StandardButton}" Padding="12,8" Click="ToggleBuiltinIcons_Click"
+                                ToolTip="Choose from CrossDeck's bundled icon set">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="🎨" FontSize="13" Margin="0,0,6,0"/>
                                 <TextBlock Text="Built-in"/>
@@ -54,6 +60,8 @@
                     <Border x:Name="BuiltinIconsDrawer" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="10" Margin="0,0,0,18" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock Text="Select Built-in Icon" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,8"/>
+                            <TextBox x:Name="IconSearchInput" Padding="8,6" FontSize="12" Margin="0,0,0,8" Background="{StaticResource Brush.Panel}"
+                                     TextChanged="IconSearchInput_TextChanged" ToolTip="Filter the built-in icons by name"/>
                             <ScrollViewer Height="130" VerticalScrollBarVisibility="Auto">
                                 <WrapPanel x:Name="IconWrapPanel" Orientation="Horizontal"/>
                             </ScrollViewer>
@@ -78,9 +86,13 @@
                         <TextBlock Text="Fires when the button is held on the phone. Same options as the main action above."
                                    Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap"/>
                         <CheckBox x:Name="LongPressEnabledCheck" Content="Enable long-press action" FontSize="13" Margin="0,0,0,10"
-                                  Checked="LongPressEnabledCheck_Changed" Unchecked="LongPressEnabledCheck_Changed"/>
+                                  Checked="LongPressEnabledCheck_Changed" Unchecked="LongPressEnabledCheck_Changed"
+                                  ToolTip="When on, holding the button on the phone fires a second, different action"/>
                         <controls:ActionConfigControl x:Name="LongPressActionConfig" Visibility="Collapsed" Margin="0,0,0,20"/>
                     </StackPanel>
+
+                    <TextBlock x:Name="SaveHintText" Foreground="{StaticResource Brush.Alarm}" FontSize="12" Margin="0,0,0,8"
+                               TextWrapping="Wrap" Visibility="Collapsed"/>
 
                     <!-- Save / Delete Actions Grid -->
                     <Grid Margin="0,4,0,0">
@@ -88,14 +100,16 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Style="{StaticResource AccentButton}" Padding="12,10" Click="SaveButton_Click" Margin="0,0,8,0">
+                        <Button Grid.Column="0" x:Name="SaveButton" Style="{StaticResource AccentButton}" Padding="12,10" Click="SaveButton_Click" Margin="0,0,8,0"
+                                ToolTip="Save this button. Disabled until the action above has what it needs." ToolTipService.ShowOnDisabled="True">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                 <Image x:Name="SaveButtonIcon" Width="16" Height="16" Margin="0,0,8,0"/>
                                 <TextBlock x:Name="SaveButtonGlyph" Text="&#xE74E;" FontFamily="Segoe MDL2 Assets" FontSize="15" Margin="0,0,8,0"/>
                                 <TextBlock Text="Save Configuration" FontWeight="SemiBold"/>
                             </StackPanel>
                         </Button>
-                        <Button Grid.Column="1" x:Name="DeleteBtn" Style="{StaticResource DangerButton}" Padding="12,10" Click="DeleteButton_Click" Margin="8,0,0,0">
+                        <Button Grid.Column="1" x:Name="DeleteBtn" Style="{StaticResource DangerButton}" Padding="12,10" Click="DeleteButton_Click" Margin="8,0,0,0"
+                                ToolTip="Permanently remove this button from the deck (asks to confirm)">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                 <Image x:Name="DeleteButtonIcon" Width="16" Height="16" Margin="0,0,8,0"/>
                                 <TextBlock x:Name="DeleteButtonGlyph" Text="&#xE74D;" FontFamily="Segoe MDL2 Assets" FontSize="15" Margin="0,0,8,0"/>

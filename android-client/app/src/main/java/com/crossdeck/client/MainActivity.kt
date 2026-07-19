@@ -148,7 +148,7 @@ class MainActivity : ComponentActivity() {
                                 onRunningAppsSubscribe = { connectionManager.sendRunningAppsSubscribe(it) },
                                 onWindowFocus = { connectionManager.sendWindowFocus(it) },
                                 onWindowClose = { connectionManager.sendWindowClose(it) },
-                                onButtonPress = { button, pressType -> connectionManager.sendButtonPress(button.buttonId, pressType) }
+                                onButtonPress = { button, pressType, stepIndex -> connectionManager.sendButtonPress(button.buttonId, pressType, stepIndex) }
                             )
                         }
                         profile != null && !showManualPairing -> {

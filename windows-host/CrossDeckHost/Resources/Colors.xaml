@@ -55,7 +55,7 @@
     <!-- Radius scale -->
     <CornerRadius x:Key="Radius.Control">8</CornerRadius>
     <CornerRadius x:Key="Radius.Container">14</CornerRadius>
-    <CornerRadius x:Key="Radius.DeckButton">14</CornerRadius>
+    <CornerRadius x:Key="Radius.DeckButton">18</CornerRadius>
 
     <!-- Typography scale — named sizes so new XAML references a step on the scale instead of a
          raw number. Caption = de-emphasized hint/status text. Body = field values, input text.

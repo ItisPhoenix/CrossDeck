@@ -354,6 +354,7 @@ public class WebSocketServer
     {
         var buttonId = msg.TryGetProperty("buttonId", out var idEl) ? idEl.GetString() : null;
         var pressType = msg.TryGetProperty("pressType", out var ptEl) ? ptEl.GetString() : "short";
+        int? stepIndex = msg.TryGetProperty("stepIndex", out var siEl) && siEl.TryGetInt32(out var si) ? si : null;
         var button = _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
 
         if (button is null)
@@ -363,6 +364,10 @@ public class WebSocketServer
         }
 
         var action = pressType == "long" && button.LongPressAction != null ? button.LongPressAction : button.Action;
+
+        // A tap on one tile inside the multi-action popup runs just that sub-action, not the chain.
+        if (stepIndex is int idx && action.Type == "multi_action" && action.Actions != null && idx >= 0 && idx < action.Actions.Count)
+            action = action.Actions[idx];
 
         _ = Task.Run(async () =>
         {

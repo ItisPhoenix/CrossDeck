@@ -59,12 +59,13 @@ Made by [ItisPhoenix](https://github.com/ItisPhoenix).
   - Monitor brightness via DDC/CI (`dxva2.dll`) with WMI fallback for laptops
 - **Haptic Feedback**: KEYBOARD_TAP, CONFIRM, and CLOCK_TICK haptics on the Android app for taps, connections, and slider steps.
 - **Custom Tray Menu**: Dark-styled Windows system tray context menu matching the Obsidian UI theme.
-- **Icon System**: 94-icon built-in pack (Lucide) or upload your own image per button, synced over a token-authenticated asset server.
+- **Icon System**: 94-icon built-in pack (Lucide) or upload your own image, per button *and* per long-press action or individual chain step, synced over a token-authenticated asset server.
 - **Resilient Reconnect**: Android auto-retries with backoff and shows the last-known deck (greyed out) behind a reconnect overlay instead of dropping straight to the pairing screen.
 - **Revoke Device**: Kick the paired phone and issue a new PIN from the Windows tray menu.
 - **Live State Buttons**: Buttons reflect real PC state, pushed live — Mute glows when actually muted, Play/Pause when actually playing, a `launch_app` button when its app is the focused window, and dial buttons show the live volume/brightness level.
 - **Running Apps Switcher**: A live grid of every open PC window on the phone — tap to focus, long-press to close. Alt-Tab from your phone, including apps you never made a button for.
-- **Macro Recorder**: Hit Record in the PC editor's multi-action panel, perform your keystrokes anywhere, hit Stop — the captured combos and timing become a button.
+- **Macro Recorder**: Hit Record in the PC editor's multi-action panel, perform your keystrokes anywhere, hit Stop — the captured combos and timing become a button. Clicks back on the CrossDeck window itself are ignored, so returning to hit Stop doesn't add a stray step.
+- **Multi-Action Popup**: Long-press (or tap, for a chain button) pops up every step as a real full-size button — tap one to run just that step, not the whole chain. The closed-grid preview tiles the button into a mosaic of per-step glyphs instead of one busy icon.
 
 ## Why does this app need these permissions?
 

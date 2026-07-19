@@ -124,11 +124,12 @@ class ConnectionManager(context: Context) {
         return true
     }
 
-    fun sendButtonPress(buttonId: String, pressType: String = "short") {
+    fun sendButtonPress(buttonId: String, pressType: String = "short", stepIndex: Int? = null) {
         val obj = buildJsonObject {
             put("type", "button_press")
             put("buttonId", buttonId)
             put("pressType", pressType)
+            stepIndex?.let { put("stepIndex", it) }
         }
         activeSocket?.send(obj.toString())
     }
@@ -326,7 +327,7 @@ class ConnectionManager(context: Context) {
                         _currentProfile.value = newProfile
                         // Only show toast when the content actually changed (PC edited something)
                         if (prev != null && prev.buttons != newProfile.buttons) {
-                            emitToast("\uD83D\uDFE2 Profile updated from PC", success = true)
+                            emitToast("Profile updated from PC", success = true)
                         }
                     }
                     obj["accentColor"]?.jsonPrimitive?.content?.let {
@@ -339,7 +340,7 @@ class ConnectionManager(context: Context) {
                     if (status == "error") {
                         val displayMsg = message ?: "Unknown error"
                         _lastError.value = displayMsg
-                        emitToast("\uD83D\uDD34 Error: $displayMsg", success = false)
+                        emitToast("Error: $displayMsg", success = false)
                     }
                     // success acks are silent — the button tap itself is feedback enough
                 }
@@ -524,7 +525,8 @@ class ConnectionManager(context: Context) {
         keepScreenAwake = settingsPrefs.getBoolean("keep_screen_awake", false),
         iconOnlyMode = settingsPrefs.getBoolean("icon_only_mode", false),
         autoReconnect = settingsPrefs.getBoolean("auto_reconnect", true),
-        confirmRunCommand = settingsPrefs.getBoolean("confirm_run_command", false)
+        confirmRunCommand = settingsPrefs.getBoolean("confirm_run_command", false),
+        hasSeenEmptyCellHint = settingsPrefs.getBoolean("has_seen_empty_cell_hint", false)
     )
 
     fun saveSettings(settings: AppSettings) {
@@ -535,6 +537,7 @@ class ConnectionManager(context: Context) {
             .putBoolean("icon_only_mode", settings.iconOnlyMode)
             .putBoolean("auto_reconnect", settings.autoReconnect)
             .putBoolean("confirm_run_command", settings.confirmRunCommand)
+            .putBoolean("has_seen_empty_cell_hint", settings.hasSeenEmptyCellHint)
             .apply()
     }
 

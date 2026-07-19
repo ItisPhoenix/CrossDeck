@@ -43,6 +43,7 @@ public class ProfileStoreService
                 if (loaded is not null && loaded.Profiles.Count > 0)
                 {
                     Set = loaded;
+                    ClearInvalidLongPressDial();
                     return;
                 }
             }
@@ -83,16 +84,20 @@ public class ProfileStoreService
     {
         lock (_lock)
         {
-            AutoAssignIcons();
             SaveLocked();
         }
     }
 
-    /// <summary>
-    /// Buttons saved without an icon get a builtin one matching their action type, so decks look
-    /// finished without the user hand-picking every icon. Runs on every save from either editor
-    /// (PC or phone) — this is the single choke point both write paths go through.
-    /// </summary>
+    /// <summary>Long-press dial is invalid legacy data — dial_adjust only ever reads the main action's target.</summary>
+    private void ClearInvalidLongPressDial()
+    {
+        foreach (var profile in Set.Profiles)
+            foreach (var b in profile.Buttons)
+                if (b.LongPressAction?.Type == "dial")
+                    b.LongPressAction = null;
+    }
+
+    /// <summary>Buttons saved without an icon get a builtin one matching their action type.</summary>
     private void AutoAssignIcons()
     {
         foreach (var profile in Set.Profiles)
@@ -124,8 +129,11 @@ public class ProfileStoreService
         }
     }
 
+    // The real choke point — every mutator ends here, unlike Save() which not all of them called.
     private void SaveLocked()
     {
+        AutoAssignIcons();
+        ClearInvalidLongPressDial();
         var json = JsonSerializer.Serialize(Set, _jsonOptions);
         File.WriteAllText(_filePath, json);
     }
