@@ -19,6 +19,7 @@
   <ItemGroup>
     <!-- QR code generation for the pairing screen -->
     <PackageReference Include="QRCoder" Version="1.6.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>

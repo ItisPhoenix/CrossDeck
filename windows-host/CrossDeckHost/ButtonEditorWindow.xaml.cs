@@ -46,7 +46,6 @@ public partial class ButtonEditorWindow : Window
         var allApps = AppDiscovery.DiscoverApps();
         MainActionConfig.AppList = allApps;
         LongPressActionConfig.AppList = allApps;
-        LongPressActionConfig.AllowDial = false;
         LongPressActionConfig.ShowIconPicker = true;
 
         // Only the main action's icon pickers should overwrite the button's shared icon and

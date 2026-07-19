@@ -790,7 +790,7 @@ public partial class EditorWindow : Window
     };
 
     /// <summary>Short human-readable summary for a long-press action's tooltip.</summary>
-    private static string DescribeActionForTooltip(ActionModel action) => action.Type switch
+    private static string DescribeActionForTooltip(ActionModel action) => !string.IsNullOrWhiteSpace(action.Label) ? action.Label : action.Type switch
     {
         "hotkey" => $"Keyboard Shortcut ({(action.Keys != null ? string.Join("+", action.Keys) : "")})",
         "launch_app" => "Launch App",
@@ -1264,7 +1264,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v0.3.0-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nPersonal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v0.3.1-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nPersonal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

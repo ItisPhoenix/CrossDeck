@@ -42,15 +42,6 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     /// <summary>Only the primary action instance should overwrite the button's shared icon and persist fetched icons to disk.</summary>
     public bool ExtractIconOnSelect { get; set; }
 
-    /// <summary>Dial actions only run via the dedicated dial_adjust slider protocol — firing one
-    /// via a plain press (as a long-press action would) is a silent no-op on the host. Set false
-    /// for the long-press instance so it isn't offered as a choice that can't do anything.</summary>
-    public bool AllowDial
-    {
-        get => DialTypeItem.Visibility == Visibility.Visible;
-        set => DialTypeItem.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-    }
-
     /// <summary>Only the long-press instance offers its own icon — the main action's icon lives on the button itself.</summary>
     public bool ShowIconPicker
     {
@@ -104,6 +95,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         SetActionTypeSelection(action.Type);
 
         ActionIconText.Text = action.Icon ?? "";
+        ActionLabelText.Text = action.Label ?? "";
         HotkeyInput.Text = action.Keys != null ? string.Join(",", action.Keys) : "";
 
         if (action.Type == "launch_app")
@@ -149,7 +141,12 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         var activeItem = ActionTypeCombo.SelectedItem as ComboBoxItem;
         var actionType = activeItem?.Tag?.ToString() ?? "hotkey";
 
-        var action = new ActionModel { Type = actionType, Icon = string.IsNullOrEmpty(ActionIconText.Text) ? null : ActionIconText.Text };
+        var action = new ActionModel
+        {
+            Type = actionType,
+            Icon = string.IsNullOrEmpty(ActionIconText.Text) ? null : ActionIconText.Text,
+            Label = string.IsNullOrEmpty(ActionLabelText.Text) ? null : ActionLabelText.Text
+        };
         switch (actionType)
         {
             case "hotkey":

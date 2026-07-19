@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.int
@@ -356,8 +357,9 @@ class ConnectionManager(context: Context) {
                 "dial_state" -> {
                     val btnId = obj["buttonId"]?.jsonPrimitive?.content
                     val newVal = obj["value"]?.jsonPrimitive?.content?.toIntOrNull()
+                    val slot = obj["slot"]?.jsonPrimitive?.contentOrNull ?: "main"
                     if (btnId != null && newVal != null) {
-                        _dialLevels.value = _dialLevels.value + (btnId to newVal)
+                        _dialLevels.value = _dialLevels.value + ("$btnId:$slot" to newVal)
                     }
                 }
                 "button_state" -> {
@@ -367,7 +369,10 @@ class ConnectionManager(context: Context) {
                             if (it !is kotlinx.serialization.json.JsonNull) _activeButtons.value = _activeButtons.value + (btnId to it.jsonPrimitive.boolean)
                         }
                         obj["level"]?.let {
-                            if (it !is kotlinx.serialization.json.JsonNull) _dialLevels.value = _dialLevels.value + (btnId to it.jsonPrimitive.int)
+                            if (it !is kotlinx.serialization.json.JsonNull) {
+                                val slot = obj["slot"]?.jsonPrimitive?.contentOrNull ?: "main"
+                                _dialLevels.value = _dialLevels.value + ("$btnId:$slot" to it.jsonPrimitive.int)
+                            }
                         }
                     }
                 }
@@ -377,8 +382,9 @@ class ConnectionManager(context: Context) {
                         var levels = _dialLevels.value
                         for (stateEl in statesEl.jsonArray) {
                             val btnId = stateEl.jsonObject["buttonId"]?.jsonPrimitive?.content ?: continue
+                            val slot = stateEl.jsonObject["slot"]?.jsonPrimitive?.contentOrNull ?: "main"
                             stateEl.jsonObject["active"]?.let { if (it !is kotlinx.serialization.json.JsonNull) active = active + (btnId to it.jsonPrimitive.boolean) }
-                            stateEl.jsonObject["level"]?.let { if (it !is kotlinx.serialization.json.JsonNull) levels = levels + (btnId to it.jsonPrimitive.int) }
+                            stateEl.jsonObject["level"]?.let { if (it !is kotlinx.serialization.json.JsonNull) levels = levels + ("$btnId:$slot" to it.jsonPrimitive.int) }
                         }
                         _activeButtons.value = active
                         _dialLevels.value = levels
@@ -457,11 +463,12 @@ class ConnectionManager(context: Context) {
         }
     }
 
-    fun sendDialAdjust(buttonId: String, value: Int?) {
+    fun sendDialAdjust(buttonId: String, slot: String, value: Int?) {
         val ws = activeSocket ?: return
         val obj = buildJsonObject {
             put("type", "dial_adjust")
             put("buttonId", buttonId)
+            put("slot", slot)
             if (value != null) {
                 put("value", value)
             }

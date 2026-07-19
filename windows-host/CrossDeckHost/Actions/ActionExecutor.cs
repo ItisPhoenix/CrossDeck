@@ -234,7 +234,10 @@ public class ActionExecutor
             }
         }
 
-        if (TryFocusExistingWindow(exe))
+        // explorer.exe is always running as the shell — TryFocusExistingWindow would match its
+        // desktop ("Program Manager") window and silently no-op instead of opening a new window.
+        bool isExplorer = string.Equals(Path.GetFileNameWithoutExtension(exe), "explorer", StringComparison.OrdinalIgnoreCase);
+        if (!isExplorer && TryFocusExistingWindow(exe))
             return (true, null);
 
         Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = true });

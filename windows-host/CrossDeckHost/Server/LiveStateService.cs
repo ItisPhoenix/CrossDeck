@@ -27,7 +27,7 @@ public class LiveStateService
     private string? _lastFocusedButtonId;
     private readonly Dictionary<string, int> _lastDialLevels = new();
 
-    public event Action<string, bool?, int?>? StateChanged;
+    public event Action<string, bool?, int?, string?>? StateChanged;
 
     public LiveStateService(ProfileStoreService profileStore)
     {
@@ -91,7 +91,7 @@ public class LiveStateService
         foreach (var b in CurrentButtons())
         {
             if (b.Action.Type == "media_control" && b.Action.MediaCommand == "PlayPause")
-                StateChanged?.Invoke(b.ButtonId, playing, null);
+                StateChanged?.Invoke(b.ButtonId, playing, null, null);
         }
     }
 
@@ -111,7 +111,7 @@ public class LiveStateService
         foreach (var b in CurrentButtons())
         {
             if (b.Action.Type == "media_control" && b.Action.MediaCommand == "VolumeMute")
-                StateChanged?.Invoke(b.ButtonId, muted, null);
+                StateChanged?.Invoke(b.ButtonId, muted, null, null);
         }
     }
 
@@ -175,55 +175,64 @@ public class LiveStateService
 
         // Un-glow whichever launch_app button lost focus, glow whichever gained it.
         if (_lastFocusedButtonId != null)
-            StateChanged?.Invoke(_lastFocusedButtonId, false, null);
+            StateChanged?.Invoke(_lastFocusedButtonId, false, null, null);
         if (focusedButtonId != null)
-            StateChanged?.Invoke(focusedButtonId, true, null);
+            StateChanged?.Invoke(focusedButtonId, true, null, null);
 
         _lastFocusedButtonId = focusedButtonId;
     }
+
+    private static int DialLevel(string? target) => target switch
+    {
+        "volume" => DialController.GetVolume(),
+        "brightness" => DialController.GetBrightness(),
+        _ => -1
+    };
 
     private void PollDialLevels()
     {
         foreach (var b in CurrentButtons())
         {
-            if (b.Action.Type != "dial") continue;
-
-            int level = b.Action.DialTarget switch
-            {
-                "volume" => DialController.GetVolume(),
-                "brightness" => DialController.GetBrightness(),
-                _ => -1
-            };
-            if (level < 0) continue;
-
-            if (_lastDialLevels.TryGetValue(b.ButtonId, out var last) && last == level) continue;
-            _lastDialLevels[b.ButtonId] = level;
-            StateChanged?.Invoke(b.ButtonId, null, level);
+            PollOneDialSlot(b.ButtonId, "main", b.Action);
+            if (b.LongPressAction != null) PollOneDialSlot(b.ButtonId, "longPress", b.LongPressAction);
         }
+    }
+
+    private void PollOneDialSlot(string buttonId, string slot, ActionModel action)
+    {
+        if (action.Type != "dial") return;
+        int level = DialLevel(action.DialTarget);
+        if (level < 0) return;
+
+        var key = $"{buttonId}:{slot}";
+        if (_lastDialLevels.TryGetValue(key, out var last) && last == level) return;
+        _lastDialLevels[key] = level;
+        StateChanged?.Invoke(buttonId, null, level, slot);
     }
 
     private IEnumerable<ButtonModel> CurrentButtons() => _profileStore.Current.Buttons ?? Enumerable.Empty<ButtonModel>();
 
     /// <summary>Full current-state snapshot for every live-state-capable button, sent when a phone connects.</summary>
-    public IEnumerable<(string ButtonId, bool? Active, int? Level)> GetSnapshot()
+    public IEnumerable<(string ButtonId, bool? Active, int? Level, string? DialSlot)> GetSnapshot()
     {
         foreach (var b in CurrentButtons())
         {
             if (b.Action.Type == "media_control" && b.Action.MediaCommand == "PlayPause")
-                yield return (b.ButtonId, _lastPlaying, null);
+                yield return (b.ButtonId, _lastPlaying, null, null);
             else if (b.Action.Type == "media_control" && b.Action.MediaCommand == "VolumeMute")
-                yield return (b.ButtonId, _lastMuted, null);
+                yield return (b.ButtonId, _lastMuted, null, null);
             else if (b.Action.Type == "launch_app" && !string.IsNullOrWhiteSpace(b.Action.Path))
-                yield return (b.ButtonId, b.ButtonId == _lastFocusedButtonId, null);
-            else if (b.Action.Type == "dial")
+                yield return (b.ButtonId, b.ButtonId == _lastFocusedButtonId, null, null);
+
+            if (b.Action.Type == "dial")
             {
-                int level = b.Action.DialTarget switch
-                {
-                    "volume" => DialController.GetVolume(),
-                    "brightness" => DialController.GetBrightness(),
-                    _ => -1
-                };
-                if (level >= 0) yield return (b.ButtonId, null, level);
+                int level = DialLevel(b.Action.DialTarget);
+                if (level >= 0) yield return (b.ButtonId, null, level, "main");
+            }
+            if (b.LongPressAction?.Type == "dial")
+            {
+                int level = DialLevel(b.LongPressAction.DialTarget);
+                if (level >= 0) yield return (b.ButtonId, null, level, "longPress");
             }
         }
     }

@@ -122,7 +122,7 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
         }
     }
 
-    private static string DescribeStep(ActionModel act) => act.Type switch
+    private static string DescribeStep(ActionModel act) => !string.IsNullOrWhiteSpace(act.Label) ? act.Label : act.Type switch
     {
         "hotkey" => $"Keyboard Shortcut: {(act.Keys != null ? string.Join(",", act.Keys) : "")}",
         "launch_app" => $"Launch App: {act.Path}",

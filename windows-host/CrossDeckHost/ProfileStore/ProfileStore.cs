@@ -43,7 +43,6 @@ public class ProfileStoreService
                 if (loaded is not null && loaded.Profiles.Count > 0)
                 {
                     Set = loaded;
-                    ClearInvalidLongPressDial();
                     return;
                 }
             }
@@ -88,15 +87,6 @@ public class ProfileStoreService
         }
     }
 
-    /// <summary>Long-press dial is invalid legacy data — dial_adjust only ever reads the main action's target.</summary>
-    private void ClearInvalidLongPressDial()
-    {
-        foreach (var profile in Set.Profiles)
-            foreach (var b in profile.Buttons)
-                if (b.LongPressAction?.Type == "dial")
-                    b.LongPressAction = null;
-    }
-
     /// <summary>Buttons saved without an icon get a builtin one matching their action type.</summary>
     private void AutoAssignIcons()
     {
@@ -133,7 +123,6 @@ public class ProfileStoreService
     private void SaveLocked()
     {
         AutoAssignIcons();
-        ClearInvalidLongPressDial();
         var json = JsonSerializer.Serialize(Set, _jsonOptions);
         File.WriteAllText(_filePath, json);
     }

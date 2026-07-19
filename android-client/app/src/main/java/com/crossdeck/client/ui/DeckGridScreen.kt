@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -24,6 +25,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.produceState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items as lazyColumnItems
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -167,7 +170,7 @@ fun DeckGridScreen(
     onProfileCreate: (String) -> Unit,
     onProfileDelete: (String) -> Unit,
     onProfileRename: (String, String) -> Unit,
-    onDialAdjust: (String, Int?) -> Unit,
+    onDialAdjust: (buttonId: String, slot: String, value: Int?) -> Unit,
     settings: AppSettings,
     onSettingsChange: (AppSettings) -> Unit,
     connectionHostInfo: String?,
@@ -218,6 +221,7 @@ fun DeckGridScreen(
     var currentFolderId by remember { mutableStateOf<String?>(null) }
     var folderHistory by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var activeDialButton by remember { mutableStateOf<ButtonModel?>(null) }
+    var activeDialSlot by remember { mutableStateOf("main") }
 
     // Pop one level out of the current folder — used by both the system back button and the
     // on-screen back chevron. folderHistory entries are (parentFolderId, enteredFolderLabel);
@@ -544,7 +548,7 @@ fun DeckGridScreen(
                                     modifier = Modifier.size(cellSize)
                                 ) {
                                     if (cellButton != null) {
-                                        val dialValue = if (cellButton.action.type == "dial") dialLevels[cellButton.buttonId] else null
+                                        val dialValue = if (cellButton.action.type == "dial") dialLevels["${cellButton.buttonId}:main"] else null
                                         val liveActive = activeButtons[cellButton.buttonId]
                                         DeckButton(
                                             button = cellButton,
@@ -582,7 +586,8 @@ fun DeckGridScreen(
                                                         }
                                                     } else if (cellButton.action.type == "dial") {
                                                         activeDialButton = cellButton
-                                                        onDialAdjust(cellButton.buttonId, null) // fetch current level
+                                                        activeDialSlot = "main"
+                                                        onDialAdjust(cellButton.buttonId, "main", null) // fetch current level
                                                     } else if (cellButton.action.type == "run_command" && settings.confirmRunCommand) {
                                                         pendingRunCommand = PendingRunCommand(cellButton, cellButton.action, "short", null)
                                                     } else {
@@ -1047,7 +1052,7 @@ fun DeckGridScreen(
             // Thick fluid bottom-sheet touch-bar slider modal for dials
             if (activeDialButton != null) {
                 val button = activeDialButton!!
-                val currentLevel = dialLevels[button.buttonId] ?: 50
+                val currentLevel = dialLevels["${button.buttonId}:$activeDialSlot"] ?: 50
                 var localSliderValue by remember { mutableStateOf(currentLevel.toFloat()) }
                 var lastSentValue by remember { mutableStateOf(currentLevel) }
                 var isUserDragging by remember { mutableStateOf(false) }
@@ -1096,14 +1101,14 @@ fun DeckGridScreen(
                                 if (distance >= 5) {
                                     // Trigger subtle haptic detent tick
                                     haptic(HapticFeedbackConstants.CLOCK_TICK)
-                                    onDialAdjust(button.buttonId, newValue.toInt())
+                                    onDialAdjust(button.buttonId, activeDialSlot, newValue.toInt())
                                     lastSentValue = newValue.toInt()
                                 }
                             },
                             onValueChangeFinished = {
                                 isUserDragging = false
                                 haptic()
-                                onDialAdjust(button.buttonId, localSliderValue.toInt())
+                                onDialAdjust(button.buttonId, activeDialSlot, localSliderValue.toInt())
                                 lastSentValue = localSliderValue.toInt()
                             },
                             valueRange = 0f..100f,
@@ -1188,8 +1193,10 @@ fun DeckGridScreen(
                         // exactly as it would if it were the button's own main action.
                         when {
                             action.type == "dial" -> {
+                                val slot = if (pressType == "long") "longPress" else "main"
                                 activeDialButton = btn.copy(action = action)
-                                onDialAdjust(btn.buttonId, null)
+                                activeDialSlot = slot
+                                onDialAdjust(btn.buttonId, slot, null)
                             }
                             action.type == "open_folder" -> {
                                 val destFolder = action.targetFolderId
@@ -1474,8 +1481,7 @@ private fun DeckButton(
     // Multi-action buttons have no long-press action of their own (the mosaic preview already
     // reads as "this is a chain"), so no badge is shown for them.
     if (button.action.type != "multi_action") {
-        // Long-press dial is invalid legacy data (dial_adjust only targets the main action).
-        button.longPressAction?.takeIf { it.type != "dial" }?.let { lp ->
+        button.longPressAction?.let { lp ->
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -1570,8 +1576,7 @@ private fun LongPressMenu(
                         onTap = { onFire("short", null, button.action); onDismiss() },
                         modifier = Modifier.size(96.dp)
                     )
-                    // Same invalid-legacy-data guard as the badge.
-                    button.longPressAction?.takeIf { it.type != "dial" }?.let { lp ->
+                    button.longPressAction?.let { lp ->
                         DeckButton(
                             button = button.copy(
                                 buttonId = "${button.buttonId}_lp",
@@ -1627,7 +1632,7 @@ private fun suggestedLabel(state: ActionEditorState): String? = when (state.type
 
 /** Short one-line summary for a menu row — reuses the same per-type switch as describeStep
  * but for a plain ActionModel (not a StepUiState). */
-private fun describeActionForMenu(action: ActionModel): String = when (action.type) {
+private fun describeActionForMenu(action: ActionModel): String = action.label?.takeIf { it.isNotBlank() } ?: when (action.type) {
     "hotkey" -> "Keyboard Shortcut: ${action.keys?.joinToString(",") ?: ""}"
     "launch_app" -> "Launch App"
     "media_control" -> "Media: ${action.mediaCommand}"
@@ -2174,7 +2179,6 @@ private fun EditButtonDialog(
                             connectedHostUrl = connectedHostUrl,
                             authToken = authToken,
                             iconHashCache = iconHashCache,
-                            excludeDial = true,
                             showIconPicker = true,
                             onIconUpload = onIconUpload
                         )
@@ -2395,15 +2399,16 @@ class StepUiState(action: ActionModel, delayAfterMs: Int) {
     var mouseButton by mutableStateOf(action.mouseButton)
     var delayAfterMs by mutableStateOf(delayAfterMs)
     var icon by mutableStateOf(action.icon)
+    var label by mutableStateOf(action.label ?: "")
 
     fun toActionModel(): ActionModel = when (type) {
-        "hotkey" -> ActionModel(type = type, keys = keys.split(",").map { it.trim() }.filter { it.isNotEmpty() }, icon = icon)
-        "launch_app" -> ActionModel(type = type, path = path.trim(), icon = icon)
-        "media_control" -> ActionModel(type = type, mediaCommand = mediaCommand, icon = icon)
-        "open_url" -> ActionModel(type = type, url = url.trim(), icon = icon)
-        "run_command" -> ActionModel(type = type, command = command.trim(), icon = icon)
-        "text_snippet" -> ActionModel(type = type, text = text, icon = icon)
-        "mouse_click" -> ActionModel(type = type, mouseX = mouseX, mouseY = mouseY, mouseButton = mouseButton, icon = icon)
+        "hotkey" -> ActionModel(type = type, keys = keys.split(",").map { it.trim() }.filter { it.isNotEmpty() }, icon = icon, label = label.trim().ifBlank { null })
+        "launch_app" -> ActionModel(type = type, path = path.trim(), icon = icon, label = label.trim().ifBlank { null })
+        "media_control" -> ActionModel(type = type, mediaCommand = mediaCommand, icon = icon, label = label.trim().ifBlank { null })
+        "open_url" -> ActionModel(type = type, url = url.trim(), icon = icon, label = label.trim().ifBlank { null })
+        "run_command" -> ActionModel(type = type, command = command.trim(), icon = icon, label = label.trim().ifBlank { null })
+        "text_snippet" -> ActionModel(type = type, text = text, icon = icon, label = label.trim().ifBlank { null })
+        "mouse_click" -> ActionModel(type = type, mouseX = mouseX, mouseY = mouseY, mouseButton = mouseButton, icon = icon, label = label.trim().ifBlank { null })
         else -> ActionModel(type = type)
     }
 }
@@ -2498,6 +2503,7 @@ class ActionEditorState(action: ActionModel?) {
     var dialTarget by mutableStateOf(action?.dialTarget ?: "volume")
     var searchQuery by mutableStateOf("")
     var icon by mutableStateOf(action?.icon)
+    var label by mutableStateOf(action?.label ?: "")
     val multiSteps = mutableStateListOf<StepUiState>()
 
     init {
@@ -2517,19 +2523,20 @@ class ActionEditorState(action: ActionModel?) {
     }
 
     fun toActionModel(): ActionModel = when (type) {
-        "hotkey" -> ActionModel(type = type, keys = hotkeys.split(",").map { it.trim() }.filter { it.isNotEmpty() }, icon = icon)
-        "launch_app" -> ActionModel(type = type, path = (path.ifBlank { searchQuery }).trim(), icon = icon)
-        "media_control" -> ActionModel(type = type, mediaCommand = mediaCommand, icon = icon)
-        "open_url" -> ActionModel(type = type, url = url.trim(), icon = icon)
-        "run_command" -> ActionModel(type = type, command = command.trim(), icon = icon)
-        "text_snippet" -> ActionModel(type = type, text = textValue, icon = icon)
+        "hotkey" -> ActionModel(type = type, keys = hotkeys.split(",").map { it.trim() }.filter { it.isNotEmpty() }, icon = icon, label = label.trim().ifBlank { null })
+        "launch_app" -> ActionModel(type = type, path = (path.ifBlank { searchQuery }).trim(), icon = icon, label = label.trim().ifBlank { null })
+        "media_control" -> ActionModel(type = type, mediaCommand = mediaCommand, icon = icon, label = label.trim().ifBlank { null })
+        "open_url" -> ActionModel(type = type, url = url.trim(), icon = icon, label = label.trim().ifBlank { null })
+        "run_command" -> ActionModel(type = type, command = command.trim(), icon = icon, label = label.trim().ifBlank { null })
+        "text_snippet" -> ActionModel(type = type, text = textValue, icon = icon, label = label.trim().ifBlank { null })
         "open_folder" -> ActionModel(
             type = type,
             targetFolderId = targetFolderId.trim().ifBlank { "f_" + UUID.randomUUID().toString().substring(0, 8) },
-            icon = icon
+            icon = icon,
+            label = label.trim().ifBlank { null }
         )
-        "multi_action" -> ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs })
-        "dial" -> ActionModel(type = type, dialTarget = dialTarget, icon = icon)
+        "multi_action" -> ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs }, label = label.trim().ifBlank { null })
+        "dial" -> ActionModel(type = type, dialTarget = dialTarget, icon = icon, label = label.trim().ifBlank { null })
         else -> ActionModel(type = type)
     }
 }
@@ -2547,7 +2554,6 @@ private fun ActionTypeEditor(
     authToken: String?,
     iconHashCache: Map<String, String>,
     onAppPicked: ((name: String) -> Unit)? = null,
-    excludeDial: Boolean = false,
     showIconPicker: Boolean = false,
     onIconUpload: (suspend (ByteArray) -> String?)? = null
 ) {
@@ -2614,7 +2620,7 @@ private fun ActionTypeEditor(
         onExpandedChange = { dropdownExpanded = it },
         modifier = Modifier.fillMaxWidth()
     ) {
-        actionTypeLabels.filterKeys { !(excludeDial && it == "dial") }.forEach { (t, friendly) ->
+        actionTypeLabels.forEach { (t, friendly) ->
             Text(
                 text = friendly,
                 color = MaterialTheme.colorScheme.onSurface,
@@ -2628,6 +2634,12 @@ private fun ActionTypeEditor(
     Spacer(modifier = Modifier.height(16.dp))
 
     if (showIconPicker && state.type != "multi_action") {
+        CrossDeckTextField(
+            value = state.label,
+            onValueChange = { state.label = it },
+            label = "Label (optional, shown on this step's tile)",
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+        )
         Text("Icon", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)) {
             IconPreview(icon = state.icon, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(36.dp))
@@ -2718,8 +2730,10 @@ private fun ActionTypeEditor(
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
                         ) {
-                            Column {
-                                filteredApps.forEach { app ->
+                            // LazyColumn, not Column+forEach: only visible rows compose and fire their
+                            // icon request, instead of every installed app requesting at once on open.
+                            LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                                lazyColumnItems(filteredApps, key = { it.path }) { app ->
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
@@ -2861,10 +2875,10 @@ private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modi
                     modifier = Modifier.size(28.dp).clickable { iconPickerForIndex = index }
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = describeStep(step),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                CrossDeckTextField(
+                    value = step.label,
+                    onValueChange = { step.label = it },
+                    label = describeStep(step),
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = { if (index > 0) { val s = steps.removeAt(index); steps.add(index - 1, s) } }, enabled = index > 0) {

@@ -61,7 +61,7 @@ public class WebSocketServer
         _profileStore = profileStore;
         _actionExecutor = actionExecutor;
         _liveState = liveState;
-        _liveState.StateChanged += (buttonId, active, level) => Task.Run(() => BroadcastButtonStateAsync(buttonId, active, level));
+        _liveState.StateChanged += (buttonId, active, level, dialSlot) => Task.Run(() => BroadcastButtonStateAsync(buttonId, active, level, dialSlot));
         LocalIpAddress = DetectLocalIpAddress();
 
         // Broadcast profile changes to all connected clients.
@@ -168,7 +168,7 @@ public class WebSocketServer
             try
             {
                 var states = _liveState.GetSnapshot()
-                    .Select(s => new { buttonId = s.ButtonId, active = s.Active, level = s.Level })
+                    .Select(s => new { buttonId = s.ButtonId, active = s.Active, level = s.Level, slot = s.DialSlot })
                     .ToList();
                 await SendJsonAsync(webSocket, new { type = "button_states", states }, ct);
             }
@@ -388,27 +388,29 @@ public class WebSocketServer
     private async Task HandleDialAdjust(WebSocket webSocket, JsonElement msg, CancellationToken ct)
     {
         var buttonId = msg.TryGetProperty("buttonId", out var idEl) ? idEl.GetString() : null;
+        var slot = msg.TryGetProperty("slot", out var slotEl) ? slotEl.GetString() : "main";
         int targetVal = 0;
         var hasValue = msg.TryGetProperty("value", out var valEl) && valEl.TryGetInt32(out targetVal);
 
         var button = _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
-        if (button is null || button.Action.Type != "dial")
+        var action = slot == "longPress" ? button?.LongPressAction : button?.Action;
+        if (button is null || action is null || action.Type != "dial")
         {
             await SendJsonAsync(webSocket, new { type = "ack", buttonId, status = "error", message = "invalid dial action configuration" }, ct);
             return;
         }
 
         int newVal = 50;
-        if (button.Action.DialTarget == "volume")
+        if (action.DialTarget == "volume")
         {
             newVal = hasValue ? CrossDeckHost.Actions.DialController.SetVolume(targetVal) : CrossDeckHost.Actions.DialController.GetVolume();
         }
-        else if (button.Action.DialTarget == "brightness")
+        else if (action.DialTarget == "brightness")
         {
             newVal = hasValue ? CrossDeckHost.Actions.DialController.SetBrightness(targetVal) : CrossDeckHost.Actions.DialController.GetBrightness();
         }
 
-        await BroadcastDialStateAsync(button.ButtonId, newVal);
+        await BroadcastDialStateAsync(button.ButtonId, slot ?? "main", newVal);
     }
 
     /// <summary>
@@ -457,9 +459,9 @@ public class WebSocketServer
         await SendJsonAsync(webSocket, new { type = "icon_extracted", path, icon }, ct);
     }
 
-    private async Task BroadcastDialStateAsync(string buttonId, int value)
+    private async Task BroadcastDialStateAsync(string buttonId, string slot, int value)
     {
-        var payload = new { type = "dial_state", buttonId, value };
+        var payload = new { type = "dial_state", buttonId, slot, value };
         List<WebSocket> targets;
         lock (_lock)
         {
@@ -476,14 +478,10 @@ public class WebSocketServer
         }
     }
 
-    /// <summary>
-    /// Delta push for live button state (Mute/Play-Pause/launch_app-focus glow, dial level) — see
-    /// LiveStateService. active/level are independent; whichever doesn't apply to this button type
-    /// is null and the client just ignores it.
-    /// </summary>
-    private async Task BroadcastButtonStateAsync(string buttonId, bool? active, int? level)
+    /// <summary>Delta push for live button state — active/level/dialSlot are independent, whichever doesn't apply is null.</summary>
+    private async Task BroadcastButtonStateAsync(string buttonId, bool? active, int? level, string? dialSlot)
     {
-        var payload = new { type = "button_state", buttonId, active, level };
+        var payload = new { type = "button_state", buttonId, active, level, slot = dialSlot };
         List<WebSocket> targets;
         lock (_lock)
         {

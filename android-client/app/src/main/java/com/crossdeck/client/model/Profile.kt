@@ -57,5 +57,7 @@ data class ActionModel(
     val mouseY: Int? = null,
     val mouseButton: String? = null,
     /** Optional override icon for a long-press action or a multi-action step. */
-    val icon: String? = null
+    val icon: String? = null,
+    /** Optional override label for a long-press action or a multi-action step. */
+    val label: String? = null
 )

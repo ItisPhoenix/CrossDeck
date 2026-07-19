@@ -128,4 +128,8 @@ public class ActionModel
     /// <summary>Optional override icon for a long-press action or a multi-action step.</summary>
     [JsonPropertyName("icon")]
     public string? Icon { get; set; }
+
+    /// <summary>Optional override label for a long-press action or a multi-action step.</summary>
+    [JsonPropertyName("label")]
+    public string? Label { get; set; }
 }

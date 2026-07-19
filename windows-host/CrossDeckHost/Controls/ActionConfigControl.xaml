@@ -17,6 +17,9 @@
         </ComboBox>
 
         <StackPanel x:Name="IconSection" Visibility="Collapsed" Margin="0,0,0,14">
+            <TextBlock Text="Label" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
+            <TextBox x:Name="ActionLabelText" Padding="10,8" FontSize="13" Margin="0,0,0,14" TextChanged="ParamField_Changed"
+                     ToolTip="Optional name shown on this step's tile — leave blank to auto-describe it"/>
             <TextBlock Text="Icon" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
             <Grid Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>

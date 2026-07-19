@@ -1,5 +1,5 @@
 using System;
-using System.Diagnostics;
+using System.Management;
 using System.Runtime.InteropServices;
 
 namespace CrossDeckHost.Actions;
@@ -127,47 +127,33 @@ public static class DialController
         return success;
     }
 
+    // In-process WMI (not a spawned powershell.exe per call, which is what made brightness
+    // laggy compared to volume's direct COM call — process startup alone is ~200ms+ per tick).
     private static int GetWmiBrightness()
     {
         try
         {
-            var startInfo = new ProcessStartInfo
+            using var searcher = new ManagementObjectSearcher("root\\WMI", "SELECT CurrentBrightness FROM WmiMonitorBrightness");
+            foreach (ManagementObject mo in searcher.Get())
             {
-                FileName = "powershell.exe",
-                Arguments = "-NoProfile -Command \"(Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightness).CurrentBrightness\"",
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var process = Process.Start(startInfo);
-            if (process == null) return 50;
-            string output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit();
-            if (int.TryParse(output.Trim(), out int val))
-            {
-                return val;
+                using (mo)
+                    return Convert.ToInt32(mo["CurrentBrightness"]);
             }
-            return 50;
         }
-        catch
-        {
-            return 50;
-        }
+        catch { }
+        return 50;
     }
 
     private static void SetWmiBrightness(int value)
     {
         try
         {
-            var startInfo = new ProcessStartInfo
+            using var searcher = new ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
+            foreach (ManagementObject mo in searcher.Get())
             {
-                FileName = "powershell.exe",
-                Arguments = $"-NoProfile -Command \"(Get-CimInstance -Namespace root/wmi -ClassName WmiMonitorBrightnessMethods).WmiSetBrightness(0, {value})\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            using var process = Process.Start(startInfo);
-            process?.WaitForExit();
+                using (mo)
+                    mo.InvokeMethod("WmiSetBrightness", new object[] { (uint)0, (byte)value });
+            }
         }
         catch { }
     }

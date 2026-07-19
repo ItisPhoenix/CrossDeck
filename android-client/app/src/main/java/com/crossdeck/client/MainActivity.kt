@@ -131,8 +131,8 @@ class MainActivity : ComponentActivity() {
                                 onProfileRename = { profileId, name ->
                                     connectionManager.sendProfileRename(profileId, name)
                                 },
-                                onDialAdjust = { buttonId, value ->
-                                    connectionManager.sendDialAdjust(buttonId, value)
+                                onDialAdjust = { buttonId, slot, value ->
+                                    connectionManager.sendDialAdjust(buttonId, slot, value)
                                 },
                                 settings = appSettings,
                                 onSettingsChange = { newSettings ->
@@ -179,7 +179,7 @@ class MainActivity : ComponentActivity() {
                                         onProfileCreate = {},
                                         onProfileDelete = {},
                                         onProfileRename = { _, _ -> },
-                                        onDialAdjust = { _, _ -> },
+                                        onDialAdjust = { _, _, _ -> },
                                         settings = appSettings,
                                         onSettingsChange = { newSettings ->
                                             appSettings = newSettings

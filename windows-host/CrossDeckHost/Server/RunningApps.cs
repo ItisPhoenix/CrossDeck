@@ -45,7 +45,10 @@ public static class RunningApps
                 string? icon = null;
                 try
                 {
-                    var exePath = proc.MainModule?.FileName;
+                    // MainModule.FileName throws Access Denied across elevation boundaries (most
+                    // elevated apps, since this host doesn't run as admin) — QueryFullProcessImageName
+                    // only needs PROCESS_QUERY_LIMITED_INFORMATION, which works regardless.
+                    var exePath = GetProcessImagePath((uint)pid);
                     if (exePath != null)
                     {
                         if (!IconCache.TryGetValue(exePath, out icon))
@@ -72,6 +75,33 @@ public static class RunningApps
     }
 
     public static void CloseWindow(long hwnd) => PostMessage(new IntPtr(hwnd), WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+
+    private static string? GetProcessImagePath(uint pid)
+    {
+        IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+        if (handle == IntPtr.Zero) return null;
+        try
+        {
+            var sb = new System.Text.StringBuilder(1024);
+            int size = sb.Capacity;
+            return QueryFullProcessImageName(handle, 0, sb, ref size) ? sb.ToString() : null;
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+
+    private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern bool QueryFullProcessImageName(IntPtr hProcess, int dwFlags, System.Text.StringBuilder lpExeName, ref int lpdwSize);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr hObject);
 
     private const uint WM_CLOSE = 0x0010;
     private const uint GW_OWNER = 4;
