@@ -20,35 +20,38 @@
             <TextBlock Text="Label" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
             <TextBox x:Name="ActionLabelText" Padding="10,8" FontSize="13" Margin="0,0,0,14" TextChanged="ParamField_Changed"
                      ToolTip="Optional name shown on this step's tile — leave blank to auto-describe it"/>
-            <TextBlock Text="Icon" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
-            <Grid Margin="0,0,0,8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBox x:Name="ActionIconText" Padding="10,8" FontSize="13" IsReadOnly="True" Margin="0,0,8,0"
-                         ToolTip="Current icon reference — read-only, use Browse or Built-in to change it"/>
-                <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Margin="0,0,8,0" Click="BrowseActionIcon_Click"
-                        ToolTip="Upload a custom image from this PC">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="📂" FontSize="13" Margin="0,0,6,0"/>
-                        <TextBlock Text="Browse"/>
-                    </StackPanel>
-                </Button>
-                <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="12,8" Click="ToggleActionBuiltinIcons_Click"
-                        ToolTip="Choose from CrossDeck's bundled icon set">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🎨" FontSize="13" Margin="0,0,6,0"/>
-                        <TextBlock Text="Built-in"/>
-                    </StackPanel>
-                </Button>
-            </Grid>
-            <Border x:Name="ActionBuiltinIconsDrawer" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="10" Visibility="Collapsed">
-                <ScrollViewer Height="130" VerticalScrollBarVisibility="Auto">
-                    <WrapPanel x:Name="ActionIconWrapPanel" Orientation="Horizontal"/>
-                </ScrollViewer>
-            </Border>
+            <!-- Multi-action has no icon of its own — each step already shows its own icon. -->
+            <StackPanel x:Name="ActionIconOnlySection">
+                <TextBlock Text="Icon" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="ActionIconText" Padding="10,8" FontSize="13" IsReadOnly="True" Margin="0,0,8,0"
+                             ToolTip="Current icon reference — read-only, use Browse or Built-in to change it"/>
+                    <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Margin="0,0,8,0" Click="BrowseActionIcon_Click"
+                            ToolTip="Upload a custom image from this PC">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📂" FontSize="13" Margin="0,0,6,0"/>
+                            <TextBlock Text="Browse"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="12,8" Click="ToggleActionBuiltinIcons_Click"
+                            ToolTip="Choose from CrossDeck's bundled icon set">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🎨" FontSize="13" Margin="0,0,6,0"/>
+                            <TextBlock Text="Built-in"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+                <Border x:Name="ActionBuiltinIconsDrawer" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="10" Visibility="Collapsed">
+                    <ScrollViewer Height="130" VerticalScrollBarVisibility="Auto">
+                        <WrapPanel x:Name="ActionIconWrapPanel" Orientation="Horizontal"/>
+                    </ScrollViewer>
+                </Border>
+            </StackPanel>
         </StackPanel>
 
         <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Container}" Padding="14">

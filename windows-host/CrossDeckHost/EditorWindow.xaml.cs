@@ -1264,7 +1264,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v0.3.1-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nPersonal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v0.3.2-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nPersonal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

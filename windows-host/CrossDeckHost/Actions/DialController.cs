@@ -56,15 +56,14 @@ public static class DialController
         }
     }
 
+    /// <summary>Returns the applied level, or -1 if neither DDC/CI nor WMI could actually set
+    /// it — callers must not report success on -1; some displays support neither backend.</summary>
     public static int SetBrightness(int value)
     {
         int target = Math.Clamp(value, 0, 100);
-        if (SetDdcciBrightness((uint)target))
-        {
-            return target;
-        }
-        SetWmiBrightness(target);
-        return target;
+        if (SetDdcciBrightness((uint)target)) return target;
+        if (SetWmiBrightness(target)) return target;
+        return -1;
     }
 
     public static int GetBrightness()
@@ -141,21 +140,24 @@ public static class DialController
             }
         }
         catch { }
-        return 50;
+        return -1;
     }
 
-    private static void SetWmiBrightness(int value)
+    private static bool SetWmiBrightness(int value)
     {
         try
         {
             using var searcher = new ManagementObjectSearcher("root\\WMI", "SELECT * FROM WmiMonitorBrightnessMethods");
+            bool found = false;
             foreach (ManagementObject mo in searcher.Get())
             {
+                found = true;
                 using (mo)
                     mo.InvokeMethod("WmiSetBrightness", new object[] { (uint)0, (byte)value });
             }
+            return found;
         }
-        catch { }
+        catch { return false; }
     }
 
     // DDC/CI Imports

@@ -76,7 +76,7 @@ public static class RunningApps
 
     public static void CloseWindow(long hwnd) => PostMessage(new IntPtr(hwnd), WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
 
-    private static string? GetProcessImagePath(uint pid)
+    internal static string? GetProcessImagePath(uint pid)
     {
         IntPtr handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
         if (handle == IntPtr.Zero) return null;

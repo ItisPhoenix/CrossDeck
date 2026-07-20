@@ -57,6 +57,7 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -90,14 +91,31 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             Grid.SetColumn(summary, 1);
             grid.Children.Add(summary);
 
+            var labelBox = new TextBox
+            {
+                Text = step.Action.Label ?? "",
+                Padding = new Thickness(6, 4, 6, 4),
+                FontSize = 11,
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = "Optional label shown on this step's tile"
+            };
+            labelBox.TextChanged += (s, e) =>
+            {
+                step.Action.Label = string.IsNullOrWhiteSpace(labelBox.Text) ? null : labelBox.Text;
+                summary.Text = DescribeStep(step.Action);
+            };
+            Grid.SetColumn(labelBox, 2);
+            grid.Children.Add(labelBox);
+
             var upBtn = new Button { Content = "↑", Width = 28, Height = 28, Padding = new Thickness(0), FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index > 0, ToolTip = "Move up" };
             upBtn.Click += (s, e) => Steps.Move(index, index - 1);
-            Grid.SetColumn(upBtn, 2);
+            Grid.SetColumn(upBtn, 3);
             grid.Children.Add(upBtn);
 
             var downBtn = new Button { Content = "↓", Width = 28, Height = 28, Padding = new Thickness(0), FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index < Steps.Count - 1, ToolTip = "Move down" };
             downBtn.Click += (s, e) => Steps.Move(index, index + 1);
-            Grid.SetColumn(downBtn, 3);
+            Grid.SetColumn(downBtn, 4);
             grid.Children.Add(downBtn);
 
             // A raw "✕" (U+2715) string mis-rendered as a stray chevron on some font fallback
@@ -114,7 +132,7 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
                 Style = (Style)FindResource("DangerButton")
             };
             removeBtn.Click += (s, e) => Steps.RemoveAt(index);
-            Grid.SetColumn(removeBtn, 4);
+            Grid.SetColumn(removeBtn, 5);
             grid.Children.Add(removeBtn);
 
             row.Child = grid;

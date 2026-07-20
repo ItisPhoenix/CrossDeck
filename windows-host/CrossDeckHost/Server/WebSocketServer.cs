@@ -400,17 +400,33 @@ public class WebSocketServer
             return;
         }
 
-        int newVal = 50;
-        if (action.DialTarget == "volume")
-        {
-            newVal = hasValue ? CrossDeckHost.Actions.DialController.SetVolume(targetVal) : CrossDeckHost.Actions.DialController.GetVolume();
-        }
-        else if (action.DialTarget == "brightness")
-        {
-            newVal = hasValue ? CrossDeckHost.Actions.DialController.SetBrightness(targetVal) : CrossDeckHost.Actions.DialController.GetBrightness();
-        }
+        var dialTarget = action.DialTarget;
+        var resolvedButtonId = button.ButtonId;
+        var resolvedSlot = slot ?? "main";
 
-        await BroadcastDialStateAsync(button.ButtonId, slot ?? "main", newVal);
+        // DDC/CI brightness writes go over I2C and can take tens of ms, unlike volume's
+        // sub-millisecond COM call — offloaded so a fast slider drag doesn't back up behind
+        // slow brightness calls on this socket's single receive loop (same as HandleButtonPress).
+        _ = Task.Run(async () =>
+        {
+            int newVal = 50;
+            if (dialTarget == "volume")
+            {
+                newVal = hasValue ? CrossDeckHost.Actions.DialController.SetVolume(targetVal) : CrossDeckHost.Actions.DialController.GetVolume();
+            }
+            else if (dialTarget == "brightness")
+            {
+                newVal = hasValue ? CrossDeckHost.Actions.DialController.SetBrightness(targetVal) : CrossDeckHost.Actions.DialController.GetBrightness();
+            }
+
+            if (newVal < 0)
+            {
+                await SendJsonAsync(webSocket, new { type = "ack", buttonId = resolvedButtonId, status = "error", message = "This display doesn't support brightness control" }, CancellationToken.None);
+                return;
+            }
+
+            await BroadcastDialStateAsync(resolvedButtonId, resolvedSlot, newVal);
+        });
     }
 
     /// <summary>

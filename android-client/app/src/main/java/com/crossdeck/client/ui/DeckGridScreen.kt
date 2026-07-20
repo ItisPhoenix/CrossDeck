@@ -1081,7 +1081,9 @@ fun DeckGridScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         val labelIcon = if (button.action.dialTarget == "brightness") "☀️" else "🔊"
-                        Text(button.label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                        val dialTitle = button.action.label?.takeIf { it.isNotBlank() }
+                            ?: (if (button.action.dialTarget == "brightness") "Brightness" else "Volume")
+                        Text(dialTitle, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "$labelIcon ${localSliderValue.toInt()}%",
@@ -2051,7 +2053,7 @@ private fun EditButtonDialog(
                     .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f), RoundedCornerShape(2.dp))
             )
         },
-        windowInsets = WindowInsets(0)
+        contentWindowInsets = { WindowInsets(0) }
     ) {
         Column(
             modifier = Modifier
@@ -2633,13 +2635,15 @@ private fun ActionTypeEditor(
     }
     Spacer(modifier = Modifier.height(16.dp))
 
-    if (showIconPicker && state.type != "multi_action") {
+    if (showIconPicker) {
         CrossDeckTextField(
             value = state.label,
             onValueChange = { state.label = it },
             label = "Label (optional, shown on this step's tile)",
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
         )
+        // Multi-action has no icon of its own — each step already shows its own icon.
+        if (state.type != "multi_action") {
         Text("Icon", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)) {
             IconPreview(icon = state.icon, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(36.dp))
@@ -2658,6 +2662,7 @@ private fun ActionTypeEditor(
                 onDismiss = { showBuiltinIconPicker = false },
                 onSelect = { name -> state.icon = "builtin:$name"; showBuiltinIconPicker = false }
             )
+        }
         }
     }
 

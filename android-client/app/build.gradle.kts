@@ -12,7 +12,7 @@ android {
         applicationId = "com.crossdeck.client"
         minSdk = 31 // Android 12+, per architecture spec decision #13
         targetSdk = 34
-        versionName = "0.3.1-beta"
+        versionName = "0.3.2-beta"
     }
 
     buildTypes {
@@ -57,7 +57,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.3")
     implementation("androidx.activity:activity-compose:1.9.0")
 
-    implementation(platform("androidx.compose:compose-bom:2024.06.00"))
+    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")

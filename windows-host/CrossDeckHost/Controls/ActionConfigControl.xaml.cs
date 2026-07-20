@@ -275,7 +275,9 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                 case "multi_action": MultiActionPanel.Visibility = Visibility.Visible; break;
                 case "dial": DialPanel.Visibility = Visibility.Visible; break;
             }
-            ActionTypeChanged?.Invoke(selectedItem.Tag?.ToString() ?? "");
+            var tag = selectedItem.Tag?.ToString() ?? "";
+            ActionIconOnlySection.Visibility = tag == "multi_action" ? Visibility.Collapsed : Visibility.Visible;
+            ActionTypeChanged?.Invoke(tag);
         }
         ActionChanged?.Invoke();
     }

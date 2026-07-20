@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using CrossDeckHost.Server;
 using Windows.Media.Control;
 
 namespace CrossDeckHost.Actions;
@@ -240,8 +241,31 @@ public class ActionExecutor
         if (!isExplorer && TryFocusExistingWindow(exe))
             return (true, null);
 
-        Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = true });
+        var proc = Process.Start(new ProcessStartInfo(exe, args) { UseShellExecute = true });
+        if (proc != null) WaitAndFocusNewWindow(proc);
         return (true, null);
+    }
+
+    // A freshly-launched process has no foreground token, so Windows won't focus its window on
+    // its own — wait briefly for it to appear, then force it forward like an existing-window
+    // focus does. Gives up after ~3s so a slow-starting app doesn't stall the button press.
+    private static void WaitAndFocusNewWindow(Process proc)
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            try
+            {
+                proc.Refresh();
+                if (proc.HasExited) return;
+                if (proc.MainWindowHandle != IntPtr.Zero)
+                {
+                    ForceForegroundWindow(proc.MainWindowHandle);
+                    return;
+                }
+            }
+            catch { return; }
+            System.Threading.Thread.Sleep(150);
+        }
     }
 
     /// <summary>
@@ -327,19 +351,11 @@ public class ActionExecutor
                     continue;
                 }
 
-                // 3. Executable path match (risky MainModule access, wrapped in its own try-catch)
+                // 3. Executable path match — MainModule.FileName threw for elevated processes and
+                // cost 1.5-4.8s/press; QueryFullProcessImageName doesn't throw and costs ~10ms.
                 if (!string.IsNullOrEmpty(fullTarget))
                 {
-                    string? procPath = null;
-                    try
-                    {
-                        procPath = proc.MainModule?.FileName;
-                    }
-                    catch
-                    {
-                        // Ignore access denied for MainModule
-                    }
-
+                    var procPath = RunningApps.GetProcessImagePath((uint)proc.Id);
                     if (procPath != null && string.Equals(Path.GetFullPath(procPath), fullTarget, StringComparison.OrdinalIgnoreCase))
                     {
                         result.Add(proc);

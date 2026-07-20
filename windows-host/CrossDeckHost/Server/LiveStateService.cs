@@ -189,19 +189,35 @@ public class LiveStateService
         _ => -1
     };
 
+    // Multiple buttons commonly share the same dialTarget (e.g. several volume/brightness
+    // buttons across profiles) — DDC/CI brightness queries go over I2C, and hammering a monitor
+    // with several of these every second can wedge its DDC/CI controller entirely. Query each
+    // distinct target at most once per tick and fan the same value out to every button using it.
     private void PollDialLevels()
     {
+        var cache = new Dictionary<string, int>();
+        int LevelFor(string? target)
+        {
+            var key = target ?? "";
+            if (!cache.TryGetValue(key, out var level))
+            {
+                level = DialLevel(target);
+                cache[key] = level;
+            }
+            return level;
+        }
+
         foreach (var b in CurrentButtons())
         {
-            PollOneDialSlot(b.ButtonId, "main", b.Action);
-            if (b.LongPressAction != null) PollOneDialSlot(b.ButtonId, "longPress", b.LongPressAction);
+            PollOneDialSlot(b.ButtonId, "main", b.Action, LevelFor);
+            if (b.LongPressAction != null) PollOneDialSlot(b.ButtonId, "longPress", b.LongPressAction, LevelFor);
         }
     }
 
-    private void PollOneDialSlot(string buttonId, string slot, ActionModel action)
+    private void PollOneDialSlot(string buttonId, string slot, ActionModel action, Func<string?, int> levelFor)
     {
         if (action.Type != "dial") return;
-        int level = DialLevel(action.DialTarget);
+        int level = levelFor(action.DialTarget);
         if (level < 0) return;
 
         var key = $"{buttonId}:{slot}";
@@ -215,6 +231,18 @@ public class LiveStateService
     /// <summary>Full current-state snapshot for every live-state-capable button, sent when a phone connects.</summary>
     public IEnumerable<(string ButtonId, bool? Active, int? Level, string? DialSlot)> GetSnapshot()
     {
+        var cache = new Dictionary<string, int>();
+        int LevelFor(string? target)
+        {
+            var key = target ?? "";
+            if (!cache.TryGetValue(key, out var level))
+            {
+                level = DialLevel(target);
+                cache[key] = level;
+            }
+            return level;
+        }
+
         foreach (var b in CurrentButtons())
         {
             if (b.Action.Type == "media_control" && b.Action.MediaCommand == "PlayPause")
@@ -226,12 +254,12 @@ public class LiveStateService
 
             if (b.Action.Type == "dial")
             {
-                int level = DialLevel(b.Action.DialTarget);
+                int level = LevelFor(b.Action.DialTarget);
                 if (level >= 0) yield return (b.ButtonId, null, level, "main");
             }
             if (b.LongPressAction?.Type == "dial")
             {
-                int level = DialLevel(b.LongPressAction.DialTarget);
+                int level = LevelFor(b.LongPressAction.DialTarget);
                 if (level >= 0) yield return (b.ButtonId, null, level, "longPress");
             }
         }
