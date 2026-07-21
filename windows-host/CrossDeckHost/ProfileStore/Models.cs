@@ -33,21 +33,14 @@ public class Profile
 
     [JsonPropertyName("buttons")]
     public List<ButtonModel> Buttons { get; set; } = new();
-
-    [JsonPropertyName("rows")]
-    public int Rows { get; set; } = 3;
-
-    [JsonPropertyName("columns")]
-    public int Columns { get; set; } = 5;
 }
 
+/// <summary>A button's position is its index within Profile.Buttons (filtered to its
+/// ParentFolderId) — no explicit coordinates; the deck auto-wraps at a fixed column count.</summary>
 public class ButtonModel
 {
     [JsonPropertyName("buttonId")]
     public string ButtonId { get; set; } = "";
-
-    [JsonPropertyName("position")]
-    public Position Position { get; set; } = new();
 
     [JsonPropertyName("label")]
     public string Label { get; set; } = "";
@@ -64,15 +57,6 @@ public class ButtonModel
 
     [JsonPropertyName("parentFolderId")]
     public string? ParentFolderId { get; set; }
-}
-
-public class Position
-{
-    [JsonPropertyName("row")]
-    public int Row { get; set; }
-
-    [JsonPropertyName("col")]
-    public int Col { get; set; }
 }
 
 /// <summary>

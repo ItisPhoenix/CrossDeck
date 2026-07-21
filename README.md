@@ -134,4 +134,4 @@ Or open `android-client/` in Android Studio and run on your device.
 
 ## License
 
-Personal project — no license granted. Code is here for reference and personal use only; not licensed for reuse or redistribution.
+MIT — see [LICENSE](LICENSE).

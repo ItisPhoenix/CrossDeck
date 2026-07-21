@@ -6,9 +6,7 @@ import kotlinx.serialization.Serializable
 data class Profile(
     val profileId: String,
     val name: String,
-    val buttons: List<ButtonModel>,
-    val rows: Int = 3,
-    val columns: Int = 5
+    val buttons: List<ButtonModel>
 )
 
 @Serializable
@@ -18,22 +16,17 @@ data class ProfileHeader(
     val icons: List<String> = emptyList()
 )
 
+/** A button's position is its index within Profile.buttons (filtered to its parentFolderId) —
+ * no explicit coordinates; the deck auto-wraps at a fixed column count. */
 @Serializable
 data class ButtonModel(
     val buttonId: String,
-    val position: Position,
     val label: String,
     val icon: String? = null,
     val action: ActionModel,
     /** Optional second action fired by long-pressing the button. */
     val longPressAction: ActionModel? = null,
     val parentFolderId: String? = null
-)
-
-@Serializable
-data class Position(
-    val row: Int,
-    val col: Int
 )
 
 /**

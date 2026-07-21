@@ -30,7 +30,11 @@
                     <TextBox x:Name="LabelInput" Margin="0,0,0,18" Padding="10,8" FontSize="13" TextChanged="LabelInput_TextChanged"
                              ToolTip="Text shown on the button in both apps"/>
 
-                    <!-- Icon Picker -->
+                    <!-- Icon Picker — hidden when main action is Multiple Actions, since the grid
+                         tile always shows the live step mosaic instead and this icon would be
+                         dead. Macro keeps it: one atomic action under the hood, so a real icon
+                         fits it, unlike Multiple Actions which is a picker between distinct steps. -->
+                    <StackPanel x:Name="MainIconSection">
                     <TextBlock Text="Icon" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,6"/>
                     <Grid Margin="0,0,0,18">
                         <Grid.ColumnDefinitions>
@@ -67,6 +71,7 @@
                             </ScrollViewer>
                         </StackPanel>
                     </Border>
+                    </StackPanel>
 
                     <!-- Main Action -->
                     <TextBlock Text="Action Type" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,6"/>
@@ -88,7 +93,22 @@
                         <CheckBox x:Name="LongPressEnabledCheck" Content="Enable long-press action" FontSize="13" Margin="0,0,0,10"
                                   Checked="LongPressEnabledCheck_Changed" Unchecked="LongPressEnabledCheck_Changed"
                                   ToolTip="When on, holding the button on the phone fires a second, different action"/>
-                        <controls:ActionConfigControl x:Name="LongPressActionConfig" Visibility="Collapsed" Margin="0,0,0,20"/>
+
+                        <!-- Button 1 always gets the same numbered card as button 2+ once chained
+                             (RichActionStepListControl's own cards, inside LongPressActionConfig's
+                             MultiActionPanel) — LongPressButton1Header hides once that happens so
+                             the numbering is never shown twice. -->
+                        <Border x:Name="LongPressButton1Card" Visibility="Collapsed" Background="{StaticResource Brush.Void}"
+                                BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="8"
+                                Padding="12" Margin="0,0,0,10">
+                            <StackPanel>
+                                <TextBlock x:Name="LongPressButton1Header" Text="Long-Press Button 1" FontWeight="Bold" FontSize="12"
+                                           Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,8"/>
+                                <controls:ActionConfigControl x:Name="LongPressActionConfig"/>
+                            </StackPanel>
+                        </Border>
+                        <Button x:Name="AddAnotherLongPressActionButton" Content="+ Add Another Action" Style="{StaticResource StandardButton}"
+                                Margin="0,0,0,20" HorizontalAlignment="Left" Click="AddAnotherLongPressAction_Click"/>
                     </StackPanel>
 
                     <TextBlock x:Name="SaveHintText" Foreground="{StaticResource Brush.Alarm}" FontSize="12" Margin="0,0,0,8"

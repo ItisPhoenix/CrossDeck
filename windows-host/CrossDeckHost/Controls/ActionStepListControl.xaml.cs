@@ -18,6 +18,15 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
 {
     public ObservableCollection<ActionStep> Steps { get; } = new();
 
+    private bool _isMacro;
+    /// <summary>A macro is captured by recording real input, not by hand-picking a type and typing
+    /// a value — that manual row is Multiple Actions' own affordance, hidden here when true.</summary>
+    public bool IsMacro
+    {
+        get => _isMacro;
+        set { _isMacro = value; ManualAddRow.Visibility = value ? Visibility.Collapsed : Visibility.Visible; }
+    }
+
     private readonly MacroRecorder _macroRecorder = new();
 
     // Only one panel can record at a time — a second Record press elsewhere is a no-op while

@@ -148,7 +148,7 @@
                         <Border BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,4,0,0">
                             <Grid>
                                 <TextBlock Text="About" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" TextDecorations="Underline" HorizontalAlignment="Left"/>
-                                <TextBlock Text="v0.3.2-beta" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" HorizontalAlignment="Right"/>
+                                <TextBlock Text="v0.3.4-beta" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" HorizontalAlignment="Right"/>
                             </Grid>
                         </Border>
                     </StackPanel>
@@ -179,21 +179,20 @@
                             </Grid>
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="Grid:" Foreground="{StaticResource Brush.Mist}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <ComboBox x:Name="GridSizeCombo" Width="80" Height="28" FontSize="11" SelectionChanged="GridSizeCombo_SelectionChanged" VerticalAlignment="Center" Margin="0,0,14,0">
-                                    <ComboBoxItem Content="2 × 4" Tag="2,4"/>
-                                    <ComboBoxItem Content="3 × 5" Tag="3,5" IsSelected="True"/>
-                                    <ComboBoxItem Content="4 × 6" Tag="4,6"/>
-                                    <ComboBoxItem Content="2 × 3" Tag="2,3"/>
-                                </ComboBox>
                                 <TextBlock Text="Trigger:" Foreground="{StaticResource Brush.Mist}" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                <TextBox x:Name="TriggerProcessTxt" Width="120" Height="28" VerticalAlignment="Center" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" ToolTip="e.g. chrome.exe (auto-switches to this profile)"/>
+                                <TextBox x:Name="TriggerProcessTxt" Width="120" MinWidth="120" Height="28" VerticalAlignment="Center" LostFocus="TriggerProcessTxt_LostFocus" KeyDown="TriggerProcessTxt_KeyDown" TextChanged="TriggerProcessTxt_TextChanged" ToolTip="e.g. chrome.exe (auto-switches to this profile)"/>
                             </StackPanel>
                         </Grid>
 
                         <!-- Grid Canvas -->
                         <Grid Grid.Row="1">
-                            <UniformGrid x:Name="ButtonGrid" Rows="3" Columns="5"/>
+                            <ScrollViewer x:Name="ButtonGridScroller" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                                <!-- Cells never shrink below a floor (set in code-behind, same
+                                     fit-then-scroll rule Android's grid already uses) — once
+                                     content no longer fits at a comfortable size, this scrolls
+                                     instead of squeezing every button smaller. -->
+                                <UniformGrid x:Name="ButtonGrid" Rows="3" Columns="5" HorizontalAlignment="Center" VerticalAlignment="Top"/>
+                            </ScrollViewer>
 
                             <StackPanel HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,16,16">
                                 <Border x:Name="ToastNotificationCard" CornerRadius="10" Background="{StaticResource Brush.Panel}" BorderBrush="{DynamicResource Brush.Accent}" BorderThickness="1" Padding="12,8" Margin="0,0,0,6" Visibility="Collapsed">

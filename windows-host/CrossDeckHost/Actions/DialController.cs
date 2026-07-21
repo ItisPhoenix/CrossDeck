@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Management;
 using System.Runtime.InteropServices;
 
@@ -259,5 +260,177 @@ public static class DialController
         int SetMute([MarshalAs(UnmanagedType.Bool)] bool isMuted, Guid eventContext);
         [PreserveSig]
         int GetMute([MarshalAs(UnmanagedType.Bool)] out bool isMuted);
+    }
+
+    // Per-app (session) volume control for the multi-volume feature — separate COM path from
+    // the master IAudioEndpointVolume above. Fresh lookup every call, same reasoning as
+    // GetVolumeObject(): sessions are transient, appearing/disappearing as apps play/stop audio.
+    private static IAudioSessionManager2? GetSessionManager()
+    {
+        try
+        {
+            var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
+            enumerator.GetDefaultAudioEndpoint(0, 1, out var device);
+            var iid = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+            device.Activate(ref iid, 23, IntPtr.Zero, out var mgrObj);
+            return (IAudioSessionManager2)mgrObj;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Enumerates every real (non-system-sounds) audio session's control + owning
+    /// process name once — the shared loop behind every per-app query below, so the same
+    /// COM enumeration isn't duplicated per call site.</summary>
+    private static IEnumerable<(string ProcessName, uint Pid, IAudioSessionControl2 Control)> EnumerateAudioSessions()
+    {
+        var mgr = GetSessionManager();
+        if (mgr == null) yield break;
+        if (mgr.GetSessionEnumerator(out var sessionEnum) != 0) yield break;
+        if (sessionEnum.GetCount(out int count) != 0) yield break;
+
+        for (int i = 0; i < count; i++)
+        {
+            string? processName = null;
+            uint pid = 0;
+            IAudioSessionControl2? session = null;
+            try
+            {
+                // GetSession's QueryInterface can throw per-session, must be inside the guard.
+                if (sessionEnum.GetSession(i, out session) != 0) continue;
+                if (session.IsSystemSoundsSession() == 0) continue; // S_OK (0) = is system sounds, skip
+                if (session.GetProcessId(out pid) != 0) continue;
+                using var proc = System.Diagnostics.Process.GetProcessById((int)pid);
+                processName = proc.ProcessName;
+            }
+            catch { }
+            if (processName != null && session != null) yield return (processName, pid, session);
+        }
+    }
+
+    private static IAudioSessionControl2? FindSessionControl(string processName) =>
+        EnumerateAudioSessions().FirstOrDefault(s => string.Equals(s.ProcessName, processName, StringComparison.OrdinalIgnoreCase)).Control;
+
+    /// <summary>Returns the applied level 0-100, or -1 if the app has no active audio session.</summary>
+    public static int SetAppVolume(string processName, int value)
+    {
+        var control = FindSessionControl(processName);
+        if (control is not ISimpleAudioVolume vol) return -1;
+        float target = Math.Clamp(value / 100f, 0f, 1f);
+        if (vol.SetMasterVolume(target, Guid.Empty) != 0) return -1;
+        return (int)Math.Round(target * 100f);
+    }
+
+    /// <summary>Returns the current level 0-100, or -1 if the app has no active audio session.</summary>
+    public static int GetAppVolume(string processName)
+    {
+        var control = FindSessionControl(processName);
+        if (control is not ISimpleAudioVolume vol) return -1;
+        if (vol.GetMasterVolume(out float level) != 0) return -1;
+        return (int)Math.Round(level * 100f);
+    }
+
+    /// <summary>Returns the applied mute state, or null if the app has no active audio session.</summary>
+    public static bool? SetAppMuted(string processName, bool muted)
+    {
+        var control = FindSessionControl(processName);
+        if (control is not ISimpleAudioVolume vol) return null;
+        if (vol.SetMute(muted, Guid.Empty) != 0) return null;
+        return muted;
+    }
+
+    /// <summary>One row per distinct process currently holding a real audio session — the live
+    /// app-volume mixer's data source. A process with several sessions is represented by
+    /// whichever session <see cref="EnumerateAudioSessions"/> reaches first, matching
+    /// Get/SetAppVolume's own single-session-per-process behavior.</summary>
+    public record AudioMixerEntry(string ProcessName, int Level, bool Muted, string? Icon);
+
+    // exe path -> icon hash, same reasoning as RunningApps.IconCache: don't re-extract every poll
+    // tick. Only successes are cached (unlike RunningApps' own cache) — extraction genuinely fails
+    // for some real apps (packaged/Store installs with no extractable icon resource on their exe),
+    // and caching that failure would permanently blank an app's row instead of retrying next tick.
+    // ConcurrentDictionary since a second subscribed phone runs its own push loop on another thread.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> MixerIconCache = new();
+
+    public static List<AudioMixerEntry> GetAudioMixerSnapshot()
+    {
+        var result = new List<AudioMixerEntry>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (processName, pid, control) in EnumerateAudioSessions())
+        {
+            if (!seen.Add(processName)) continue;
+            if (control is not ISimpleAudioVolume vol) continue;
+            if (vol.GetMasterVolume(out float level) != 0) continue;
+            bool muted = vol.GetMute(out bool m) == 0 && m;
+
+            string? icon = null;
+            try
+            {
+                var exePath = Server.RunningApps.GetProcessImagePath(pid);
+                if (exePath != null)
+                {
+                    if (!MixerIconCache.TryGetValue(exePath, out icon))
+                    {
+                        icon = ProfileStore.ProfileStoreService.ExtractAndSaveIcon(exePath);
+                        if (icon != null) MixerIconCache[exePath] = icon;
+                    }
+                }
+            }
+            catch { }
+
+            result.Add(new AudioMixerEntry(processName, (int)Math.Round(level * 100f), muted, icon));
+        }
+        return result;
+    }
+
+    [Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioSessionManager2
+    {
+        int NotImpl_GetAudioSessionControl();
+        int NotImpl_GetSimpleAudioVolume();
+        [PreserveSig]
+        int GetSessionEnumerator(out IAudioSessionEnumerator sessionEnum);
+    }
+
+    [Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioSessionEnumerator
+    {
+        [PreserveSig]
+        int GetCount(out int count);
+        [PreserveSig]
+        int GetSession(int index, out IAudioSessionControl2 session);
+    }
+
+    // IAudioSessionControl2 extends IAudioSessionControl (9 methods) with 4 more of its own —
+    // vtable order below matches the real interface exactly; unused slots are NotImpl stubs
+    // purely to hold position, same convention as IAudioEndpointVolume above.
+    [Guid("bfb7ff88-7239-4fc9-8fa2-07c950be9c6d")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioSessionControl2
+    {
+        [PreserveSig] int GetState(out int state);
+        int NotImpl_GetDisplayName();
+        int NotImpl_SetDisplayName();
+        int NotImpl_GetIconPath();
+        int NotImpl_SetIconPath();
+        [PreserveSig] int GetGroupingParam(out Guid groupingParam);
+        int NotImpl_SetGroupingParam();
+        int NotImpl_RegisterAudioSessionNotification();
+        int NotImpl_UnregisterAudioSessionNotification();
+        int NotImpl_GetSessionIdentifier();
+        int NotImpl_GetSessionInstanceIdentifier();
+        [PreserveSig] int GetProcessId(out uint processId);
+        [PreserveSig] int IsSystemSoundsSession();
+    }
+
+    [Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface ISimpleAudioVolume
+    {
+        [PreserveSig] int SetMasterVolume(float level, Guid eventContext);
+        [PreserveSig] int GetMasterVolume(out float level);
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool isMuted, Guid eventContext);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool isMuted);
     }
 }

@@ -57,7 +57,6 @@ public partial class EditorWindow : Window
             RefreshProfileTabStrip();
             RefreshGrid();
             UpdateConnectionStatusCard();
-            SyncGridSizeCombo();
 
             // Set auto-run checkbox initial state without triggering selection handler
             RunOnBootCheck.Checked -= RunOnBootCheck_Changed;
@@ -77,9 +76,11 @@ public partial class EditorWindow : Window
             }
         };
 
-        // Persist window geometry on every move/resize
+        // Persist window geometry on every move/resize, and re-fit the grid's cell size to
+        // whatever space a resize just freed up (RebuildGrid no-ops harmlessly before Loaded
+        // populates ButtonGridScroller's real size).
         LocationChanged += (s, e) => WindowSettings.Save(this);
-        SizeChanged     += (s, e) => WindowSettings.Save(this);
+        SizeChanged     += (s, e) => { WindowSettings.Save(this); RebuildGrid(); };
     }
 
     private void OnProfileChangedOnThread(Profile profile)
@@ -145,8 +146,10 @@ public partial class EditorWindow : Window
             Grid.SetColumn(nameTxt, 0);
             grid.Children.Add(nameTxt);
 
-            int buttonCount = profile.Buttons?.Count ?? 0;
-            int totalSlots = profile.Rows * profile.Columns;
+            // Root-page count, not the whole profile — folders are separate 20-capped pages of
+            // their own now, so a single profile-wide fraction wouldn't mean anything.
+            int buttonCount = profile.Buttons?.Count(b => b.ParentFolderId == null) ?? 0;
+            int totalSlots = 20;
             var capTxt = new TextBlock
             {
                 Text = $"{buttonCount}/{totalSlots}",
@@ -278,26 +281,6 @@ public partial class EditorWindow : Window
         RefreshProfileSelector();
         RefreshProfileTabStrip();
         RefreshGridWithFade();
-        SyncGridSizeCombo();
-    }
-
-    /// <summary>Syncs the GridSizeCombo selection to match the current profile's rows/columns.</summary>
-    private void SyncGridSizeCombo()
-    {
-        if (GridSizeCombo == null) return;
-        var rows = _profileStore.Current.Rows;
-        var cols = _profileStore.Current.Columns;
-        var tag = $"{rows},{cols}";
-        foreach (ComboBoxItem item in GridSizeCombo.Items)
-        {
-            if (item.Tag?.ToString() == tag)
-            {
-                GridSizeCombo.SelectionChanged -= GridSizeCombo_SelectionChanged;
-                GridSizeCombo.SelectedItem = item;
-                GridSizeCombo.SelectionChanged += GridSizeCombo_SelectionChanged;
-                break;
-            }
-        }
     }
 
     private void SaveTriggerProcess()
@@ -321,6 +304,23 @@ public partial class EditorWindow : Window
             SaveTriggerProcess();
             Keyboard.ClearFocus();
         }
+    }
+
+    /// <summary>Grows the box as you type past its 120px floor — a plain TextBox doesn't size to
+    /// its own content in WPF, so this measures the text with the box's own font and widens to
+    /// fit (capped so a long path can't push the rest of the header off-screen).</summary>
+    private void TriggerProcessTxt_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        var formatted = new FormattedText(
+            TriggerProcessTxt.Text,
+            System.Globalization.CultureInfo.CurrentCulture,
+            System.Windows.FlowDirection.LeftToRight,
+            new Typeface(TriggerProcessTxt.FontFamily, TriggerProcessTxt.FontStyle, TriggerProcessTxt.FontWeight, TriggerProcessTxt.FontStretch),
+            TriggerProcessTxt.FontSize,
+            System.Windows.Media.Brushes.Black,
+            VisualTreeHelper.GetDpi(TriggerProcessTxt).PixelsPerDip);
+
+        TriggerProcessTxt.Width = Math.Clamp(formatted.Width + 24, 120, 320);
     }
 
     private void NewProfileButton_Click(object sender, RoutedEventArgs e)
@@ -539,26 +539,41 @@ public partial class EditorWindow : Window
             }
         }
 
-        // --- Dynamic grid dimensions ---
-        int rows = _profileStore.Current.Rows;
-        int cols = _profileStore.Current.Columns;
-        ButtonGrid.Rows = rows;
-        ButtonGrid.Columns = cols;
-
-        // Group by cell so that any duplicate (row,col) in stored data can't
-        // crash the dictionary build — first button at a cell wins.
-        var buttons = _profileStore.Current.Buttons
+        // --- Auto-flow grid: 5 columns fixed, rows grow automatically, capped at 20 buttons
+        // per folder scope. A button's position is just its index in this filtered list. ---
+        const int columns = 5;
+        const int maxButtons = 20;
+        var displayedButtons = _profileStore.Current.Buttons
             .Where(b => b.ParentFolderId == _currentFolderId)
-            .GroupBy(b => (b.Position.Row, b.Position.Col))
-            .ToDictionary(g => g.Key, g => g.First());
+            .ToList();
+        bool showAddSlot = displayedButtons.Count < maxButtons;
+        int totalCellsInGrid = displayedButtons.Count + (showAddSlot ? 1 : 0);
+        int rows = Math.Max(1, (int)Math.Ceiling(totalCellsInGrid / (double)columns));
+        ButtonGrid.Rows = rows;
+        ButtonGrid.Columns = columns;
 
-        for (int r = 0; r < rows; r++)
+        // Cells shrink to fit the available viewport like normal, but never below a comfortable
+        // floor — past that point ButtonGridScroller scrolls instead, matching the fit-then-scroll
+        // rule Android's own grid already uses. An explicit Width/Height is required here because
+        // a UniformGrid inside a ScrollViewer is offered infinite space and has nothing else to
+        // divide evenly among Rows/Columns.
+        const double minCellSize = 96;
+        double availableW = ButtonGridScroller.ActualWidth;
+        double availableH = ButtonGridScroller.ActualHeight;
+        double cellSize = minCellSize;
+        if (availableW > 0 && availableH > 0)
         {
-            for (int c = 0; c < cols; c++)
-            {
-                int row = r;
-                int col = c;
-                bool hasButton = buttons.TryGetValue((row, col), out var buttonModel);
+            double fitted = Math.Min(availableW / columns, availableH / rows);
+            cellSize = Math.Max(fitted, minCellSize);
+        }
+        ButtonGrid.Width = columns * cellSize;
+        ButtonGrid.Height = rows * cellSize;
+
+        for (int index = 0; index < rows * columns; index++)
+        {
+                bool hasButton = index < displayedButtons.Count;
+                var buttonModel = hasButton ? displayedButtons[index] : null;
+                bool isAddSlot = index == displayedButtons.Count && showAddSlot;
 
                 // DeckButtonStyle mirrors Android's DeckButton; accent border is drag-over-only feedback.
                 var btn = new System.Windows.Controls.Button
@@ -568,7 +583,9 @@ public partial class EditorWindow : Window
                     Background = ThemeManager.Brush(hasButton ? "Brush.Panel" : "Brush.Void"),
                     BorderBrush = ThemeManager.Brush("Brush.Hairline"),
                     BorderThickness = new Thickness(hasButton ? 1.2 : 1),
-                    Tag = Tuple.Create(r, c)
+                    Tag = index,
+                    // Past the last button and the one add-slot: fully blank, not interactive.
+                    IsHitTestVisible = hasButton || isAddSlot
                 };
 
                 var stack = new StackPanel { VerticalAlignment = System.Windows.VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
@@ -577,6 +594,10 @@ public partial class EditorWindow : Window
                 {
                     bool iconLoaded = false;
 
+                    // Multiple Actions always shows a live step mosaic — each segment its own
+                    // step's real icon (falling back to a type glyph per-step if that step has
+                    // none) — never a single static button-level icon, so the tile always reflects
+                    // what the chain actually does.
                     if (buttonModel.Action.Type == "multi_action" && buttonModel.Action.Actions?.Count > 0)
                     {
                         var mosaic = BuildMultiActionMosaic(buttonModel.Action.Actions);
@@ -623,9 +644,9 @@ public partial class EditorWindow : Window
                         stack.Children.Add(tbLabel);
                     }
                 }
-                else
+                else if (isAddSlot)
                 {
-                    // Animated pulse ring + centered "+" for empty cells.
+                    // Animated pulse ring + centered "+" for the one trailing add slot.
                     // A Grid with both children set to Center alignment centers on actual
                     // rendered size — unlike the old Canvas.Left/Top version, which hand-computed
                     // offsets from assumed glyph metrics and always landed the "+" off-center.
@@ -674,14 +695,24 @@ public partial class EditorWindow : Window
                 {
                     // Small badge showing the long-press action's OWN icon — so between the
                     // button's main icon (tap) and this badge (hold), both configured actions are
-                    // visible at a glance instead of just "something happens on hold".
+                    // visible at a glance instead of just "something happens on hold". When
+                    // long-press is itself a chain of alternatives, the badge shows all of them
+                    // (small mosaic) instead of one generic chain-link glyph.
+                    bool isChainBadge = buttonModel.LongPressAction.Type == "multi_action" && buttonModel.LongPressAction.Actions is { Count: > 1 };
+
                     var cellContent = new Grid();
                     cellContent.Children.Add(stack);
 
                     var badge = new Border
                     {
-                        Background = new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor)) { Opacity = 0.92 },
-                        CornerRadius = new CornerRadius(11),
+                        // A chain badge shows several icons at once — accent-tinting the whole
+                        // badge behind them competes with each icon's own color, so it stays
+                        // neutral dark instead (matches the plain single-glyph badge's accent tint
+                        // only when there's just one glyph to tint against).
+                        Background = isChainBadge
+                            ? ThemeManager.Brush("Brush.Void")
+                            : new SolidColorBrush((System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(ThemeManager.AccentColor)) { Opacity = 0.92 },
+                        CornerRadius = new CornerRadius(isChainBadge ? 7 : 11),
                         Width = 26,
                         Height = 26,
                         HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
@@ -689,14 +720,7 @@ public partial class EditorWindow : Window
                         // Negative margin overhangs the corner (matches Android's badge, which sits
                         // outside the button's clipped content) instead of flush inside the border.
                         Margin = new Thickness(0, 0, -6, -6),
-                        Child = new TextBlock
-                        {
-                            Text = GetActionGlyph(buttonModel.LongPressAction),
-                            FontSize = 12,
-                            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                            VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                            Foreground = ThemeManager.Brush("Brush.Void")
-                        }
+                        Child = BuildBadgeGlyphContent(buttonModel.LongPressAction)
                     };
                     // Badge scales with the button too — same 27%-of-cell ratio as Android.
                     btn.SizeChanged += (s, e) => { badge.Width = badge.Height = btn.ActualWidth * 0.27; };
@@ -711,7 +735,7 @@ public partial class EditorWindow : Window
                 }
 
                 // Setup Click to edit cell
-                btn.Click += (s, e) => SelectCell(row, col);
+                btn.Click += (s, e) => SelectCell(index);
 
                 // Setup Drag and Drop events
                 btn.PreviewMouseLeftButtonDown += Cell_PreviewMouseLeftButtonDown;
@@ -722,35 +746,54 @@ public partial class EditorWindow : Window
                 btn.Drop += Cell_Drop;
 
                 ButtonGrid.Children.Add(btn);
-            }
         }
     }
 
-    /// <summary>Closed-grid preview for a multi-action button — the cell tiled into one segment
-    /// per step (hairline dividers only, no outer accent card), mirroring Android's MosaicStepGrid.
-    /// Preview-only: Windows never fires buttons locally, so there's no per-segment tap here.</summary>
+    /// <summary>Closed-grid preview for a multi-action button with no custom icon set — one cell
+    /// per step, each showing that step's own real icon (like a folder's app-icon preview),
+    /// falling back to a type glyph only for steps with no icon set. Mirrors Android's
+    /// MosaicStepGrid. Preview-only: Windows never fires buttons locally, so there's no
+    /// per-segment tap here.</summary>
     private static Border BuildMultiActionMosaic(List<ActionModel> actions)
     {
         int overflow = Math.Max(0, actions.Count - 6);
-        var glyphs = overflow > 0
-            ? actions.Take(5).Select(GetActionGlyph).Append($"+{overflow + 1}").ToList()
-            : actions.Select(GetActionGlyph).ToList();
+        var cells = overflow > 0
+            ? actions.Take(5).Select(a => (Action: (ActionModel?)a, Overflow: (string?)null)).Append((Action: null, Overflow: $"+{overflow + 1}")).ToList()
+            : actions.Select(a => (Action: (ActionModel?)a, Overflow: (string?)null)).ToList();
 
-        var uniformGrid = new System.Windows.Controls.Primitives.UniformGrid { Columns = glyphs.Count <= 1 ? 1 : 2 };
-        foreach (var g in glyphs)
+        var uniformGrid = new System.Windows.Controls.Primitives.UniformGrid { Columns = cells.Count <= 1 ? 1 : 2 };
+        foreach (var (action, overflowLabel) in cells)
         {
+            UIElement content;
+            if (overflowLabel != null)
+            {
+                content = new TextBlock { Text = overflowLabel, FontSize = 13, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = System.Windows.VerticalAlignment.Center, Foreground = ThemeManager.Brush("Brush.Paper") };
+            }
+            else
+            {
+                var iconPath = ProfileStoreService.ResolveIconFilePath(action!.Icon);
+                if (iconPath != null)
+                {
+                    try
+                    {
+                        content = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Margin = new Thickness(4), Source = new BitmapImage(new Uri(iconPath)) };
+                    }
+                    catch
+                    {
+                        content = new TextBlock { Text = GetActionGlyph(action), FontSize = 15, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = System.Windows.VerticalAlignment.Center, Foreground = ThemeManager.Brush("Brush.Paper") };
+                    }
+                }
+                else
+                {
+                    content = new TextBlock { Text = GetActionGlyph(action), FontSize = 15, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = System.Windows.VerticalAlignment.Center, Foreground = ThemeManager.Brush("Brush.Paper") };
+                }
+            }
+
             uniformGrid.Children.Add(new Border
             {
                 Margin = new Thickness(0.5),
                 Background = ThemeManager.Brush("Brush.Panel"),
-                Child = new TextBlock
-                {
-                    Text = g,
-                    FontSize = 15,
-                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
-                    VerticalAlignment = System.Windows.VerticalAlignment.Center,
-                    Foreground = ThemeManager.Brush("Brush.Paper")
-                }
+                Child = content
             });
         }
 
@@ -784,10 +827,64 @@ public partial class EditorWindow : Window
         "text_snippet" => "📋",
         "open_folder" => "📁",
         "multi_action" => "🔗",
+        "macro" => "⏺",
         "dial" => "🎚",
         "mouse_click" => "🖱",
         _ => "•"
     };
+
+    /// <summary>The long-press badge's content — a single glyph for a plain action, or a small
+    /// mosaic of every alternative's own real icon (falling back to its default builtin, then a
+    /// glyph as a last resort) when long-press is itself a chain (multi_action with 2+ entries),
+    /// same overflow-into-"+N" rule as the old full-tile mosaic used.</summary>
+    private static UIElement BuildBadgeGlyphContent(ActionModel action)
+    {
+        if (action.Type == "multi_action" && action.Actions is { Count: > 1 } actions)
+        {
+            int overflow = Math.Max(0, actions.Count - 4);
+            var cells = overflow > 0
+                ? actions.Take(3).Select(a => (Action: (ActionModel?)a, Overflow: (string?)null)).Append((Action: null, Overflow: $"+{overflow + 1}")).ToList()
+                : actions.Select(a => (Action: (ActionModel?)a, Overflow: (string?)null)).ToList();
+
+            var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
+            foreach (var (subAction, overflowLabel) in cells)
+            {
+                grid.Children.Add(BuildBadgeCell(subAction, overflowLabel));
+            }
+            return grid;
+        }
+
+        return new TextBlock
+        {
+            Text = GetActionGlyph(action),
+            FontSize = 12,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = System.Windows.VerticalAlignment.Center,
+            Foreground = ThemeManager.Brush("Brush.Void")
+        };
+    }
+
+    /// <summary>One cell of a chain badge's mosaic — a real icon (white-on-dark, matching the
+    /// badge's own neutral background) if one resolves, else a light-colored type glyph.</summary>
+    private static UIElement BuildBadgeCell(ActionModel? action, string? overflowLabel)
+    {
+        if (overflowLabel != null)
+        {
+            return new TextBlock { Text = overflowLabel, FontSize = 7, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = System.Windows.VerticalAlignment.Center, Foreground = ThemeManager.Brush("Brush.Paper") };
+        }
+
+        var iconPath = ProfileStoreService.ResolveIconFilePath(action!.Icon ?? ProfileStoreService.DefaultBuiltinIconFor(action));
+        if (iconPath != null)
+        {
+            try
+            {
+                return new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Margin = new Thickness(3), Source = new BitmapImage(new Uri(iconPath)) };
+            }
+            catch { /* fall through to glyph */ }
+        }
+
+        return new TextBlock { Text = GetActionGlyph(action), FontSize = 8, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = System.Windows.VerticalAlignment.Center, Foreground = ThemeManager.Brush("Brush.Paper") };
+    }
 
     /// <summary>Short human-readable summary for a long-press action's tooltip.</summary>
     private static string DescribeActionForTooltip(ActionModel action) => !string.IsNullOrWhiteSpace(action.Label) ? action.Label : action.Type switch
@@ -800,6 +897,7 @@ public partial class EditorWindow : Window
         "text_snippet" => "Text Snippet",
         "open_folder" => "Open Folder",
         "multi_action" => $"Multiple Actions ({action.Actions?.Count ?? 0} steps)",
+        "macro" => $"Macro ({action.Actions?.Count ?? 0} steps)",
         "dial" => $"Dial ({action.DialTarget})",
         "mouse_click" => "Mouse Click",
         _ => action.Type
@@ -825,10 +923,12 @@ public partial class EditorWindow : Window
         return tb;
     }
 
-    private void SelectCell(int row, int col)
+    private void SelectCell(int index)
     {
-        var buttonModel = _profileStore.Current.Buttons
-            .FirstOrDefault(b => b.Position.Row == row && b.Position.Col == col && b.ParentFolderId == _currentFolderId);
+        var scopeButtons = _profileStore.Current.Buttons
+            .Where(b => b.ParentFolderId == _currentFolderId)
+            .ToList();
+        var buttonModel = index < scopeButtons.Count ? scopeButtons[index] : null;
 
         bool isNew = false;
         if (buttonModel == null)
@@ -837,7 +937,6 @@ public partial class EditorWindow : Window
             buttonModel = new ButtonModel
             {
                 ButtonId = $"b_{Guid.NewGuid().ToString().Substring(0, 8)}",
-                Position = new Position { Row = row, Col = col },
                 ParentFolderId = _currentFolderId,
                 Action = new ActionModel { Type = "hotkey" }
             };
@@ -945,73 +1044,6 @@ public partial class EditorWindow : Window
         _undoTimer?.Stop();
     }
 
-    // --------------- GRID SIZE PICKER ---------------
-
-    private void GridSizeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (GridSizeCombo?.SelectedItem is not ComboBoxItem item) return;
-        var tag = item.Tag?.ToString();
-        if (string.IsNullOrEmpty(tag)) return;
-
-        // Guard: SelectionChanged can fire during InitializeComponent() (initial
-        // SelectedIndex) before _profileStore is assigned — ignore until ready.
-        if (_profileStore?.Current == null) return;
-
-        var parts = tag.Split(',');
-        if (parts.Length != 2) return;
-        if (!int.TryParse(parts[0], out int rows) || !int.TryParse(parts[1], out int cols)) return;
-
-        int capacity = rows * cols;
-        var buttons = _profileStore.Current.Buttons ?? new List<ButtonModel>();
-
-        // Each folder scope (root = null, plus every folder) shares one grid, so no scope may hold
-        // more buttons than the new grid fits. If one does, block the resize instead of silently
-        // orphaning buttons that fall outside the new bounds.
-        var scopes = buttons.GroupBy(b => b.ParentFolderId);
-        var tooFull = scopes.FirstOrDefault(g => g.Count() > capacity);
-        if (tooFull != null)
-        {
-            ShowToast($"Can't shrink to {rows}×{cols}: a page has {tooFull.Count()} buttons.", isSuccess: false);
-            SyncGridSizeCombo(); // revert the combo to the profile's real size
-            return;
-        }
-
-        // Reflow any button now out of bounds into the first free cell within its own scope.
-        int moved = 0;
-        foreach (var scope in scopes)
-        {
-            var occupied = new HashSet<(int, int)>(
-                scope.Where(b => b.Position.Row < rows && b.Position.Col < cols)
-                     .Select(b => (b.Position.Row, b.Position.Col)));
-            foreach (var b in scope.Where(b => b.Position.Row >= rows || b.Position.Col >= cols))
-            {
-                for (int r = 0; r < rows; r++)
-                {
-                    for (int c = 0; c < cols; c++)
-                    {
-                        if (occupied.Add((r, c)))
-                        {
-                            b.Position.Row = r;
-                            b.Position.Col = c;
-                            moved++;
-                            goto placed;
-                        }
-                    }
-                }
-                placed: ;
-            }
-        }
-
-        _profileStore.Current.Rows = rows;
-        _profileStore.Current.Columns = cols;
-        _profileStore.Save();
-        _profileStore.NotifyChanged();
-        RefreshGrid();
-        RefreshProfileSelector();
-        RefreshProfileTabStrip();
-        if (moved > 0)
-            ShowToast($"Moved {moved} button{(moved == 1 ? "" : "s")} to fit the new grid.", isSuccess: true);
-    }
 
     // --------------- PROFILE EXPORT / IMPORT ---------------
 
@@ -1077,7 +1109,7 @@ public partial class EditorWindow : Window
 
     private void Cell_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is System.Windows.Controls.Button btn && btn.Tag is Tuple<int, int> pos)
+        if (sender is System.Windows.Controls.Button btn && btn.Tag is int)
         {
             _dragStartPoint = e.GetPosition(null);
         }
@@ -1091,15 +1123,15 @@ public partial class EditorWindow : Window
         if (Math.Abs(diff.X) > SystemParameters.MinimumHorizontalDragDistance ||
             Math.Abs(diff.Y) > SystemParameters.MinimumVerticalDragDistance)
         {
-            if (sender is System.Windows.Controls.Button btn && btn.Tag is Tuple<int, int> sourcePos)
+            if (sender is System.Windows.Controls.Button btn && btn.Tag is int sourceIndex)
             {
-                var buttons = _profileStore.Current.Buttons
+                var scopeButtons = _profileStore.Current.Buttons
                     .Where(b => b.ParentFolderId == _currentFolderId)
-                    .ToDictionary(b => (b.Position.Row, b.Position.Col));
+                    .ToList();
 
-                if (buttons.TryGetValue((sourcePos.Item1, sourcePos.Item2), out var sourceBtn))
+                if (sourceIndex < scopeButtons.Count)
                 {
-                    var data = new System.Windows.DataObject("CrossDeckButton", sourcePos);
+                    var data = new System.Windows.DataObject("CrossDeckButton", sourceIndex);
                     System.Windows.DragDrop.DoDragDrop(btn, data, System.Windows.DragDropEffects.Move);
                 }
             }
@@ -1126,13 +1158,10 @@ public partial class EditorWindow : Window
 
     private void Cell_DragLeave(object sender, System.Windows.DragEventArgs e)
     {
-        if (sender is System.Windows.Controls.Button btn && btn.Tag is Tuple<int, int> pos)
+        if (sender is System.Windows.Controls.Button btn && btn.Tag is int index)
         {
-            var buttons = _profileStore.Current.Buttons
-                .Where(b => b.ParentFolderId == _currentFolderId)
-                .ToDictionary(b => (b.Position.Row, b.Position.Col));
-
-            bool hasButton = buttons.ContainsKey((pos.Item1, pos.Item2));
+            int scopeCount = _profileStore.Current.Buttons.Count(b => b.ParentFolderId == _currentFolderId);
+            bool hasButton = index < scopeCount;
             btn.BorderBrush = ThemeManager.Brush("Brush.Hairline");
             btn.BorderThickness = new Thickness(hasButton ? 1.5 : 1);
         }
@@ -1142,29 +1171,27 @@ public partial class EditorWindow : Window
     {
         if (e.Data.GetDataPresent("CrossDeckButton"))
         {
-            var sourcePos = e.Data.GetData("CrossDeckButton") as Tuple<int, int>;
-            if (sender is System.Windows.Controls.Button targetBtn && targetBtn.Tag is Tuple<int, int> targetPos && sourcePos != null)
+            var sourceIndexObj = e.Data.GetData("CrossDeckButton");
+            if (sender is System.Windows.Controls.Button targetBtn && targetBtn.Tag is int targetIndex && sourceIndexObj is int sourceIndex)
             {
-                if (sourcePos.Item1 == targetPos.Item1 && sourcePos.Item2 == targetPos.Item2) return;
+                if (sourceIndex == targetIndex) return;
 
-                var activeProfile = _profileStore.Current;
-                var sourceButton = activeProfile.Buttons.FirstOrDefault(b => b.ParentFolderId == _currentFolderId && b.Position.Row == sourcePos.Item1 && b.Position.Col == sourcePos.Item2);
-                var targetButton = activeProfile.Buttons.FirstOrDefault(b => b.ParentFolderId == _currentFolderId && b.Position.Row == targetPos.Item1 && b.Position.Col == targetPos.Item2);
+                var scopeButtons = _profileStore.Current.Buttons
+                    .Where(b => b.ParentFolderId == _currentFolderId)
+                    .ToList();
+                if (sourceIndex >= scopeButtons.Count) return;
 
-                if (sourceButton != null)
-                {
-                    sourceButton.Position = new Position { Row = targetPos.Item1, Col = targetPos.Item2 };
-                    if (targetButton != null)
-                    {
-                        targetButton.Position = new Position { Row = sourcePos.Item1, Col = sourcePos.Item2 };
-                    }
-                    
-                    _profileStore.Save();
-                    _profileStore.NotifyChanged();
-                    RefreshGrid();
-                    RefreshProfileSelector();
-                    RefreshProfileTabStrip();
-                }
+                // Reordering, not swapping — the moved button shifts the ones between its old
+                // and new spot, same as reordering any list.
+                var moved = scopeButtons[sourceIndex];
+                scopeButtons.RemoveAt(sourceIndex);
+                int insertAt = Math.Min(targetIndex, scopeButtons.Count);
+                scopeButtons.Insert(insertAt, moved);
+
+                _profileStore.ReorderButtons(_profileStore.Set.ActiveProfileId, _currentFolderId, scopeButtons.Select(b => b.ButtonId).ToList());
+                RefreshGrid();
+                RefreshProfileSelector();
+                RefreshProfileTabStrip();
             }
         }
     }
@@ -1264,7 +1291,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v0.3.2-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nPersonal project — not licensed for redistribution.", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v0.3.4-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

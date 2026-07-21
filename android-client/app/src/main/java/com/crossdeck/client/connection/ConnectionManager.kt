@@ -13,10 +13,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -92,6 +95,9 @@ class ConnectionManager(context: Context) {
 
     private val _appList = MutableStateFlow<List<DiscoveredApp>>(emptyList())
     val appList: StateFlow<List<DiscoveredApp>> = _appList.asStateFlow()
+
+    private val _audioMixerApps = MutableStateFlow<List<com.crossdeck.client.model.AudioMixerApp>>(emptyList())
+    val audioMixerApps: StateFlow<List<com.crossdeck.client.model.AudioMixerApp>> = _audioMixerApps.asStateFlow()
 
     private val _runningApps = MutableStateFlow<List<com.crossdeck.client.model.RunningApp>>(emptyList())
     val runningApps: StateFlow<List<com.crossdeck.client.model.RunningApp>> = _runningApps.asStateFlow()
@@ -269,6 +275,7 @@ class ConnectionManager(context: Context) {
                 _lastError.value = t.message
                 _connectedHostUrl.value = null
                 _runningApps.value = emptyList()
+                _audioMixerApps.value = emptyList()
                 if (loadSettings().autoReconnect) scheduleReconnect()
             }
 
@@ -278,6 +285,7 @@ class ConnectionManager(context: Context) {
                 _connectionState.value = ConnectionState.Disconnected
                 _connectedHostUrl.value = null
                 _runningApps.value = emptyList()
+                _audioMixerApps.value = emptyList()
                 if (loadSettings().autoReconnect) scheduleReconnect()
             }
         })
@@ -404,6 +412,13 @@ class ConnectionManager(context: Context) {
                         )
                     }
                 }
+                "audio_mixer" -> {
+                    obj["apps"]?.let {
+                        _audioMixerApps.value = json.decodeFromJsonElement(
+                            kotlinx.serialization.builtins.ListSerializer(com.crossdeck.client.model.AudioMixerApp.serializer()), it
+                        )
+                    }
+                }
                 "icon_extracted" -> {
                     val path = obj["path"]?.jsonPrimitive?.content
                     val icon = obj["icon"]?.let { if (it is kotlinx.serialization.json.JsonNull) null else it.jsonPrimitive.content }
@@ -482,6 +497,38 @@ class ConnectionManager(context: Context) {
     fun sendListAppsRequest() {
         val ws = activeSocket ?: return
         ws.send(buildJsonObject { put("type", "list_apps") }.toString())
+    }
+
+    /** Subscribes to the live app-volume mixer — a push loop on the host sends an updated
+     * audio_mixer message (one row per app currently playing audio) whenever anything changes,
+     * same pattern as sendRunningAppsSubscribe. Response arrives async via audioMixerApps. */
+    fun sendAudioMixerSubscribe(subscribe: Boolean) {
+        val ws = activeSocket ?: return
+        ws.send(buildJsonObject { put("type", if (subscribe) "audio_mixer_subscribe" else "audio_mixer_unsubscribe") }.toString())
+        if (!subscribe) _audioMixerApps.value = emptyList()
+    }
+
+    /** Adjusts one app's level and/or mute state in the live mixer; value/muted are independent,
+     * omit whichever isn't changing. The updated row arrives back via the next audio_mixer push. */
+    fun sendAudioMixerAdjust(processName: String, value: Int? = null, muted: Boolean? = null) {
+        val ws = activeSocket ?: return
+        ws.send(buildJsonObject {
+            put("type", "audio_mixer_adjust")
+            put("processName", processName)
+            value?.let { put("value", it) }
+            muted?.let { put("muted", it) }
+        }.toString())
+    }
+
+    /** Sends a drag-reorder from the auto-flow grid — the host applies it to whichever folder
+     * scope (root = null) these button IDs belong to, in the given order. */
+    fun sendButtonsReorder(parentFolderId: String?, orderedButtonIds: List<String>) {
+        val ws = activeSocket ?: return
+        ws.send(buildJsonObject {
+            put("type", "buttons_reorder")
+            put("parentFolderId", parentFolderId)
+            putJsonArray("buttonIds") { orderedButtonIds.forEach { add(it) } }
+        }.toString())
     }
 
     fun sendRunningAppsSubscribe(subscribe: Boolean) {

@@ -182,6 +182,9 @@ public class LiveStateService
         _lastFocusedButtonId = focusedButtonId;
     }
 
+    // app_volume has no single per-button level anymore — it opens the live multi-app mixer
+    // instead (see WebSocketServer's audio_mixer_subscribe/AudioMixerPushLoopAsync), so it's
+    // deliberately absent here; a "dial" button targeting it just never yields a badge level.
     private static int DialLevel(string? target) => target switch
     {
         "volume" => DialController.GetVolume(),

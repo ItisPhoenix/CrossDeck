@@ -13,12 +13,13 @@
             <ComboBoxItem Content="Text Snippet" Tag="text_snippet"/>
             <ComboBoxItem Content="Open Folder" Tag="open_folder"/>
             <ComboBoxItem Content="Multiple Actions" Tag="multi_action"/>
+            <ComboBoxItem Content="Record Macro" Tag="macro"/>
             <ComboBoxItem x:Name="DialTypeItem" Content="Dial / Slider" Tag="dial"/>
         </ComboBox>
 
         <StackPanel x:Name="IconSection" Visibility="Collapsed" Margin="0,0,0,14">
             <TextBlock Text="Label" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
-            <TextBox x:Name="ActionLabelText" Padding="10,8" FontSize="13" Margin="0,0,0,14" TextChanged="ParamField_Changed"
+            <TextBox x:Name="ActionLabelText" Padding="10,8" FontSize="13" Margin="0,0,0,14" TextChanged="ActionLabelText_TextChanged"
                      ToolTip="Optional name shown on this step's tile — leave blank to auto-describe it"/>
             <!-- Multi-action has no icon of its own — each step already shows its own icon. -->
             <StackPanel x:Name="ActionIconOnlySection">
@@ -152,16 +153,23 @@
                 <StackPanel x:Name="MultiActionPanel" Visibility="Collapsed">
                     <TextBlock Text="Action Chain" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap"/>
                     <local:ActionStepListControl x:Name="MultiActionStepList"/>
+                    <!-- Long-press's own multi_action is a picker between independent full sub-buttons
+                         (each gets the same rich editor as a real button), not the light step-row chain
+                         above — the two controls are mutually exclusive, toggled by IsLongPress. -->
+                    <local:RichActionStepListControl x:Name="RichStepList" Visibility="Collapsed"/>
                 </StackPanel>
 
                 <!-- Dial Panel -->
                 <StackPanel x:Name="DialPanel" Visibility="Collapsed">
                     <TextBlock Text="Dial / Slider Control target" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
                     <ComboBox x:Name="DialTargetCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
-                              ToolTip="What the phone's dial slider adjusts when moved">
+                              ToolTip="What the phone's dial slider adjusts when moved" SelectionChanged="ParamField_SelectionChanged">
                         <ComboBoxItem Content="Volume Adjust" Tag="volume"/>
                         <ComboBoxItem Content="Brightness Adjust" Tag="brightness"/>
+                        <ComboBoxItem Content="App Volume (live mixer)" Tag="app_volume"/>
                     </ComboBox>
+                    <TextBlock Text="App Volume opens a live mixer on the phone with a slider + mute for every app currently playing audio — no app to pick here."
+                               Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"/>
                 </StackPanel>
             </Grid>
         </Border>

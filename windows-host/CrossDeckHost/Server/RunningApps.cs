@@ -12,8 +12,9 @@ public static class RunningApps
 {
     public record WindowInfo(long Hwnd, string Title, string ProcessName, string? Icon, bool Focused);
 
-    // exe path -> icon hash, so we don't re-extract every poll tick.
-    private static readonly Dictionary<string, string?> IconCache = new();
+    // exe path -> icon hash, so we don't re-extract every poll tick. Concurrent since a second
+    // subscribed phone runs its own push loop on another thread.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string?> IconCache = new();
 
     public static List<WindowInfo> GetWindows()
     {
@@ -54,7 +55,11 @@ public static class RunningApps
                         if (!IconCache.TryGetValue(exePath, out icon))
                         {
                             icon = ProfileStoreService.ExtractAndSaveIcon(exePath);
-                            IconCache[exePath] = icon;
+                            // Only cache successes — extraction genuinely fails for some real exes
+                            // (packaged/Store installs with no extractable icon resource); caching
+                            // that failure would permanently blank this window's icon instead of
+                            // retrying next poll tick.
+                            if (icon != null) IconCache[exePath] = icon;
                         }
                     }
                 }

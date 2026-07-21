@@ -20,12 +20,14 @@ public partial class App : System.Windows.Application
 
     // Held for the process lifetime — releasing/disposing early would let a second launch through.
     private Mutex? _singleInstanceMutex;
+    private bool _ownsSingleInstanceMutex;
 
     protected override void OnStartup(StartupEventArgs e)
     {
         // Two instances would both try to bind port 7890/7891 and race over the same profile
         // file on disk — refuse the second launch instead of limping along half-broken.
         _singleInstanceMutex = new Mutex(true, "CrossDeckHost_SingleInstance_9F3E1A2B", out bool isNewInstance);
+        _ownsSingleInstanceMutex = isNewInstance;
         if (!isNewInstance)
         {
             System.Windows.MessageBox.Show("CrossDeck Host is already running — check your system tray.", "CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -150,7 +152,7 @@ public partial class App : System.Windows.Application
         _liveState?.Stop();
         _server?.Stop();
         _tray?.Dispose();
-        _singleInstanceMutex?.ReleaseMutex();
+        if (_ownsSingleInstanceMutex) _singleInstanceMutex?.ReleaseMutex();
         base.OnExit(e);
     }
 }

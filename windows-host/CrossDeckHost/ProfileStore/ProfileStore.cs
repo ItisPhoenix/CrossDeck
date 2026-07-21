@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace CrossDeckHost.ProfileStore;
 
@@ -39,10 +40,17 @@ public class ProfileStoreService
             if (File.Exists(_filePath))
             {
                 var json = File.ReadAllText(_filePath);
-                var loaded = JsonSerializer.Deserialize<ProfileSet>(json, _jsonOptions);
+                var (migrated, migratedJson) = MigrateLegacyPositions(json);
+                var loaded = JsonSerializer.Deserialize<ProfileSet>(migratedJson, _jsonOptions);
                 if (loaded is not null && loaded.Profiles.Count > 0)
                 {
                     Set = loaded;
+                    // Backfilling icons only happens inside SaveLocked (mutation-triggered) — a
+                    // profile loaded as-is with buttons saved before an icon existed for their
+                    // type (e.g. multi_action before it got its own icon instead of a grid mosaic)
+                    // would otherwise stay iconless until the next unrelated edit touched it.
+                    bool iconsAssigned = AutoAssignIcons();
+                    if (migrated || iconsAssigned) SaveLocked();
                     return;
                 }
             }
@@ -87,36 +95,82 @@ public class ProfileStoreService
         }
     }
 
-    /// <summary>Buttons saved without an icon get a builtin one matching their action type.</summary>
-    private void AutoAssignIcons()
+    /// <summary>Buttons saved without an icon get a builtin one matching their action type.
+    /// Returns true if any button was actually backfilled, so callers that don't already save
+    /// unconditionally (LoadOrCreateDefault) know whether they need to persist the change.</summary>
+    private bool AutoAssignIcons()
     {
+        bool changed = false;
         foreach (var profile in Set.Profiles)
         {
             foreach (var b in profile.Buttons)
             {
                 if (!string.IsNullOrEmpty(b.Icon)) continue;
-                b.Icon = b.Action.Type switch
-                {
-                    "hotkey" => "builtin:keyboard",
-                    "media_control" => b.Action.MediaCommand switch
-                    {
-                        "PlayPause" => "builtin:play",
-                        "NextTrack" => "builtin:skip-forward",
-                        "PrevTrack" => "builtin:skip-back",
-                        "VolumeMute" => "builtin:volume-x",
-                        _ => "builtin:volume-2"
-                    },
-                    "launch_app" => "builtin:zap",
-                    "open_url" => "builtin:globe",
-                    "run_command" => "builtin:terminal",
-                    "text_snippet" => "builtin:file-text",
-                    "multi_action" => "builtin:layers",
-                    "open_folder" => "builtin:folder",
-                    "dial" => b.Action.DialTarget == "brightness" ? "builtin:sun" : "builtin:volume-2",
-                    _ => null
-                };
+                // Deliberately no fallback for multi_action here — the grid tile falls back to a
+                // live step mosaic when Icon is unset (see EditorWindow.RebuildGrid /
+                // DeckGridScreen's DeckButton), same as 0.3.1-beta. A static icon would
+                // permanently win over that mosaic since AutoAssignIcons runs on every save.
+                b.Icon = DefaultBuiltinIconFor(b.Action);
+                if (b.Icon != null) changed = true;
             }
         }
+        return changed;
+    }
+
+    /// <summary>The builtin icon a fresh action of this type gets when nothing custom is set —
+    /// shared between AutoAssignIcons (the button's own icon) and the long-press chain badge's
+    /// per-segment mosaic (EditorWindow.BuildBadgeGlyphContent), which needs the same fallback for
+    /// steps that never had their own icon picked.</summary>
+    public static string? DefaultBuiltinIconFor(ActionModel action) => action.Type switch
+    {
+        "hotkey" => "builtin:keyboard",
+        "media_control" => action.MediaCommand switch
+        {
+            "PlayPause" => "builtin:play",
+            "NextTrack" => "builtin:skip-forward",
+            "PrevTrack" => "builtin:skip-back",
+            "VolumeMute" => "builtin:volume-x",
+            _ => "builtin:volume-2"
+        },
+        "launch_app" => "builtin:zap",
+        "open_url" => "builtin:globe",
+        "run_command" => "builtin:terminal",
+        "text_snippet" => "builtin:file-text",
+        "macro" => "builtin:disc",
+        "open_folder" => "builtin:folder",
+        "dial" => action.DialTarget == "brightness" ? "builtin:sun" : "builtin:volume-2",
+        _ => null
+    };
+
+    /// <summary>One-time migration: pre-redesign saves have explicit position.row/col coordinates
+    /// that no longer exist in the model. Reorders each profile's buttons array by (row, then col)
+    /// before deserializing into the new position-less ButtonModel, so a button's order — now the
+    /// only thing that determines its place in the auto-flow grid — matches its old visual layout
+    /// instead of whatever arbitrary order the file happens to list buttons in.</summary>
+    private static (bool Migrated, string Json) MigrateLegacyPositions(string json)
+    {
+        JsonNode? root;
+        try { root = JsonNode.Parse(json); }
+        catch { return (false, json); }
+        if (root is not JsonObject rootObj || rootObj["profiles"] is not JsonArray profiles) return (false, json);
+
+        bool anyMigrated = false;
+        foreach (var profileNode in profiles.OfType<JsonObject>())
+        {
+            if (profileNode["buttons"] is not JsonArray buttons) continue;
+            var buttonObjects = buttons.OfType<JsonObject>().ToList();
+            if (!buttonObjects.Any(b => b.ContainsKey("position"))) continue;
+            anyMigrated = true;
+
+            int RowOf(JsonObject b) => (b["position"] as JsonObject)?["row"]?.GetValue<int>() ?? 0;
+            int ColOf(JsonObject b) => (b["position"] as JsonObject)?["col"]?.GetValue<int>() ?? 0;
+            var sorted = buttonObjects.OrderBy(RowOf).ThenBy(ColOf).ToList();
+
+            buttons.Clear();
+            foreach (var b in sorted) buttons.Add(b);
+        }
+
+        return anyMigrated ? (true, root.ToJsonString()) : (false, json);
     }
 
     // The real choke point — every mutator ends here, unlike Save() which not all of them called.
@@ -224,12 +278,14 @@ public class ProfileStoreService
             var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
             if (target == null) return;
 
-            var existing = target.Buttons.FirstOrDefault(b => b.ButtonId == updatedButton.ButtonId);
-            if (existing != null)
-            {
-                target.Buttons.Remove(existing);
-            }
-            target.Buttons.Add(updatedButton);
+            // A button's grid position is just its index in this list (see ButtonModel's own
+            // doc comment) — replacing in place keeps it where it was. Remove-then-Add moved
+            // every edited button to the end of its folder scope on every single edit.
+            var index = target.Buttons.FindIndex(b => b.ButtonId == updatedButton.ButtonId);
+            if (index >= 0)
+                target.Buttons[index] = updatedButton;
+            else
+                target.Buttons.Add(updatedButton);
             SaveLocked();
         }
         NotifyChanged();
@@ -252,6 +308,33 @@ public class ProfileStoreService
             }
         }
         if (changed) NotifyChanged();
+    }
+
+    /// <summary>Reorders one folder scope's buttons to match orderedButtonIds — used by both the
+    /// Windows editor's own drag-and-drop and the buttons_reorder message from Android. Cross-scope
+    /// interleaving in the underlying list doesn't matter (each scope renders independently,
+    /// filtered by ParentFolderId), only within-scope order does, so the whole scope is just
+    /// removed and re-appended in its new order rather than reordered in place.</summary>
+    public void ReorderButtons(string profileId, string? parentFolderId, List<string> orderedButtonIds)
+    {
+        lock (_lock)
+        {
+            var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
+            if (target == null) return;
+
+            var scopeButtons = target.Buttons.Where(b => b.ParentFolderId == parentFolderId).ToList();
+            var byId = scopeButtons.ToDictionary(b => b.ButtonId);
+            var reordered = orderedButtonIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+            foreach (var b in scopeButtons)
+            {
+                if (!reordered.Contains(b)) reordered.Add(b);
+            }
+
+            target.Buttons.RemoveAll(b => b.ParentFolderId == parentFolderId);
+            target.Buttons.AddRange(reordered);
+            SaveLocked();
+        }
+        NotifyChanged();
     }
 
     public void NotifyChanged()
@@ -304,7 +387,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_001",
-                Position = new Position { Row = 0, Col = 0 },
                 Label = "Google",
                 Icon = ExtractAndSaveIcon("chrome.exe") ?? "builtin:globe",
                 Action = new ActionModel { Type = "open_url", Url = "https://google.com" }
@@ -312,7 +394,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_002",
-                Position = new Position { Row = 0, Col = 1 },
                 Label = "Lock PC",
                 Icon = "builtin:lock",
                 Action = new ActionModel { Type = "run_command", Command = "rundll32.exe user32.dll,LockWorkStation" }
@@ -320,7 +401,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_003",
-                Position = new Position { Row = 0, Col = 2 },
                 Label = "Volume",
                 Icon = "builtin:volume-2",
                 Action = new ActionModel { Type = "dial", DialTarget = "volume" }
@@ -328,7 +408,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_004",
-                Position = new Position { Row = 0, Col = 3 },
                 Label = "Brightness",
                 Icon = "builtin:sun",
                 Action = new ActionModel { Type = "dial", DialTarget = "brightness" }
@@ -336,7 +415,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_005",
-                Position = new Position { Row = 0, Col = 4 },
                 Label = "Play/Pause",
                 Icon = "builtin:play",
                 Action = new ActionModel { Type = "media_control", MediaCommand = "PlayPause" }
@@ -345,7 +423,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_006",
-                Position = new Position { Row = 1, Col = 0 },
                 Label = "Mute Meetings",
                 Icon = "builtin:mic-off",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "F1" } }
@@ -353,7 +430,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_007",
-                Position = new Position { Row = 1, Col = 1 },
                 Label = "Task Manager",
                 Icon = ExtractAndSaveIcon("taskmgr.exe") ?? "builtin:cpu",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "Escape" } }
@@ -364,7 +440,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_001",
-                Position = new Position { Row = 0, Col = 0 },
                 Label = "Mute",
                 Icon = "builtin:volume-x",
                 Action = new ActionModel { Type = "media_control", MediaCommand = "VolumeMute" }
@@ -372,7 +447,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_002",
-                Position = new Position { Row = 0, Col = 1 },
                 Label = "Volume",
                 Icon = "builtin:volume-2",
                 Action = new ActionModel { Type = "dial", DialTarget = "volume" }
@@ -380,7 +454,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_003",
-                Position = new Position { Row = 0, Col = 2 },
                 Label = "Notepad",
                 Icon = ExtractAndSaveIcon("notepad.exe") ?? "builtin:file-text",
                 Action = new ActionModel { Type = "launch_app", Path = "notepad.exe" }
@@ -388,7 +461,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_004",
-                Position = new Position { Row = 0, Col = 3 },
                 Label = "Snip Tool",
                 Icon = ExtractAndSaveIcon("SnippingTool.exe") ?? "builtin:camera",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Win", "Shift", "S" } }
@@ -396,7 +468,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_005",
-                Position = new Position { Row = 0, Col = 4 },
                 Label = "Play/Pause",
                 Icon = "builtin:play",
                 Action = new ActionModel { Type = "media_control", MediaCommand = "PlayPause" }
@@ -405,7 +476,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_006",
-                Position = new Position { Row = 1, Col = 0 },
                 Label = "OBS Record",
                 Icon = ExtractAndSaveIcon("obs64.exe") ?? "builtin:disc",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "F9" } }
@@ -413,7 +483,6 @@ public class ProfileStoreService
             profile.Buttons.Add(new ButtonModel
             {
                 ButtonId = "b_007",
-                Position = new Position { Row = 1, Col = 1 },
                 Label = "OBS Stream",
                 Icon = ExtractAndSaveIcon("obs64.exe") ?? "builtin:video",
                 Action = new ActionModel { Type = "hotkey", Keys = new List<string> { "Ctrl", "Shift", "F10" } }
@@ -428,7 +497,27 @@ public class ProfileStoreService
         try
         {
             string fullPath = ResolveExecutablePath(exeNameOrPath);
-            if (!File.Exists(fullPath)) return null;
+            if (!File.Exists(fullPath))
+            {
+                // ResolveExecutablePath only checks a fixed set of install directories + PATH —
+                // it never finds an app installed somewhere else (e.g. %AppData%, Spotify/Discord's
+                // usual home). A bare name with no extension is most likely a running process's
+                // name (the app-volume mixer's shape: DialController.GetAudioMixerSnapshot works
+                // in ProcessName terms, not paths) — resolve it via the running process itself, so
+                // this generic path works for callers that can't do that resolution themselves
+                // (e.g. the Android client over the wire).
+                if (Path.GetExtension(exeNameOrPath).Length == 0)
+                {
+                    try
+                    {
+                        using var proc = System.Diagnostics.Process.GetProcessesByName(exeNameOrPath).FirstOrDefault();
+                        var procPath = proc?.MainModule?.FileName;
+                        if (procPath != null) fullPath = procPath;
+                    }
+                    catch { /* access denied on an elevated process, etc. — fall through to null */ }
+                }
+                if (!File.Exists(fullPath)) return null;
+            }
 
             // Attempt to pull a crisp high-res 256x256 icon from the system shell first
             using (var icon = JumboIcon.ExtractJumbo(fullPath) ?? System.Drawing.Icon.ExtractAssociatedIcon(fullPath))

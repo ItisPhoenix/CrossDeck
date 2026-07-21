@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
                     val runningApps by connectionManager.runningApps.collectAsState()
                     val connectedHostUrl by connectionManager.connectedHostUrl.collectAsState()
                     val appList by connectionManager.appList.collectAsState()
+                    val audioMixerApps by connectionManager.audioMixerApps.collectAsState()
                     val extractedIcon by connectionManager.extractedIcon.collectAsState()
                     val isPcResponding by connectionManager.isPcResponding.collectAsState()
                     val reconnectGaveUp by connectionManager.reconnectGaveUp.collectAsState()
@@ -109,6 +110,9 @@ class MainActivity : ComponentActivity() {
                                 onButtonSave = { updatedButton ->
                                     connectionManager.sendProfileEditUpdate(profile!!.profileId, updatedButton)
                                 },
+                                onButtonsReorder = { parentFolderId, orderedIds ->
+                                    connectionManager.sendButtonsReorder(parentFolderId, orderedIds)
+                                },
                                 onIconUpload = { bytes ->
                                     connectionManager.uploadIcon(bytes)
                                 },
@@ -148,7 +152,10 @@ class MainActivity : ComponentActivity() {
                                 onRunningAppsSubscribe = { connectionManager.sendRunningAppsSubscribe(it) },
                                 onWindowFocus = { connectionManager.sendWindowFocus(it) },
                                 onWindowClose = { connectionManager.sendWindowClose(it) },
-                                onButtonPress = { button, pressType, stepIndex -> connectionManager.sendButtonPress(button.buttonId, pressType, stepIndex) }
+                                onButtonPress = { button, pressType, stepIndex -> connectionManager.sendButtonPress(button.buttonId, pressType, stepIndex) },
+                                audioMixerApps = audioMixerApps,
+                                onAudioMixerSubscribe = { connectionManager.sendAudioMixerSubscribe(it) },
+                                onAudioMixerAdjust = { processName, value, muted -> connectionManager.sendAudioMixerAdjust(processName, value, muted) }
                             )
                         }
                         profile != null && !showManualPairing -> {

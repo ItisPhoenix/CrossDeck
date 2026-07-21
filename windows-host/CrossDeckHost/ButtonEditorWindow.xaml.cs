@@ -46,12 +46,20 @@ public partial class ButtonEditorWindow : Window
         var allApps = AppDiscovery.DiscoverApps();
         MainActionConfig.AppList = allApps;
         LongPressActionConfig.AppList = allApps;
-        LongPressActionConfig.ShowIconPicker = true;
+        // The outer long-press slot never shows its own Label/Icon field — once chained,
+        // RichActionStepListControl's own per-card sub-editors (each ShowIconPicker=true) are
+        // where that's visible, since each is an independent tile in the long-press popup. The
+        // single/unchained state still auto-extracts behind the scenes (ExtractIconOnSelect
+        // below) even with no field to show it in, so its popup tile still gets a real favicon/app
+        // icon instead of always falling back to the type-derived glyph.
+        LongPressActionConfig.IsLongPress = true;
 
-        // Only the main action's icon pickers should overwrite the button's shared icon and
-        // persist fetched icons to disk — long-press gets the same pickers for parity but
-        // doesn't have an icon of its own to set.
+        // Every instance auto-extracts on select now — ApplyExtractedIcon (inside
+        // ActionConfigControl) routes the result correctly either way: the main action's goes to
+        // IconPathText below (its icon lives on the button itself), long-press's own goes to its
+        // own ActionIconText internally (see ApplyExtractedIcon's ShowIconPicker branch).
         MainActionConfig.ExtractIconOnSelect = true;
+        LongPressActionConfig.ExtractIconOnSelect = true;
         MainActionConfig.IconExtracted += hash => IconPathText.Text = hash;
         MainActionConfig.ShowEnterFolderShortcut();
         MainActionConfig.EnterFolderShortcutClicked += () =>
@@ -70,7 +78,7 @@ public partial class ButtonEditorWindow : Window
         MainActionConfig.ActionChanged += () =>
         {
             if (_labelUserEdited) return;
-            var suggested = SuggestLabel(MainActionConfig.GetAction());
+            var suggested = CrossDeckHost.Controls.ActionConfigControl.SuggestLabel(MainActionConfig.GetAction());
             if (suggested != null)
             {
                 _suppressLabelEdit = true;
@@ -86,7 +94,7 @@ public partial class ButtonEditorWindow : Window
         if (button.LongPressAction != null)
         {
             LongPressEnabledCheck.IsChecked = true;
-            LongPressActionConfig.Visibility = Visibility.Visible;
+            LongPressButton1Card.Visibility = Visibility.Visible;
             LongPressActionConfig.SetAction(button.LongPressAction);
         }
 
@@ -94,6 +102,12 @@ public partial class ButtonEditorWindow : Window
         // it is how the chain runs at all, so the section is replaced with an explanatory note.
         MainActionConfig.ActionTypeChanged += UpdateLongPressSectionForMainType;
         UpdateLongPressSectionForMainType(button.Action.Type);
+
+        // Once button 1 itself becomes a chain (multi_action), RichActionStepListControl already
+        // numbers its own cards starting at "Long-Press Button 1" — the outer header/add-button
+        // here would just duplicate that, so both hide as soon as it happens.
+        LongPressActionConfig.ActionTypeChanged += UpdateLongPressButton1Chrome;
+        UpdateLongPressButton1Chrome(button.LongPressAction?.Type ?? "hotkey");
 
         // Populate inline built-in icons picker
         LoadBuiltinIcons();
@@ -110,6 +124,7 @@ public partial class ButtonEditorWindow : Window
         "run_command" => string.IsNullOrWhiteSpace(action.Command) ? "Enter a command" : null,
         "text_snippet" => string.IsNullOrWhiteSpace(action.Text) ? "Enter text to paste" : null,
         "multi_action" => action.Actions is { Count: > 0 } ? null : "Add at least one step to the chain",
+        "macro" => action.Actions is { Count: > 0 } ? null : "Record at least one step",
         _ => null
     };
 
@@ -134,46 +149,46 @@ public partial class ButtonEditorWindow : Window
         _labelUserEdited = true;
     }
 
-    private static readonly System.Collections.Generic.Dictionary<string, string> MediaCommandLabels = new()
-    {
-        ["PlayPause"] = "Play / Pause",
-        ["NextTrack"] = "Next Track",
-        ["PrevTrack"] = "Previous Track",
-        ["VolumeUp"] = "Volume Up",
-        ["VolumeDown"] = "Volume Down",
-        ["VolumeMute"] = "Mute"
-    };
-
-    /// <summary>Best-guess button label derived from the action being configured.</summary>
-    private static string? SuggestLabel(ActionModel action) => action.Type switch
-    {
-        "hotkey" => action.Keys is { Count: > 0 } ? string.Join("+", action.Keys) : null,
-        "launch_app" => string.IsNullOrWhiteSpace(action.Path)
-            ? null
-            : System.IO.Path.GetFileNameWithoutExtension(action.Path),
-        "media_control" => action.MediaCommand != null ? MediaCommandLabels.GetValueOrDefault(action.MediaCommand, action.MediaCommand) : null,
-        "open_url" => string.IsNullOrWhiteSpace(action.Url)
-            ? null
-            : action.Url.Trim().Replace("https://", "").Replace("http://", "").Split('/')[0],
-        "run_command" => string.IsNullOrWhiteSpace(action.Command)
-            ? null
-            : action.Command.Trim().Split(' ')[0].Split('\\', '/')[^1],
-        "text_snippet" => string.IsNullOrWhiteSpace(action.Text) ? null : action.Text.Trim()[..Math.Min(20, action.Text.Trim().Length)],
-        "dial" => action.DialTarget == "brightness" ? "Brightness" : "Volume",
-        "open_folder" => "Open Folder",
-        _ => null
-    };
-
     private void UpdateLongPressSectionForMainType(string mainType)
     {
         bool isMultiAction = mainType == "multi_action";
         LongPressSection.Visibility = isMultiAction ? Visibility.Collapsed : Visibility.Visible;
         MultiActionLongPressNote.Visibility = isMultiAction ? Visibility.Visible : Visibility.Collapsed;
+        // Multiple Actions always shows the live step mosaic in the grid instead, so the button's
+        // own icon picker would be dead there — same reasoning Macro is exempt from (it's one
+        // atomic action, a real icon represents it more honestly than a mosaic of itself).
+        MainIconSection.Visibility = isMultiAction ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void LongPressEnabledCheck_Changed(object sender, RoutedEventArgs e)
     {
-        LongPressActionConfig.Visibility = LongPressEnabledCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        LongPressButton1Card.Visibility = LongPressEnabledCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        UpdateLongPressButton1Chrome(LongPressActionConfig.GetAction().Type);
+        UpdateSaveEnabled();
+    }
+
+    /// <summary>Hides the outer "Long-Press Button 1" header and the "+ Add Another Action" button
+    /// once button 1 is itself already a chain — RichActionStepListControl's own cards (inside
+    /// MultiActionPanel) take over both the numbering and the "add another" affordance at that point.</summary>
+    private void UpdateLongPressButton1Chrome(string type)
+    {
+        bool isChain = type == "multi_action";
+        LongPressButton1Header.Visibility = isChain ? Visibility.Collapsed : Visibility.Visible;
+        AddAnotherLongPressActionButton.Visibility = (LongPressEnabledCheck.IsChecked == true && !isChain) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void AddAnotherLongPressAction_Click(object sender, RoutedEventArgs e)
+    {
+        var current = LongPressActionConfig.GetAction();
+        if (current.Type == "multi_action" || current.Type == "macro") return; // already a chain
+
+        var wrapped = new ActionModel
+        {
+            Type = "multi_action",
+            Actions = new System.Collections.Generic.List<ActionModel> { current },
+            Delays = new System.Collections.Generic.List<int> { 0 }
+        };
+        LongPressActionConfig.SetAction(wrapped);
         UpdateSaveEnabled();
     }
 

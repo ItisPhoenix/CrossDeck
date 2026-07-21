@@ -32,6 +32,8 @@ public class WebSocketServer
     private readonly List<WebSocket> _activeSockets = new();
     private readonly HashSet<WebSocket> _runningAppsSubs = new();
     private readonly HashSet<WebSocket> _runningAppsLoops = new(); // sockets with a push loop alive, so re-subscribe can't spawn a second
+    private readonly HashSet<WebSocket> _audioMixerSubs = new();
+    private readonly HashSet<WebSocket> _audioMixerLoops = new(); // sockets with a push loop alive, so re-subscribe can't spawn a second
     private readonly object _lock = new();
 
     private TcpListener? _listener;
@@ -134,6 +136,7 @@ public class WebSocketServer
 
         string? authedToken = null;
         CancellationTokenSource? heartbeatCts = null;
+        string? lastMsgType = null;
 
         try
         {
@@ -199,7 +202,8 @@ public class WebSocketServer
                 var msg = await ReceiveJsonAsync(webSocket, ct);
                 if (msg is null) break;
 
-                switch (GetType_(msg.Value))
+                lastMsgType = GetType_(msg.Value);
+                switch (lastMsgType)
                 {
                     case "button_press":
                         await HandleButtonPress(webSocket, msg.Value, ct);
@@ -244,8 +248,29 @@ public class WebSocketServer
                     case "dial_adjust":
                         await HandleDialAdjust(webSocket, msg.Value, ct);
                         break;
+                    case "buttons_reorder":
+                        HandleButtonsReorder(msg.Value);
+                        break;
                     case "list_apps":
                         await HandleListApps(webSocket, ct);
+                        break;
+                    case "audio_mixer_subscribe":
+                        bool startMixerLoop;
+                        lock (_lock)
+                        {
+                            _audioMixerSubs.Add(webSocket);
+                            startMixerLoop = _audioMixerLoops.Add(webSocket);
+                        }
+                        if (startMixerLoop)
+                        {
+                            var mixerPushLoop = Task.Run(() => AudioMixerPushLoopAsync(webSocket, ct), ct);
+                        }
+                        break;
+                    case "audio_mixer_unsubscribe":
+                        lock (_lock) { _audioMixerSubs.Remove(webSocket); }
+                        break;
+                    case "audio_mixer_adjust":
+                        HandleAudioMixerAdjust(msg.Value);
                         break;
                     case "running_apps_subscribe":
                         bool startLoop;
@@ -287,12 +312,13 @@ public class WebSocketServer
              ex is OperationCanceledException ||
              ex is InvalidOperationException)
         {
-            // Client disconnected or socket error — normal, nothing to do.
+            // temp debug logging
+            try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "crossdeck_ws_errors.log"), $"[{DateTime.Now:O}] filtered lastMsgType={lastMsgType} {ex.GetType().Name}: {ex.Message}\n\n"); } catch { }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Any other unexpected exception — swallow so TcpClient disposes cleanly
-            // via 'finally' below and sends FIN not RST.
+            // temp debug logging
+            try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "crossdeck_ws_errors.log"), $"[{DateTime.Now:O}] lastMsgType={lastMsgType} {ex}\n\n"); } catch { }
         }
         finally
         {
@@ -385,6 +411,23 @@ public class WebSocketServer
         });
     }
 
+    /// <summary>Applies a drag-reorder from the Android client's auto-flow grid — same
+    /// ReorderButtons used by the Windows editor's own drag-and-drop.</summary>
+    private void HandleButtonsReorder(JsonElement msg)
+    {
+        var parentFolderId = msg.TryGetProperty("parentFolderId", out var fEl) && fEl.ValueKind != JsonValueKind.Null
+            ? fEl.GetString() : null;
+        if (!msg.TryGetProperty("buttonIds", out var idsEl) || idsEl.ValueKind != JsonValueKind.Array) return;
+
+        var orderedIds = idsEl.EnumerateArray()
+            .Select(e => e.GetString())
+            .Where(s => s != null)
+            .Select(s => s!)
+            .ToList();
+
+        _profileStore.ReorderButtons(_profileStore.Set.ActiveProfileId, parentFolderId, orderedIds);
+    }
+
     private async Task HandleDialAdjust(WebSocket webSocket, JsonElement msg, CancellationToken ct)
     {
         var buttonId = msg.TryGetProperty("buttonId", out var idEl) ? idEl.GetString() : null;
@@ -404,20 +447,18 @@ public class WebSocketServer
         var resolvedButtonId = button.ButtonId;
         var resolvedSlot = slot ?? "main";
 
+        // app_volume no longer has a single-app target to adjust here — it opens the live
+        // app_mixer_subscribe/audio_mixer_adjust flow on the client instead (see HandleAudioMixerAdjust).
+        if (dialTarget == "app_volume") return;
+
         // DDC/CI brightness writes go over I2C and can take tens of ms, unlike volume's
         // sub-millisecond COM call — offloaded so a fast slider drag doesn't back up behind
         // slow brightness calls on this socket's single receive loop (same as HandleButtonPress).
         _ = Task.Run(async () =>
         {
-            int newVal = 50;
-            if (dialTarget == "volume")
-            {
-                newVal = hasValue ? CrossDeckHost.Actions.DialController.SetVolume(targetVal) : CrossDeckHost.Actions.DialController.GetVolume();
-            }
-            else if (dialTarget == "brightness")
-            {
-                newVal = hasValue ? CrossDeckHost.Actions.DialController.SetBrightness(targetVal) : CrossDeckHost.Actions.DialController.GetBrightness();
-            }
+            int newVal = dialTarget == "volume"
+                ? (hasValue ? CrossDeckHost.Actions.DialController.SetVolume(targetVal) : CrossDeckHost.Actions.DialController.GetVolume())
+                : (hasValue ? CrossDeckHost.Actions.DialController.SetBrightness(targetVal) : CrossDeckHost.Actions.DialController.GetBrightness());
 
             if (newVal < 0)
             {
@@ -445,6 +486,26 @@ public class WebSocketServer
             apps = apps.Select(a => new { name = a.Name, path = a.ExePath })
         };
         await SendJsonAsync(webSocket, payload, ct);
+    }
+
+    /// <summary>Applies one row's slider drag or mute toggle from the live app-volume mixer.
+    /// Doesn't reply directly — the next AudioMixerPushLoopAsync tick (sub-second) picks up the
+    /// new level/muted state and pushes it to every subscriber, same as how dial_adjust for
+    /// volume/brightness is observed via LiveStateService's poll rather than an inline reply.</summary>
+    private void HandleAudioMixerAdjust(JsonElement msg)
+    {
+        var processName = msg.TryGetProperty("processName", out var pEl) ? pEl.GetString() : null;
+        if (string.IsNullOrEmpty(processName)) return;
+
+        bool? setMuted = msg.TryGetProperty("muted", out var mEl) && (mEl.ValueKind == JsonValueKind.True || mEl.ValueKind == JsonValueKind.False)
+            ? mEl.GetBoolean() : null;
+        int? setValue = msg.TryGetProperty("value", out var vEl) && vEl.TryGetInt32(out var v) ? v : null;
+
+        _ = Task.Run(() =>
+        {
+            if (setValue is int value) CrossDeckHost.Actions.DialController.SetAppVolume(processName, value);
+            if (setMuted is bool muted) CrossDeckHost.Actions.DialController.SetAppMuted(processName, muted);
+        });
     }
 
     /// <summary>
@@ -545,6 +606,43 @@ public class WebSocketServer
             {
                 _runningAppsSubs.Remove(webSocket);
                 _runningAppsLoops.Remove(webSocket);
+            }
+        }
+    }
+
+    /// <summary>Pushes the live app-volume mixer snapshot every 500ms while this socket stays
+    /// subscribed; skips sends when nothing changed. Faster tick than RunningAppsPushLoopAsync's
+    /// 1s since a slider drag needs to feel responsive, not just "eventually catches up".</summary>
+    private async Task AudioMixerPushLoopAsync(WebSocket webSocket, CancellationToken ct)
+    {
+        string lastKey = "";
+        try
+        {
+            while (webSocket.State == WebSocketState.Open && !ct.IsCancellationRequested)
+            {
+                bool subscribed;
+                lock (_lock) { subscribed = _audioMixerSubs.Contains(webSocket); }
+                if (!subscribed) return;
+
+                var entries = await Task.Run(() => CrossDeckHost.Actions.DialController.GetAudioMixerSnapshot(), ct);
+                var key = string.Join("|", entries.Select(a => $"{a.ProcessName}:{a.Level}:{a.Muted}:{a.Icon}"));
+                if (key != lastKey)
+                {
+                    lastKey = key;
+                    var apps = entries.Select(a => new { processName = a.ProcessName, level = a.Level, muted = a.Muted, icon = a.Icon });
+                    await SendJsonAsync(webSocket, new { type = "audio_mixer", apps }, ct);
+                }
+
+                await Task.Delay(500, ct);
+            }
+        }
+        catch { }
+        finally
+        {
+            lock (_lock)
+            {
+                _audioMixerSubs.Remove(webSocket);
+                _audioMixerLoops.Remove(webSocket);
             }
         }
     }

@@ -3,7 +3,7 @@
 
 [Setup]
 AppName=CrossDeck
-AppVersion=0.3.2-beta
+AppVersion=v0.3.4-beta
 AppPublisher=ItisPhoenix
 AppPublisherURL=https://github.com/ItisPhoenix
 DefaultDirName={userappdata}\CrossDeck

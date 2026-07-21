@@ -29,6 +29,7 @@ public class ActionExecutor
                 case "text_snippet":
                     return ExecuteTextSnippet(action.Text);
                 case "multi_action":
+                case "macro":
                     return await ExecuteMultiActionAsync(action);
                 case "dial":
                     return (true, null); // dial actions only execute via dial_adjust, ignore tap/press
