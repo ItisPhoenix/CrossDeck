@@ -533,15 +533,51 @@ public class ActionExecutor
                 // A bad session throwing shouldn't sink the rest of the candidates.
                 try
                 {
-                    bool ok = command switch
+                    // Skip a candidate that doesn't even declare support for this control —
+                    // most common with browser tabs whose page never wired up a next/previous
+                    // handler; trying it anyway just wastes the attempt.
+                    var controls = session.GetPlaybackInfo()?.Controls;
+                    bool supported = command switch
                     {
-                        "PlayPause" => await session.TryTogglePlayPauseAsync(),
-                        "NextTrack" => await session.TrySkipNextAsync(),
-                        "PrevTrack" => await session.TrySkipPreviousAsync(),
+                        "PlayPause" => controls?.IsPlayEnabled == true || controls?.IsPauseEnabled == true,
+                        "NextTrack" => controls?.IsNextEnabled == true,
+                        "PrevTrack" => controls?.IsPreviousEnabled == true,
                         _ => false
                     };
-                    if (ok)
-                        return (true, null);
+                    if (!supported) continue;
+
+                    // TryTogglePlayPauseAsync returning true only means Windows delivered the
+                    // command to the session — NOT that the app acted on it. Browser media
+                    // sessions (Chrome/Edge/YouTube etc.) are the most common offender: they
+                    // report delivery success and then silently do nothing. For PlayPause this is
+                    // cheaply verifiable (Playing/Paused is directly observable), so re-check the
+                    // actual state instead of trusting the delivery result, and keep trying other
+                    // candidates if nothing changed. Next/Prev don't get the same treatment — the
+                    // only observable signal (track metadata) can lag a real skip by more than our
+                    // wait, and retrying on a false negative there risks a second, redundant skip.
+                    if (command == "PlayPause")
+                    {
+                        bool playingBefore = session.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                        bool sent = await session.TryTogglePlayPauseAsync();
+                        if (!sent) continue;
+
+                        await Task.Delay(250);
+                        bool playingAfter = session.GetPlaybackInfo()?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                        if (playingAfter != playingBefore)
+                            return (true, null);
+                        // Delivered but nothing observably changed — try the next candidate.
+                    }
+                    else
+                    {
+                        bool ok = command switch
+                        {
+                            "NextTrack" => await session.TrySkipNextAsync(),
+                            "PrevTrack" => await session.TrySkipPreviousAsync(),
+                            _ => false
+                        };
+                        if (ok)
+                            return (true, null);
+                    }
                 }
                 catch
                 {
