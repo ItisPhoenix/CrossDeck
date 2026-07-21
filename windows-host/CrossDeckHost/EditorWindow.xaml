@@ -105,6 +105,7 @@
                                 </Grid>
                                 <TextBlock Text="Scan the QR in the phone app, or enter the address + PIN. Same WiFi required."
                                            Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                <Button x:Name="RegeneratePinButton" Style="{StaticResource StandardButton}" Content="🔄 New PIN" Click="RegeneratePinButton_Click" Margin="0,8,0,0"/>
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -148,7 +149,7 @@
                         <Border BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,4,0,0">
                             <Grid>
                                 <TextBlock Text="About" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" TextDecorations="Underline" HorizontalAlignment="Left"/>
-                                <TextBlock Text="v0.3.4-beta" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" HorizontalAlignment="Right"/>
+                                <TextBlock Text="v0.3.5-beta" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" HorizontalAlignment="Right"/>
                             </Grid>
                         </Border>
                     </StackPanel>

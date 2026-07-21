@@ -312,13 +312,11 @@ public class WebSocketServer
              ex is OperationCanceledException ||
              ex is InvalidOperationException)
         {
-            // temp debug logging
-            try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "crossdeck_ws_errors.log"), $"[{DateTime.Now:O}] filtered lastMsgType={lastMsgType} {ex.GetType().Name}: {ex.Message}\n\n"); } catch { }
+            LogWsError($"[{DateTime.Now:O}] filtered lastMsgType={lastMsgType} {ex.GetType().Name}: {ex.Message}\n\n");
         }
         catch (Exception ex)
         {
-            // temp debug logging
-            try { File.AppendAllText(Path.Combine(Path.GetTempPath(), "crossdeck_ws_errors.log"), $"[{DateTime.Now:O}] lastMsgType={lastMsgType} {ex}\n\n"); } catch { }
+            LogWsError($"[{DateTime.Now:O}] lastMsgType={lastMsgType} {ex}\n\n");
         }
         finally
         {
@@ -334,6 +332,25 @@ public class WebSocketServer
                 try { await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
                 catch { /* best effort */ }
             }
+        }
+    }
+
+    private const long MaxWsErrorLogBytes = 1 * 1024 * 1024; // 1 MB — old debug log grew unbounded
+
+    // temp debug logging — truncates back to empty once it hits the cap instead of growing forever.
+    private static readonly object _logLock = new();
+    private static void LogWsError(string line)
+    {
+        lock (_logLock)
+        {
+            try
+            {
+                var path = Path.Combine(Path.GetTempPath(), "crossdeck_ws_errors.log");
+                if (File.Exists(path) && new FileInfo(path).Length > MaxWsErrorLogBytes)
+                    File.Delete(path);
+                File.AppendAllText(path, line);
+            }
+            catch { }
         }
     }
 

@@ -46,6 +46,12 @@ class ConnectionManager(context: Context) {
         // No pingInterval here — the server sends an application-level heartbeat every 25 s
         // which keeps NAT/WiFi alive without touching WebSocket ping/pong frames.
         // OkHttp's built-in ping races with application SendAsync calls on the server stream.
+        //
+        // readTimeout MUST be disabled: OkHttp's default is 10s and resets only on received
+        // bytes. The server's 25s heartbeat is slower than that default, so any 10s+ gap in
+        // traffic (i.e. whenever no button is being pressed) hit the read timeout and killed
+        // the socket — this was the actual cause of "disconnects when idle/switching apps".
+        .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
         .build()
 
     private val json = Json { ignoreUnknownKeys = true }

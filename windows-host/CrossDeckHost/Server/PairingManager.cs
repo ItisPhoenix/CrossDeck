@@ -7,11 +7,18 @@ namespace CrossDeckHost.Server;
 public class PairingManager
 {
     private static readonly TimeSpan PinLifetime = TimeSpan.FromMinutes(5);
+    private const int MaxFailedAttempts = 5;
 
     private readonly string _tokensFilePath;
     private string _currentPin = "000000";
     private DateTime _pinExpiresAt = DateTime.MinValue;
     private readonly HashSet<string> _validTokens = new();
+
+    // Brute-force guard: a static 6-digit PIN has only 1,000,000 combinations, so unlimited
+    // attempts over the network would make it guessable well within its 5-minute lifetime.
+    // Locked out under _tokensLock alongside the rest of pairing state.
+    private int _failedPinAttempts = 0;
+    private DateTime _pinLockedUntil = DateTime.MinValue;
 
     // _validTokens is read from ValidateToken on every WebSocket connection and asset request
     // (each on its own thread) while IssueToken/RevokeToken/RevokeAllTokens mutate it concurrently.
@@ -31,14 +38,37 @@ public class PairingManager
 
     public void GenerateNewPin()
     {
-        _currentPin = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
-        _pinExpiresAt = DateTime.UtcNow.Add(PinLifetime);
+        lock (_tokensLock)
+        {
+            _currentPin = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+            _pinExpiresAt = DateTime.UtcNow.Add(PinLifetime);
+            _failedPinAttempts = 0;
+            _pinLockedUntil = DateTime.MinValue;
+        }
     }
 
     public bool ValidatePin(string pin)
     {
-        if (DateTime.UtcNow > _pinExpiresAt) return false;
-        return pin == _currentPin;
+        lock (_tokensLock)
+        {
+            if (DateTime.UtcNow < _pinLockedUntil) return false;
+            if (DateTime.UtcNow > _pinExpiresAt) return false;
+
+            if (pin == _currentPin)
+            {
+                _failedPinAttempts = 0;
+                return true;
+            }
+
+            _failedPinAttempts++;
+            if (_failedPinAttempts >= MaxFailedAttempts)
+            {
+                // Escalating lockout (30s, 60s, 90s, ...) rather than a fixed one, so sustained
+                // guessing keeps getting slower instead of just retrying every 30s forever.
+                _pinLockedUntil = DateTime.UtcNow.AddSeconds(30 * (_failedPinAttempts - MaxFailedAttempts + 1));
+            }
+            return false;
+        }
     }
 
     public string IssueToken()
