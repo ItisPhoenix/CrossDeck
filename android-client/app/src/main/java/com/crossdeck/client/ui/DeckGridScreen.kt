@@ -1399,7 +1399,28 @@ private fun DeckButton(
             if (multiActionSteps != null && multiActionSteps.isNotEmpty()) {
                 // Closed-grid preview only — tapping still opens the same full-button popup
                 // regardless of which segment is hit (wiring is on the outer Surface's onTap).
-                MosaicStepGrid(steps = multiActionSteps, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.fillMaxSize().padding(2.dp))
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxSize().padding(2.dp)
+                ) {
+                    MosaicStepGrid(
+                        steps = multiActionSteps,
+                        connectedHostUrl = connectedHostUrl,
+                        authToken = authToken,
+                        modifier = Modifier.weight(1f).fillMaxWidth()
+                    )
+                    if (!iconOnlyMode && button.label.isNotBlank()) {
+                        Text(
+                            text = button.label,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
+                        )
+                    }
+                }
             } else {
                 // Ripple ring that expands + fades on press, giving tactile feedback.
                 val rippleScale by animateFloatAsState(

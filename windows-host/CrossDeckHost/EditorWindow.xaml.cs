@@ -600,9 +600,24 @@ public partial class EditorWindow : Window
                     // what the chain actually does.
                     if (buttonModel.Action.Type == "multi_action" && buttonModel.Action.Actions?.Count > 0)
                     {
+                        bool hasLabel = !string.IsNullOrWhiteSpace(buttonModel.Label);
                         var mosaic = BuildMultiActionMosaic(buttonModel.Action.Actions);
-                        btn.SizeChanged += (s, e) => { mosaic.Width = mosaic.Height = btn.ActualWidth * 0.85; };
+                        btn.SizeChanged += (s, e) => { mosaic.Width = mosaic.Height = btn.ActualWidth * (hasLabel ? 0.65 : 0.85); };
                         stack.Children.Add(mosaic);
+                        if (hasLabel)
+                        {
+                            stack.Children.Add(new TextBlock
+                            {
+                                Text = buttonModel.Label,
+                                HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                                TextAlignment = System.Windows.TextAlignment.Center,
+                                Foreground = ThemeManager.Brush("Brush.Paper"),
+                                FontSize = 10,
+                                FontWeight = System.Windows.FontWeights.SemiBold,
+                                TextWrapping = TextWrapping.Wrap,
+                                Margin = new Thickness(0, 3, 0, 0)
+                            });
+                        }
                         iconLoaded = true;
                     }
                     else
