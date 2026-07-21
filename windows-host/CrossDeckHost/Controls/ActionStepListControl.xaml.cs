@@ -20,11 +20,19 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
 
     private bool _isMacro;
     /// <summary>A macro is captured by recording real input, not by hand-picking a type and typing
-    /// a value — that manual row is Multiple Actions' own affordance, hidden here when true.</summary>
+    /// a value — that manual row is Multiple Actions' own affordance, hidden here when true. The
+    /// Record button is the reverse: only Record Macro captures live input, so Multiple Actions
+    /// never shows it.</summary>
     public bool IsMacro
     {
         get => _isMacro;
-        set { _isMacro = value; ManualAddRow.Visibility = value ? Visibility.Collapsed : Visibility.Visible; }
+        set
+        {
+            _isMacro = value;
+            ManualAddRow.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            RecordMacroButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            RecordMacroHint.Visibility = value && _macroRecorder.IsRecording ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     private readonly MacroRecorder _macroRecorder = new();

@@ -1716,11 +1716,11 @@ private fun suggestedLabel(state: ActionEditorState): String? = when (state.type
  * but for a plain ActionModel (not a StepUiState). */
 private fun describeActionForMenu(action: ActionModel): String = action.label?.takeIf { it.isNotBlank() } ?: when (action.type) {
     "hotkey" -> "Keyboard Shortcut: ${action.keys?.joinToString(",") ?: ""}"
-    "launch_app" -> "Launch App"
+    "launch_app" -> "Launch: ${action.path?.substringAfterLast('\\')?.substringAfterLast('/') ?: ""}"
     "media_control" -> "Media: ${action.mediaCommand}"
     "open_url" -> "Open: ${action.url}"
-    "run_command" -> "Run Command"
-    "text_snippet" -> "Text Snippet"
+    "run_command" -> "Run: ${action.command ?: ""}"
+    "text_snippet" -> "Text: ${action.text?.take(20) ?: ""}"
     "open_folder" -> "Open Folder"
     "multi_action" -> "Multiple Actions (${action.actions?.size ?: 0} steps)"
     "macro" -> "Macro (${action.actions?.size ?: 0} steps)"
@@ -3229,36 +3229,43 @@ private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modi
 
     Column(modifier = modifier) {
         steps.forEachIndexed { index, step ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
                     .padding(8.dp)
             ) {
-                IconPreview(
-                    icon = step.icon,
-                    connectedHostUrl = null,
-                    authToken = null,
-                    modifier = Modifier.size(28.dp).clickable { iconPickerForIndex = index }
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    IconPreview(
+                        icon = step.icon,
+                        connectedHostUrl = null,
+                        authToken = null,
+                        modifier = Modifier.size(28.dp).clickable { iconPickerForIndex = index }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = describeStep(step),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = { if (index > 0) { val s = steps.removeAt(index); steps.add(index - 1, s) } }, enabled = index > 0) {
+                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up")
+                    }
+                    IconButton(onClick = { if (index < steps.size - 1) { val s = steps.removeAt(index); steps.add(index + 1, s) } }, enabled = index < steps.size - 1) {
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down")
+                    }
+                    IconButton(onClick = { steps.removeAt(index) }) {
+                        Icon(Icons.Default.Close, contentDescription = "Remove step", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
                 CrossDeckTextField(
                     value = step.label,
                     onValueChange = { step.label = it },
-                    label = describeStep(step),
-                    modifier = Modifier.weight(1f)
+                    label = "Label (shown on this step's tile)",
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
                 )
-                IconButton(onClick = { if (index > 0) { val s = steps.removeAt(index); steps.add(index - 1, s) } }, enabled = index > 0) {
-                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up")
-                }
-                IconButton(onClick = { if (index < steps.size - 1) { val s = steps.removeAt(index); steps.add(index + 1, s) } }, enabled = index < steps.size - 1) {
-                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down")
-                }
-                IconButton(onClick = { steps.removeAt(index) }) {
-                    Icon(Icons.Default.Close, contentDescription = "Remove step", tint = MaterialTheme.colorScheme.error)
-                }
             }
         }
 

@@ -14,6 +14,7 @@ public class AutoProfileWatcher
     private string? _lastProcessName;
     private bool _isManuallyLocked;
     private string? _lastProfileId;
+    private bool _editorOpen;
 
     public AutoProfileWatcher(ProfileStoreService profileStore)
     {
@@ -36,6 +37,13 @@ public class AutoProfileWatcher
         _timer.Stop();
     }
 
+    /// <summary>While the editor is open, the user is actively managing profiles/buttons by hand
+    /// — auto-switching out from under them (e.g. because a screenshot tool or notification
+    /// briefly stole foreground focus) silently yanks the active profile away mid-edit, so every
+    /// click on a button from the profile they just selected looks up against the wrong profile
+    /// and opens blank. Auto-switching resumes once the editor closes.</summary>
+    public void SetEditorOpen(bool isOpen) => _editorOpen = isOpen;
+
     private void OnProfileChanged(Profile profile)
     {
         // If the profile changed but the active process did not change,
@@ -49,6 +57,8 @@ public class AutoProfileWatcher
 
     private void OnTimerElapsed(object? sender, ElapsedEventArgs e)
     {
+        if (_editorOpen) return;
+
         try
         {
             var hwnd = GetForegroundWindow();

@@ -115,7 +115,7 @@ public partial class App : System.Windows.Application
             }
         }
 
-        var window = new EditorWindow(_profileStore, _server, _pairing);
+        var window = new EditorWindow(_profileStore, _server, _pairing, _profileWatcher);
         window.Show();
         window.Activate();
     }

@@ -28,13 +28,16 @@ public partial class EditorWindow : Window
     private bool _isFading;
 
     private readonly Server.PairingManager? _pairing;
+    private readonly Server.AutoProfileWatcher? _profileWatcher;
 
-    public EditorWindow(ProfileStoreService profileStore, Server.WebSocketServer? server, Server.PairingManager? pairing = null)
+    public EditorWindow(ProfileStoreService profileStore, Server.WebSocketServer? server, Server.PairingManager? pairing = null, Server.AutoProfileWatcher? profileWatcher = null)
     {
         InitializeComponent();
         _profileStore = profileStore;
         _server = server;
         _pairing = pairing;
+        _profileWatcher = profileWatcher;
+        _profileWatcher?.SetEditorOpen(true);
 
         // Listen for changes from phone or other sources to keep grid in sync
         _profileStore.ProfileChanged += OnProfileChangedOnThread;
@@ -67,6 +70,7 @@ public partial class EditorWindow : Window
         };
         Closed += (s, e) =>
         {
+            _profileWatcher?.SetEditorOpen(false);
             _profileStore.ProfileChanged -= OnProfileChangedOnThread;
             _profileStore.ProfileSetChanged -= OnProfileSetChangedOnThread;
             if (_server != null)
@@ -749,8 +753,13 @@ public partial class EditorWindow : Window
                     btn.Content = stack;
                 }
 
-                // Setup Click to edit cell
-                btn.Click += (s, e) => SelectCell(index);
+                // Setup Click to edit cell — a fresh local per iteration, not the shared `for`-loop
+                // variable itself: unlike foreach, a for-loop's index variable is one shared binding
+                // across every iteration, so every button's closure would otherwise all read
+                // whatever `index` happened to be once the loop finished (one past the last cell),
+                // making every click open a blank "new button" dialog instead of that button's own.
+                int capturedIndex = index;
+                btn.Click += (s, e) => SelectCell(capturedIndex);
 
                 // Setup Drag and Drop events
                 btn.PreviewMouseLeftButtonDown += Cell_PreviewMouseLeftButtonDown;
