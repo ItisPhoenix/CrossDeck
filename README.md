@@ -53,10 +53,12 @@ Made by [ItisPhoenix](https://github.com/ItisPhoenix).
   - `run_command` — Console shell command execution
   - `text_snippet` — Send raw text snippets via clipboard injection
   - `multi_action` — Sequenced combinations with custom delay intervals
+  - `macro` — Record real keystrokes/clicks and replay them with original timing
   - `open_folder` — Navigate into sub-folder button pages
 - **Dials / System Controls**: Tap a dial button to open a full-screen bottom-sheet touch-bar slider with haptic detent ticks to control:
   - System volume via WASAPI COM
   - Monitor brightness via DDC/CI (`dxva2.dll`) with WMI fallback for laptops
+- **App Volume Mixer**: A dedicated dial mode opens a live bottom sheet listing every app currently playing audio, each with its own slider and mute toggle — no more picking one app in advance.
 - **Haptic Feedback**: KEYBOARD_TAP, CONFIRM, and CLOCK_TICK haptics on the Android app for taps, connections, and slider steps.
 - **Custom Tray Menu**: Dark-styled Windows system tray context menu matching the Obsidian UI theme.
 - **Icon System**: 94-icon built-in pack (Lucide) or upload your own image, per button *and* per long-press action or individual chain step, synced over a token-authenticated asset server.
@@ -65,7 +67,7 @@ Made by [ItisPhoenix](https://github.com/ItisPhoenix).
 - **Live State Buttons**: Buttons reflect real PC state, pushed live — Mute glows when actually muted, Play/Pause when actually playing, a `launch_app` button when its app is the focused window, and dial buttons show the live volume/brightness level.
 - **Running Apps Switcher**: A live grid of every open PC window on the phone — tap to focus, long-press to close. Alt-Tab from your phone, including apps you never made a button for.
 - **Macro Recorder**: Hit Record in the PC editor's multi-action panel, perform your keystrokes anywhere, hit Stop — the captured combos and timing become a button. Clicks back on the CrossDeck window itself are ignored, so returning to hit Stop doesn't add a stray step.
-- **Multi-Action Popup**: Long-press (or tap, for a chain button) pops up every step as a real full-size button — tap one to run just that step, not the whole chain. The closed-grid preview tiles the button into a mosaic of per-step glyphs instead of one busy icon.
+- **Multi-Action Popup**: Long-press (or tap, for a chain button) pops up every step as a real full-size button, each with its own editable label and icon — tap one to run just that step, not the whole chain. The closed-grid preview tiles the button into a mosaic of per-step glyphs instead of one busy icon.
 
 ## Why does this app need these permissions?
 
