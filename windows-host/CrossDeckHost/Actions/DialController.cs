@@ -366,6 +366,24 @@ public static class DialController
             try
             {
                 var exePath = Server.RunningApps.GetProcessImagePath(pid);
+                if (exePath == null)
+                {
+                    // The PID that owns the WASAPI session for Chromium/Electron apps (Discord,
+                    // Brave, etc.) is often a sandboxed renderer/GPU/utility child process —
+                    // QueryFullProcessImageName can fail across that AppContainer boundary even
+                    // with PROCESS_QUERY_LIMITED_INFORMATION (same access-denied class of issue
+                    // GetProcessImagePath itself exists to work around for MainModule.FileName).
+                    // Every process sharing this name is the same exe on disk, so fall back to
+                    // whichever same-named instance we CAN resolve — normally the main process.
+                    foreach (var p in System.Diagnostics.Process.GetProcessesByName(processName))
+                    {
+                        using (p)
+                        {
+                            exePath = Server.RunningApps.GetProcessImagePath((uint)p.Id);
+                        }
+                        if (exePath != null) break;
+                    }
+                }
                 if (exePath != null)
                 {
                     if (!MixerIconCache.TryGetValue(exePath, out icon))
