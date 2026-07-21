@@ -148,7 +148,7 @@
                         <Border BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="0,1,0,0" Padding="0,10,0,0" Margin="0,4,0,0">
                             <Grid>
                                 <TextBlock Text="About" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" Cursor="Hand" MouseLeftButtonDown="AboutLink_Click" TextDecorations="Underline" HorizontalAlignment="Left"/>
-                                <TextBlock Text="v0.3.3-beta" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" HorizontalAlignment="Right"/>
+                                <TextBlock Text="v0.3.4-beta" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" HorizontalAlignment="Right"/>
                             </Grid>
                         </Border>
                     </StackPanel>
