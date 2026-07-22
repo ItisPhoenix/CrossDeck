@@ -4,25 +4,10 @@ A Stream-Deck-style app: your Android phone becomes a customizable button deck t
 
 Made by [ItisPhoenix](https://github.com/ItisPhoenix).
 
-<!--
-  Demo GIF goes here. Capture steps:
-  1. Pair a phone with a running Windows Host (same WiFi).
-  2. Screen-record the Android app (Android 11+: swipe-down quick settings > Screen record,
-     or `adb shell screenrecord /sdcard/demo.mp4`) covering: pairing, a few button taps, a
-     profile switch (3D flip), and opening the dial slider.
-  3. Convert to a GIF (e.g. `ffmpeg -i demo.mp4 -vf "fps=12,scale=360:-1" demo.gif`) and drop it
-     at docs/demo.gif, then replace this comment with: ![CrossDeck demo](docs/demo.gif)
--->
-
-<!--
-  Screenshots: take one of the Windows editor grid and one of the Android deck grid (same
-  profile, so they visibly match), save as docs/screenshot-host.png and
-  docs/screenshot-client.png, then replace this comment with an image row, e.g.:
-  <p float="left">
-    <img src="docs/screenshot-host.png" width="420" />
-    <img src="docs/screenshot-client.png" width="200" />
-  </p>
--->
+<p float="left">
+  <img src="media/screenshot-host.png" width="420" />
+  <img src="media/screenshot-client.png" width="200" />
+</p>
 
 ## Repo Structure
 
@@ -68,6 +53,24 @@ Made by [ItisPhoenix](https://github.com/ItisPhoenix).
 - **Running Apps Switcher**: A live grid of every open PC window on the phone — tap to focus, long-press to close. Alt-Tab from your phone, including apps you never made a button for.
 - **Macro Recorder**: Hit Record in the PC editor's multi-action panel, perform your keystrokes anywhere, hit Stop — the captured combos and timing become a button. Clicks back on the CrossDeck window itself are ignored, so returning to hit Stop doesn't add a stray step.
 - **Multi-Action Popup**: Long-press (or tap, for a chain button) pops up every step as a real full-size button, each with its own editable label and icon — tap one to run just that step, not the whole chain. The closed-grid preview tiles the button into a mosaic of per-step glyphs instead of one busy icon.
+
+## How It Works
+
+```
+┌─────────────────────────────┐         WiFi (LAN, router)         ┌──────────────────────────────┐
+│   Android Client              │ <────────────────────────────────> │   Windows Host                 │
+│  - Jetpack Compose grid UI    │   WebSocket, JSON, token auth       │  - WPF tray app (borderless)   │
+│  - Profile editor              │   UDP broadcast discovery            │  - WS server (TcpListener)     │
+│  - Bottom-sheet dials/mixer    │   or manual IP / QR pairing          │  - Action execution engine     │
+└─────────────────────────────┘   HTTP /assets/ icon sync            │  - Profile store (JSON, auth)  │
+                                                                       │  - Auto-profile watcher        │
+                                                                       └──────────────────────────────┘
+```
+
+- **Pairing**: phone finds the PC via UDP auto-discovery, QR scan, or manual IP entry, then authenticates with a 6-digit PIN shown in the Windows tray menu.
+- **Sync**: the PC holds the one authoritative profile (JSON on disk). Any edit, from either side, sends a `profile_edit` message over the WebSocket; the PC applies it, persists it, and broadcasts the updated `profile_sync` back to every connected client. Last-write-wins per button — no merge step needed for the current one-phone-per-PC scope.
+- **Actions**: pressing a button sends its action id over the same socket; the Host's action engine runs it (`SendInput` for hotkeys/media, Win32 for launching apps/URLs, WASAPI/DDC-CI for volume/brightness, etc.) and pushes live state back so buttons reflect reality (mute glowing when actually muted, and so on).
+- **Icons**: custom icons sync over a small token-authenticated HTTP endpoint on the Host rather than living in the profile JSON, keeping sync messages small.
 
 ## Why does this app need these permissions?
 
