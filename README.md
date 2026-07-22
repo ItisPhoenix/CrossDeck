@@ -1,6 +1,14 @@
+<div align="center">
+
+<img src="media/logo.png" width="96" alt="CrossDeck logo" />
+
 # CrossDeck
 
-A Stream-Deck-style app: your Android phone becomes a customizable button deck that controls your Windows PC over local WiFi.
+### Your Android phone becomes a Stream-Deck for your Windows PC — over local WiFi, no cloud, no subscription.
+
+[![Latest Release](https://img.shields.io/github/v/release/ItisPhoenix/CrossDeck?style=for-the-badge&label=release)](https://github.com/ItisPhoenix/CrossDeck/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Android-blue?style=for-the-badge)](#download)
 
 Made by [ItisPhoenix](https://github.com/ItisPhoenix).
 
@@ -8,6 +16,18 @@ Made by [ItisPhoenix](https://github.com/ItisPhoenix).
   <img src="media/screenshot-host.png" width="420" />
   <img src="media/screenshot-client.png" width="200" />
 </p>
+
+[**Features**](#features) · [**How It Works**](#how-it-works) · [**Download**](#download) · [**Build It**](#building--windows-host) · [**FAQ**](#faq)
+
+</div>
+
+---
+
+## Why CrossDeck?
+
+A physical Stream Deck is $150+ hardware you have to buy, plug in, and find desk space for. CrossDeck turns the phone already in your pocket into the same thing: a grid of buttons that fires hotkeys, media controls, app launches, and volume/brightness dials on your PC — over your own WiFi, with nothing leaving your network.
+
+It's fully open source, so every permission it asks for is auditable, not just promised.
 
 ## Repo Structure
 
@@ -72,15 +92,6 @@ Made by [ItisPhoenix](https://github.com/ItisPhoenix).
 - **Actions**: pressing a button sends its action id over the same socket; the Host's action engine runs it (`SendInput` for hotkeys/media, Win32 for launching apps/URLs, WASAPI/DDC-CI for volume/brightness, etc.) and pushes live state back so buttons reflect reality (mute glowing when actually muted, and so on).
 - **Icons**: custom icons sync over a small token-authenticated HTTP endpoint on the Host rather than living in the profile JSON, keeping sync messages small.
 
-## Why does this app need these permissions?
-
-- **`SendInput` (Windows)**: required to simulate hotkeys and media keys. This is the same API any macro tool uses.
-- **Foreground window polling (Windows)**: used only for auto-profile-switch (switches the active button profile when you focus a specific app like OBS or Chrome). No content is read — only the process name.
-- **Local network access (Android)**: to connect to the Windows Host WebSocket server on your LAN. No external network connections are made.
-- **Camera (Android)**: used only by the QR scanner for pairing. Not used at any other time.
-
-The full source code is auditable in this repository.
-
 ---
 
 ## Download
@@ -90,10 +101,7 @@ The full source code is auditable in this repository.
 | 🖥️ **Windows Host** | [**Download CrossDeckSetup.exe**](https://github.com/ItisPhoenix/CrossDeck/raw/main/windows-host/Setup/CrossDeckSetup.exe) |
 | 📱 **Android Client** | [**Download CrossDeck Client.apk**](https://github.com/ItisPhoenix/CrossDeck/raw/main/android-client/Release/CrossDeck%20Client.apk) |
 
-Both links download the file directly — no extra clicks.
-
-- **Windows**: run the installer. Windows will show a SmartScreen "Unknown Publisher" warning (no code-signing cert) — click **More info → Run anyway**.
-- **Android**: install the APK directly (not on Play Store). Enable **Install unknown apps** for your browser/file manager under Android Settings → Apps, then open the downloaded file.
+Both links download the file directly — no extra clicks. First-launch warnings are expected and covered in the [FAQ](#faq).
 
 ---
 
@@ -129,11 +137,25 @@ Or open `android-client/` in Android Studio and run on your device.
 
 ---
 
-## Network Setup
+## FAQ
 
-- PC and phone must be on the **same router/WiFi**.
-- Disable **AP Isolation** / **Client Isolation** on the router if present — the most common cause of "can't find PC" issues.
-- Test on a home network first; corporate/public WiFi typically blocks mDNS and multicast.
+**Windows shows "Unknown Publisher" when I run the installer — is that normal?**
+Yes. There's no paid code-signing certificate behind this project. Click **More info → Run anyway**. The full source is in this repo if you want to verify what you're running before you do.
+
+**Why can't I install the APK normally?**
+It's not on the Play Store, so Android blocks it by default. Enable **Install unknown apps** for your browser/file manager under Settings → Apps, then open the downloaded file.
+
+**Why does the Windows Host need `SendInput` / foreground-window access?**
+`SendInput` simulates hotkeys and media keys — the same API any macro tool uses. Foreground-window polling only reads the active process *name* (never window content) to power auto-profile-switch, so the deck can flip profiles when you focus OBS, Chrome, etc.
+
+**Why does the Android app need camera and local-network permissions?**
+Camera is used only by the QR scanner during pairing — never afterward. Local network access is only to reach the Windows Host's WebSocket server on your LAN; CrossDeck makes no external network connections.
+
+**My phone can't find my PC — what's wrong?**
+Almost always the router. Both devices need to be on the **same WiFi**, with **AP Isolation / Client Isolation disabled** — that setting silently blocks device-to-device discovery on a lot of routers. Corporate and public WiFi typically block the mDNS/multicast traffic discovery relies on, so test on a home network first, or pair manually with the PC's IP.
+
+**Can two phones control one PC, or one phone control two PCs?**
+Not yet — v1 is one phone ↔ one PC. Re-pairing swaps which device is authorized.
 
 ---
 
