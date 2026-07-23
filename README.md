@@ -17,7 +17,7 @@ Made by [ItisPhoenix](https://github.com/ItisPhoenix).
   Windows Host
 </p>
 <p>
-  <img src="media/screenshot-client.png" width="200" /><br/>
+  <img src="media/screenshot-client.png" width="400" /><br/>
   Android Client
 </p>
 
