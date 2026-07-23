@@ -12,9 +12,13 @@
 
 Made by [ItisPhoenix](https://github.com/ItisPhoenix).
 
-<p float="left">
-  <img src="media/screenshot-host.png" width="420" />
-  <img src="media/screenshot-client.png" width="200" />
+<p>
+  <img src="media/screenshot-host.png" width="420" /><br/>
+  Windows Host
+</p>
+<p>
+  <img src="media/screenshot-client.png" width="200" /><br/>
+  Android Client
 </p>
 
 [**Features**](#features) · [**How It Works**](#how-it-works) · [**Download**](#download) · [**Build It**](#building--windows-host) · [**FAQ**](#faq)
