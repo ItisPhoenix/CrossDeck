@@ -13,11 +13,11 @@
 Made by [ItisPhoenix](https://github.com/ItisPhoenix).
 
 <p>
-  <img src="media/screenshot-host.png" width="420" /><br/>
+  <img src="media/screenshot-host.png" width="800" /><br/>
   Windows Host
 </p>
 <p>
-  <img src="media/screenshot-client.png" width="400" /><br/>
+  <img src="media/screenshot-client.png" width="800" /><br/>
   Android Client
 </p>
 
