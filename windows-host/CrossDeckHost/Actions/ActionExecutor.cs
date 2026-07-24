@@ -591,6 +591,18 @@ public class ActionExecutor
             // legacy hardware key below rather than failing outright.
         }
 
+        // Chromium (Chrome/Edge/Brave/...) has a known bug: putting a tab's video into
+        // Picture-in-Picture can permanently drop that tab's OS media-session registration —
+        // GetSessions() above returns nothing, and even the legacy hardware key below reaches
+        // nobody, since Windows has no session left to route it to. This is unrecoverable until
+        // the page loads new media (confirmed live: exiting PiP alone does NOT restore it). The
+        // floating PiP window itself is still real and focusable though, and Space toggles an
+        // HTML5 <video>'s play/pause natively in every Chromium browser — independent of the
+        // broken session — so try that before giving up. No such recovery exists for
+        // next/previous track: those are purely JS handlers wired through the same dead session.
+        if (command == "PlayPause" && TryTogglePictureInPictureVideo())
+            return (true, null);
+
         string keyName = command switch
         {
             "PlayPause" => "MediaPlayPause",
@@ -599,6 +611,37 @@ public class ActionExecutor
             _ => command
         };
         return ExecuteHotkey(new List<string> { keyName });
+    }
+
+    /// <summary>Finds a Chromium Picture-in-Picture window ("Picture in picture" title, used by
+    /// Chrome/Edge/Brave/Opera/Vivaldi alike) and sends it Space, which toggles HTML5 video
+    /// play/pause directly — bypassing the OS media-session pipeline entirely.</summary>
+    private static bool TryTogglePictureInPictureVideo()
+    {
+        IntPtr pipWindow = IntPtr.Zero;
+        EnumWindows((hWnd, _) =>
+        {
+            if (!IsWindowVisible(hWnd)) return true;
+            var sb = new System.Text.StringBuilder(256);
+            GetWindowText(hWnd, sb, 256);
+            if (string.Equals(sb.ToString(), "Picture in picture", StringComparison.OrdinalIgnoreCase))
+            {
+                pipWindow = hWnd;
+                return false; // Stop enumeration
+            }
+            return true;
+        }, IntPtr.Zero);
+
+        if (pipWindow == IntPtr.Zero || !VirtualKey.TryGetCode("Space", out var spaceVk))
+            return false;
+
+        ForceForegroundWindow(pipWindow);
+        Thread.Sleep(60); // let the focus change land before the key does
+
+        SendInput(1, new[] { KeyInput(spaceVk, keyUp: false) }, Marshal.SizeOf(typeof(INPUT)));
+        Thread.Sleep(40);
+        SendInput(1, new[] { KeyInput(spaceVk, keyUp: true) }, Marshal.SizeOf(typeof(INPUT)));
+        return true;
     }
 
     private (bool, string?) ExecuteOpenUrl(string? url)
