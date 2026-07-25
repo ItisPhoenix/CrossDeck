@@ -137,6 +137,7 @@ import com.crossdeck.client.ui.theme.Go
 import com.crossdeck.client.ui.theme.SignalCyan
 import com.crossdeck.client.model.ButtonModel
 import com.crossdeck.client.model.Profile
+import com.crossdeck.client.model.resolveDialLayer
 import java.util.UUID
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -160,6 +161,9 @@ fun DeckGridScreen(
     onButtonTap: (ButtonModel) -> Unit,
     onButtonSave: (ButtonModel) -> Unit,
     onButtonsReorder: (parentFolderId: String?, orderedButtonIds: List<String>) -> Unit = { _, _ -> },
+    onDialSave: (ButtonModel) -> Unit = {},
+    onDialDelete: (String) -> Unit = {},
+    onDialsReorder: (orderedButtonIds: List<String>) -> Unit = {},
     onIconUpload: suspend (ByteArray) -> String?,
     appList: List<com.crossdeck.client.model.DiscoveredApp>,
     onRequestAppList: () -> Unit,
@@ -201,6 +205,18 @@ fun DeckGridScreen(
         view.keepScreenOn = settings.keepScreenAwake
     }
 
+    // Rotation Lock setting — pins to whatever orientation the phone is already in the moment
+    // the lock is turned on, rather than forcing portrait; ORIENTATION_UNSPECIFIED restores free
+    // rotation. Falls back to a no-op if the view's context isn't an Activity for some reason.
+    val activity = LocalContext.current as? android.app.Activity
+    LaunchedEffect(settings.rotationLocked) {
+        activity?.requestedOrientation = if (settings.rotationLocked) {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        } else {
+            android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
     var pendingRunCommand by remember { mutableStateOf<PendingRunCommand?>(null) }
 
     val accentColor = try {
@@ -217,6 +233,8 @@ fun DeckGridScreen(
     }
     var isEditMode by remember { mutableStateOf(false) }
     var editingButton by remember { mutableStateOf<ButtonModel?>(null) }
+    var editingDial by remember { mutableStateOf<ButtonModel?>(null) }
+    var creatingNewDial by remember { mutableStateOf(false) }
     var longPressMenuButton by remember { mutableStateOf<ButtonModel?>(null) }
     var pendingRunningAppAssign by remember { mutableStateOf<com.crossdeck.client.model.RunningApp?>(null) }
     var creatingNewButton by remember { mutableStateOf(false) }
@@ -616,6 +634,12 @@ fun DeckGridScreen(
                                                     longPressMenuButton = cellButton
                                                 }
                                             } else null,
+                                            onDoublePress = if (!isEditMode && cellButton.action.type != "multi_action" && cellButton.doublePressAction != null) {
+                                                {
+                                                    haptic()
+                                                    onButtonPress(cellButton, "double", null)
+                                                }
+                                            } else null,
                                             modifier = visualModifier.then(dragModifier),
                                             levelValue = dialValue
                                         )
@@ -662,6 +686,30 @@ fun DeckGridScreen(
                         }
                     }
                 }
+
+                // Dial strip, pinned under the grid — sibling of the grid's own
+                // BoxWithConstraints (outside its weight(1f)/swipe-gesture scope), so the grid's
+                // cellSize math absorbs the height loss automatically and vertical drags here never
+                // fight the profile-swipe handler above.
+                DialStrip(
+                    dials = profile.dials.filter { it.parentFolderId == currentFolderId },
+                    dialLevels = dialLevels,
+                    isEditMode = isEditMode,
+                    accentColor = accentColor,
+                    connectedHostUrl = connectedHostUrl,
+                    authToken = authToken,
+                    haptic = ::haptic,
+                    onDialAdjust = onDialAdjust,
+                    onDialTap = { dial ->
+                        if (dial.action.dialTarget == "app_volume" && dial.action.dialProcess.isNullOrBlank()) {
+                            showAudioMixer = true
+                        } else if (dial.longPressAction != null) {
+                            onButtonPress(dial, "long", null)
+                        }
+                    },
+                    onEdit = { dial -> if (dial != null) editingDial = dial else creatingNewDial = true },
+                    onReorder = onDialsReorder,
+                )
             }
 
             // Always-on ambient status — passive, no tap action. The banner below only appears
@@ -748,9 +796,9 @@ fun DeckGridScreen(
                 }
             }
 
-            // Floating menu button — top-right, always visible. Keeps the grid clean (Stream Deck
-            // style, no permanent header bar) while still reaching Edit mode, Settings, and
-            // profile switching from one place.
+            // Floating menu button — top-right, always visible. Keeps the grid clean (no permanent
+            // header bar) while still reaching Edit mode, Settings, and profile switching from
+            // one place.
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -899,6 +947,7 @@ fun DeckGridScreen(
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier
+                        .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .padding(bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -1162,6 +1211,59 @@ fun DeckGridScreen(
                 )
             }
 
+            // Dial strip creation/edit popup — same EditButtonDialog, forced into dial mode
+            // (no Action Type dropdown, action is always "dial") and saved to Profile.dials
+            // instead of Profile.buttons.
+            if (creatingNewDial) {
+                val newDialPlaceholder = remember(creatingNewDial) {
+                    ButtonModel(
+                        buttonId = "b_" + UUID.randomUUID().toString().substring(0, 8),
+                        label = "",
+                        action = ActionModel(type = "dial", dialTarget = "volume"),
+                        parentFolderId = currentFolderId,
+                    )
+                }
+                EditButtonDialog(
+                    button = newDialPlaceholder,
+                    connectedHostUrl = connectedHostUrl,
+                    authToken = authToken,
+                    onIconUpload = onIconUpload,
+                    appList = appList,
+                    onRequestAppList = onRequestAppList,
+                    extractedIcon = extractedIcon,
+                    onRequestExtractIcon = onRequestExtractIcon,
+                    onDismiss = { creatingNewDial = false },
+                    onSave = { savedDial ->
+                        onDialSave(savedDial)
+                        creatingNewDial = false
+                    },
+                    onDelete = null,
+                    forceDialMode = true,
+                )
+            }
+            if (editingDial != null) {
+                EditButtonDialog(
+                    button = editingDial!!,
+                    connectedHostUrl = connectedHostUrl,
+                    authToken = authToken,
+                    onIconUpload = onIconUpload,
+                    appList = appList,
+                    onRequestAppList = onRequestAppList,
+                    extractedIcon = extractedIcon,
+                    onRequestExtractIcon = onRequestExtractIcon,
+                    onDismiss = { editingDial = null },
+                    onSave = { savedDial ->
+                        onDialSave(savedDial)
+                        editingDial = null
+                    },
+                    onDelete = {
+                        onDialDelete(editingDial!!.buttonId)
+                        editingDial = null
+                    },
+                    forceDialMode = true,
+                )
+            }
+
             longPressMenuButton?.let { btn ->
                 LongPressMenu(
                     button = btn,
@@ -1307,6 +1409,10 @@ private fun DeckButton(
     iconOnlyMode: Boolean = false,
     onTap: () -> Unit,
     onLongPress: (() -> Unit)? = null,
+    /** Null unless this button has a doublePressAction configured — combinedClickable only pays
+     * the double-tap-detection wait when onDoubleClick is non-null, so every other button's tap
+     * stays at today's zero delay (see ButtonModel.doublePressAction's own doc comment). */
+    onDoublePress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     levelValue: Int? = null,
     /** Live PC-side state: Mute actually muted, Play/Pause actually playing, launch_app actually
@@ -1382,7 +1488,8 @@ private fun DeckButton(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onTap,
-                onLongClick = onLongPress
+                onLongClick = onLongPress,
+                onDoubleClick = onDoublePress
             )
             .background(glossyBg, RoundedCornerShape(18.dp))
             .border(
@@ -1706,7 +1813,13 @@ private fun suggestedLabel(state: ActionEditorState): String? = when (state.type
     "open_url" -> state.url.trim().removePrefix("https://").removePrefix("http://").substringBefore('/').ifBlank { null }
     "run_command" -> state.command.trim().substringAfterLast('\\').substringAfterLast('/').substringBefore(' ').ifBlank { null }
     "text_snippet" -> state.textValue.trim().take(20).ifBlank { null }
-    "dial" -> if (state.dialTarget == "brightness") "Brightness" else "Volume"
+    "dial" -> if (state.isDialStack && state.dialStackLayers.isNotEmpty()) "Dial Stack" else when (state.dialTarget) {
+        "brightness" -> "Brightness"
+        "mic" -> "Microphone"
+        "app_volume" -> state.dialProcess.ifBlank { "App Volume" }
+        "keystroke_step" -> "Keystroke Step"
+        else -> "Volume"
+    }
     "open_folder" -> "Open Folder"
     "macro" -> "Macro"
     else -> null
@@ -1724,7 +1837,7 @@ private fun describeActionForMenu(action: ActionModel): String = action.label?.t
     "open_folder" -> "Open Folder"
     "multi_action" -> "Multiple Actions (${action.actions?.size ?: 0} steps)"
     "macro" -> "Macro (${action.actions?.size ?: 0} steps)"
-    "dial" -> "Dial: ${action.dialTarget}"
+    "dial" -> "Dial: ${action.dialTarget}" + (action.dialProcess?.let { " ($it)" } ?: "")
     else -> action.type
 }
 
@@ -2020,6 +2133,293 @@ private fun AudioMixerSheet(
     }
 }
 
+private const val MAX_DIALS = 6
+
+/** Always-visible row of live-adjustable dials pinned under the button grid. Collapses to nothing
+ * when there are no dials and the grid isn't in edit mode. Each cell: drag vertically to adjust
+ * (throttled + haptic detent every 5%, same pattern as the single-dial modal above), tap to fire
+ * whatever's configured (mute toggle, play/pause, open the live mixer for an unbound app-volume
+ * dial, ...). Edit mode swaps the drag gesture for a tap-to-configure one, plus a trailing "+" cell. */
+@Composable
+private fun DialStrip(
+    dials: List<ButtonModel>,
+    dialLevels: Map<String, Int>,
+    isEditMode: Boolean,
+    accentColor: Color,
+    connectedHostUrl: String?,
+    authToken: String?,
+    haptic: (Int) -> Unit,
+    // Same (buttonId, slot, value) shape the screen's own onDialAdjust prop already has —
+    // DialCell supplies slot (embedding the stack layer, see resolveDialLayer) and value
+    // (absolute level, signed keystroke-tick count, or null to query without setting).
+    onDialAdjust: (buttonId: String, slot: String, value: Int?) -> Unit,
+    onDialTap: (ButtonModel) -> Unit,
+    onEdit: (ButtonModel?) -> Unit,
+    onReorder: (List<String>) -> Unit,
+) {
+    val showAddTile = isEditMode && dials.size < MAX_DIALS
+    if (dials.isEmpty() && !showAddTile) return
+
+    // Long-press-then-drag reorder, edit mode only — same pattern as the grid's own drag-reorder,
+    // just horizontal-only math since the strip is a single row. Kept on an outer Box wrapping
+    // DialCell (rather than merged into DialCell's own pointerInput) so the drag detector and
+    // DialCell's tap/adjust gesture never fight over the same pointer stream.
+    var draggedIndex by remember { mutableStateOf<Int?>(null) }
+    var dragOffsetX by remember { mutableStateOf(0f) }
+    var rowCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .onGloballyPositioned { rowCoordinates = it }
+    ) {
+        dials.forEachIndexed { index, dial ->
+            val isDraggingThis = draggedIndex == index
+            val dragModifier = if (isEditMode) {
+                Modifier.pointerInput(index, dials) {
+                    var hasMoved = false
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = {
+                            hasMoved = false
+                            haptic(HapticFeedbackConstants.LONG_PRESS)
+                            draggedIndex = index
+                            dragOffsetX = 0f
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            hasMoved = true
+                            dragOffsetX += dragAmount.x
+                        },
+                        onDragEnd = {
+                            val coords = rowCoordinates
+                            val startIdx = draggedIndex
+                            if (hasMoved && coords != null && startIdx != null && startIdx < dials.size) {
+                                val cellWidthPx = coords.size.width / dials.size.coerceAtLeast(1)
+                                val startX = startIdx * cellWidthPx
+                                val touchX = startX + cellWidthPx / 2 + dragOffsetX
+                                val targetIdx = (touchX / cellWidthPx).toInt().coerceIn(0, dials.size - 1)
+                                if (targetIdx != startIdx) {
+                                    haptic(HapticFeedbackConstants.KEYBOARD_TAP)
+                                    val reordered = dials.map { it.buttonId }.toMutableList()
+                                    val movedId = reordered.removeAt(startIdx)
+                                    reordered.add(targetIdx, movedId)
+                                    onReorder(reordered)
+                                }
+                            }
+                            draggedIndex = null
+                            dragOffsetX = 0f
+                        },
+                        onDragCancel = {
+                            draggedIndex = null
+                            dragOffsetX = 0f
+                        }
+                    )
+                }
+            } else Modifier
+
+            val visualModifier = if (isDraggingThis) {
+                Modifier
+                    .zIndex(10f)
+                    .graphicsLayer {
+                        translationX = dragOffsetX
+                        scaleX = 1.08f
+                        scaleY = 1.08f
+                        shadowElevation = 8.dp.toPx()
+                    }
+            } else Modifier
+
+            Box(modifier = Modifier.weight(1f).then(visualModifier).then(dragModifier)) {
+                DialCell(
+                    dial = dial,
+                    dialLevels = dialLevels,
+                    isEditMode = isEditMode,
+                    accentColor = accentColor,
+                    connectedHostUrl = connectedHostUrl,
+                    authToken = authToken,
+                    haptic = haptic,
+                    onAdjust = { slot, value -> onDialAdjust(dial.buttonId, slot, value) },
+                    onTap = { onDialTap(dial) },
+                    onEditTap = { onEdit(dial) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+        if (showAddTile) {
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = accentColor.copy(alpha = 0.12f),
+                border = androidx.compose.foundation.BorderStroke(1.2.dp, accentColor.copy(alpha = 0.5f)),
+                modifier = Modifier
+                    .weight(1f)
+                    .height(72.dp)
+                    .clickable { haptic(HapticFeedbackConstants.KEYBOARD_TAP); onEdit(null) }
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add dial", tint = accentColor)
+                }
+            }
+        }
+    }
+}
+
+/** One dial-strip cell. A stacked dial (dial.action.actions non-empty) cycles through its layers
+ * on tap, dragging whichever layer is currently active; an unstacked dial's tap fires its press
+ * action (or opens the live mixer for an unbound app-volume dial). Level is read from the same
+ * dialLevels store the single-dial modal uses ("$buttonId:$slot"), where slot embeds the active
+ * layer index ("main" for layer 0 / unstacked, "main:2" for layer 2) — see resolveDialLayer. */
+@Composable
+private fun DialCell(
+    dial: ButtonModel,
+    dialLevels: Map<String, Int>,
+    isEditMode: Boolean,
+    accentColor: Color,
+    connectedHostUrl: String?,
+    authToken: String?,
+    haptic: (Int) -> Unit,
+    onAdjust: (slot: String, value: Int?) -> Unit,
+    onTap: () -> Unit,
+    onEditTap: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val stackLayers = dial.action.actions
+    val isStack = !stackLayers.isNullOrEmpty()
+    val layerCount = stackLayers?.size ?: 1
+    var currentLayer by remember(dial.buttonId) { mutableStateOf(0) }
+    // Guards against a profile edit shrinking the stack while this client still remembers a
+    // higher index from before the edit landed.
+    LaunchedEffect(layerCount) { if (currentLayer >= layerCount) currentLayer = 0 }
+
+    val activeAction = dial.action.resolveDialLayer(currentLayer)
+    val slot = if (currentLayer == 0) "main" else "main:$currentLayer"
+    val isUnboundMixer = activeAction.dialTarget == "app_volume" && activeAction.dialProcess.isNullOrBlank()
+    val isKeystroke = activeAction.dialTarget == "keystroke_step"
+    val level = dialLevels["${dial.buttonId}:$slot"] ?: 50
+
+    var localLevel by remember(dial.buttonId, currentLayer) { mutableStateOf(level) }
+    var lastSent by remember(dial.buttonId, currentLayer) { mutableStateOf(level) }
+    var dragging by remember { mutableStateOf(false) }
+    LaunchedEffect(level, currentLayer) {
+        if (!dragging) {
+            localLevel = level
+            lastSent = level
+        }
+    }
+
+    val activeIcon = activeAction.icon ?: dial.icon
+    val bmp by produceState<ImageBitmap?>(initialValue = null, activeIcon, connectedHostUrl) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            resolveIconBitmap(context, activeIcon, connectedHostUrl, authToken)
+        }
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .height(72.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
+            .pointerInput(dial.buttonId, isEditMode, isUnboundMixer, isStack, currentLayer, isKeystroke) {
+                if (isEditMode || (isUnboundMixer && !isStack)) {
+                    detectTapGestures(onTap = {
+                        haptic(HapticFeedbackConstants.KEYBOARD_TAP)
+                        if (isEditMode) onEditTap() else onTap()
+                    })
+                } else {
+                    // Full-height drag traverses the full 0-100 range for a level dial, or ~20
+                    // keystroke ticks for a keystroke_step one — same throttle-by-5 + haptic-detent
+                    // pattern as the single-dial modal's Slider, just driven by a raw vertical drag.
+                    val rangePx = size.height.toFloat() * 3f
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        var totalDy = 0f
+                        var draggedEnough = false
+                        var pendingTicks = 0
+                        var event: androidx.compose.ui.input.pointer.PointerEvent
+                        do {
+                            event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (change.pressed) {
+                                val dy = change.positionChange().y
+                                totalDy += dy
+                                if (!draggedEnough && kotlin.math.abs(totalDy) > 12f) {
+                                    draggedEnough = true
+                                    dragging = true
+                                }
+                                if (draggedEnough && !isUnboundMixer) {
+                                    change.consume()
+                                    if (isKeystroke) {
+                                        val ticksNow = (-totalDy / rangePx * 20f).roundToInt()
+                                        val delta = ticksNow - pendingTicks
+                                        if (delta != 0) {
+                                            haptic(HapticFeedbackConstants.CLOCK_TICK)
+                                            onAdjust(slot, delta)
+                                            pendingTicks = ticksNow
+                                        }
+                                    } else {
+                                        val newLevel = (localLevel - (dy / rangePx * 100f).roundToInt()).coerceIn(0, 100)
+                                        if (newLevel != localLevel) {
+                                            localLevel = newLevel
+                                            if (kotlin.math.abs(localLevel - lastSent) >= 5) {
+                                                haptic(HapticFeedbackConstants.CLOCK_TICK)
+                                                onAdjust(slot, localLevel)
+                                                lastSent = localLevel
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } while (event.changes.any { it.id == down.id && it.pressed })
+
+                        if (draggedEnough) {
+                            if (!isKeystroke && !isUnboundMixer && localLevel != lastSent) onAdjust(slot, localLevel)
+                            dragging = false
+                        } else if (isStack) {
+                            haptic(HapticFeedbackConstants.KEYBOARD_TAP)
+                            currentLayer = (currentLayer + 1) % layerCount
+                            onAdjust(if (currentLayer == 0) "main" else "main:$currentLayer", null)
+                        } else {
+                            haptic(HapticFeedbackConstants.KEYBOARD_TAP)
+                            onTap()
+                        }
+                    }
+                }
+            }
+    ) {
+        bmp?.let {
+            Image(bitmap = it, contentDescription = null, modifier = Modifier.size(24.dp))
+        } ?: Text(text = "🎚", fontSize = 16.sp)
+        Spacer(modifier = Modifier.height(2.dp))
+        if (!isUnboundMixer && !isKeystroke) {
+            Text(
+                text = "${localLevel}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = accentColor,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Text(
+            text = (activeAction.label?.takeIf { it.isNotBlank() } ?: dial.label).ifBlank { dialTargetLabels[activeAction.dialTarget ?: ""] ?: "Dial" },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 2.dp)
+        )
+        if (isStack) {
+            Text(
+                text = "${currentLayer + 1}/$layerCount",
+                fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        }
+    }
+}
+
 /**
  * Frosted overlay shown when a previously-connected session drops. Meant to be stacked on top of
  * a dimmed, touch-blocked DeckGridScreen showing the last-known profile — see MainActivity's
@@ -2068,6 +2468,8 @@ fun ReconnectOverlay(accentColor: Color, onManualConnect: () -> Unit, modifier: 
 
 // Raw stored values (protocol/persistence) -> friendly display labels. Dropdowns below store the
 // raw value in state but render the friendly label, mirroring EditorWindow.xaml's Content/Tag split.
+// No "dial" entry — dials live only in the dial strip below the grid now (see DialStrip /
+// forceDialMode on ActionTypeEditor), never as a pickable grid-button type.
 private val actionTypeLabels = mapOf(
     "hotkey" to "Keyboard Shortcut",
     "launch_app" to "Launch App",
@@ -2077,8 +2479,7 @@ private val actionTypeLabels = mapOf(
     "text_snippet" to "Text Snippet",
     "open_folder" to "Open Folder",
     "multi_action" to "Multiple Actions",
-    "macro" to "Record Macro",
-    "dial" to "Dial / Slider"
+    "macro" to "Record Macro"
 )
 /** Mirrors the host's AutoAssignIcons() exactly, so the client-side preview never disagrees
  * with what the server would fill in anyway (ProfileStore.cs). */
@@ -2100,7 +2501,8 @@ private fun defaultBuiltinIconFor(state: ActionEditorState): String? = when (sta
     // in for multi_action either. Auto-filling one here would permanently win over that mosaic.
     "macro" -> "disc"
     "open_folder" -> "folder"
-    "dial" -> if (state.dialTarget == "brightness") "sun" else "volume-2"
+    "dial" -> if (state.isDialStack && state.dialStackLayers.isNotEmpty()) "layers"
+        else when (state.dialTarget) { "brightness" -> "sun"; "mic" -> "mic"; else -> "volume-2" }
     else -> null
 }
 
@@ -2122,7 +2524,8 @@ private fun defaultBuiltinIconForAction(action: ActionModel): String? = when (ac
     "multi_action" -> "layers"
     "macro" -> "disc"
     "open_folder" -> "folder"
-    "dial" -> if (action.dialTarget == "brightness") "sun" else "volume-2"
+    "dial" -> if (!action.actions.isNullOrEmpty()) "layers"
+        else when (action.dialTarget) { "brightness" -> "sun"; "mic" -> "mic"; else -> "volume-2" }
     else -> null
 }
 private val mediaCommandLabels = mapOf(
@@ -2134,9 +2537,11 @@ private val mediaCommandLabels = mapOf(
     "VolumeMute" to "Mute"
 )
 private val dialTargetLabels = mapOf(
-    "volume" to "Volume",
+    "volume" to "Master Volume",
+    "mic" to "Microphone Volume",
     "brightness" to "Brightness",
-    "app_volume" to "App Volume (live mixer)"
+    "app_volume" to "App Volume",
+    "keystroke_step" to "Keystroke Step"
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -2153,6 +2558,9 @@ private fun EditButtonDialog(
     onDismiss: () -> Unit,
     onSave: (ButtonModel) -> Unit,
     onDelete: (() -> Unit)?,
+    /** True when editing a dial-strip entry instead of a grid button — locks the main action to
+     * type "dial" and hides the Action Type dropdown (see ActionTypeEditor's forceDialMode). */
+    forceDialMode: Boolean = false,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2188,6 +2596,9 @@ private fun EditButtonDialog(
     val mainActionState = remember(button.buttonId) { ActionEditorState(button.action) }
     var longPressEnabled by remember(button.buttonId) { mutableStateOf(button.longPressAction != null) }
     val longPressState = remember(button.buttonId) { ActionEditorState(button.longPressAction, isLongPress = true) }
+    // Grid buttons only — dials never get a double-press section (forceDialMode gates the UI below).
+    var doublePressEnabled by remember(button.buttonId) { mutableStateOf(button.doublePressAction != null) }
+    val doublePressState = remember(button.buttonId) { ActionEditorState(button.doublePressAction) }
 
     // Only auto-assigns once the action actually has enough to do something (same gate as Save) —
     // picking "Launch App" shouldn't stamp an icon before an app is even chosen.
@@ -2265,6 +2676,10 @@ private fun EditButtonDialog(
                 if (longPressEnabled && mainActionState.type != "multi_action") {
                     missingFieldHint(longPressState)?.let { "Long-press action: $it" }
                 } else null
+            } ?: run {
+                if (!forceDialMode && doublePressEnabled && mainActionState.type != "multi_action") {
+                    missingFieldHint(doublePressState)?.let { "Double-press action: $it" }
+                } else null
             }
             val canSave = saveHint == null
 
@@ -2278,7 +2693,11 @@ private fun EditButtonDialog(
                     Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
-                    text = if (onDelete == null) "Create Button" else "Edit Button",
+                    text = if (forceDialMode) {
+                        if (onDelete == null) "Create Dial" else "Edit Dial"
+                    } else {
+                        if (onDelete == null) "Create Button" else "Edit Button"
+                    },
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onBackground
                 )
@@ -2287,7 +2706,8 @@ private fun EditButtonDialog(
                     onClick = {
                         val act = mainActionState.toActionModel()
                         val longPress = if (longPressEnabled && mainActionState.type != "multi_action") longPressState.toActionModel() else null
-                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act, longPressAction = longPress))
+                        val doublePress = if (!forceDialMode && doublePressEnabled && mainActionState.type != "multi_action") doublePressState.toActionModel() else null
+                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act, longPressAction = longPress, doublePressAction = doublePress))
                     }
                 ) {
                     val saveColor = if (canSave) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
@@ -2344,6 +2764,7 @@ private fun EditButtonDialog(
                     authToken = authToken,
                     iconHashCache = iconHashCache,
                     onAppPicked = { name -> if (!labelUserEdited) label = name },
+                    forceDialMode = forceDialMode,
                 )
             }
 
@@ -2361,17 +2782,18 @@ private fun EditButtonDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                Text("Long-Press Action", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (forceDialMode) "Tap Action" else "Long-Press Action", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Fires when the button is held on the phone. Same options as the main action above.",
+                    text = if (forceDialMode) "Fires when this dial is tapped (dragging it adjusts the level). Same options as the main action above."
+                    else "Fires when the button is held on the phone. Same options as the main action above.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { longPressEnabled = !longPressEnabled }) {
                     Checkbox(checked = longPressEnabled, onCheckedChange = null)
-                    Text("Enable long-press action", color = MaterialTheme.colorScheme.onSurface)
+                    Text(if (forceDialMode) "Enable tap action" else "Enable long-press action", color = MaterialTheme.colorScheme.onSurface)
                 }
                 if (longPressEnabled) {
                     Spacer(modifier = Modifier.height(8.dp))
@@ -2434,6 +2856,44 @@ private fun EditButtonDialog(
                                 Text("+ Add Another Action", color = accentColor)
                             }
                         }
+                    }
+                }
+            }
+
+            // Grid buttons only — a dial's tap already means "fire the press action" or "cycle
+            // the stack", so there's no double-press slot to configure in forceDialMode.
+            if (!forceDialMode && mainActionState.type != "multi_action") {
+                Spacer(modifier = Modifier.height(20.dp))
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Double-Press Action", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Fires on a double-tap. Only buttons with this enabled pay the double-tap detection delay — every other button still fires instantly.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { doublePressEnabled = !doublePressEnabled }) {
+                    Checkbox(checked = doublePressEnabled, onCheckedChange = null)
+                    Text("Enable double-press action", color = MaterialTheme.colorScheme.onSurface)
+                }
+                if (doublePressEnabled) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    key(button.buttonId, "doublepress") {
+                        ActionTypeEditor(
+                            state = doublePressState,
+                            appList = appList,
+                            onRequestAppList = onRequestAppList,
+                            onRequestExtractIcon = onRequestExtractIcon,
+                            accentColor = accentColor,
+                            connectedHostUrl = connectedHostUrl,
+                            authToken = authToken,
+                            iconHashCache = iconHashCache,
+                            showIconPicker = false,
+                            onIconUpload = onIconUpload,
+                            extractedIcon = extractedIcon,
+                        )
                     }
                 }
             }
@@ -2766,6 +3226,13 @@ class ActionEditorState(action: ActionModel?, val isLongPress: Boolean = false) 
     var textValue by mutableStateOf(action?.text ?: "")
     var targetFolderId by mutableStateOf(action?.targetFolderId ?: "")
     var dialTarget by mutableStateOf(action?.dialTarget ?: "volume")
+    var dialProcess by mutableStateOf(action?.dialProcess ?: "")
+    var dialStepUpKeys by mutableStateOf(action?.dialStepUpKeys?.joinToString(",") ?: "")
+    var dialStepDownKeys by mutableStateOf(action?.dialStepDownKeys?.joinToString(",") ?: "")
+    // A dial stack: when true, dialStackLayers (not dialTarget/dialProcess/step keys above)
+    // is what toActionModel() reads. Each layer is its own nested ActionEditorState (type "dial").
+    var isDialStack by mutableStateOf(action?.type == "dial" && !action.actions.isNullOrEmpty())
+    val dialStackLayers = mutableStateListOf<ActionEditorState>()
     var searchQuery by mutableStateOf("")
     var icon by mutableStateOf(action?.icon)
     var label by mutableStateOf(action?.label ?: "")
@@ -2798,6 +3265,9 @@ class ActionEditorState(action: ActionModel?, val isLongPress: Boolean = false) 
                     action.actions?.forEachIndexed { i, act -> multiSteps.add(StepUiState(act, action.delays?.getOrNull(i) ?: 0)) }
                 }
             }
+            action?.type == "dial" && !action.actions.isNullOrEmpty() -> {
+                action.actions.forEach { layer -> dialStackLayers.add(ActionEditorState(layer)) }
+            }
         }
     }
 
@@ -2819,7 +3289,20 @@ class ActionEditorState(action: ActionModel?, val isLongPress: Boolean = false) 
         else
             ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs }, label = label.trim().ifBlank { null })
         "macro" -> ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs }, label = label.trim().ifBlank { null })
-        "dial" -> ActionModel(type = type, dialTarget = dialTarget, icon = icon, label = label.trim().ifBlank { null })
+        "dial" -> if (isDialStack && dialStackLayers.isNotEmpty())
+            // The stack container carries no single target — whichever layer is active resolves
+            // it (ActionModel.resolveDialLayer), same on both host and client.
+            ActionModel(type = type, actions = dialStackLayers.map { it.toActionModel() }, icon = icon, label = label.trim().ifBlank { null })
+        else
+            ActionModel(
+                type = type,
+                dialTarget = dialTarget,
+                dialProcess = if (dialTarget == "app_volume" && dialProcess.isNotBlank()) dialProcess.trim() else null,
+                dialStepUpKeys = if (dialTarget == "keystroke_step") dialStepUpKeys.split(",").map { it.trim() }.filter { it.isNotEmpty() } else null,
+                dialStepDownKeys = if (dialTarget == "keystroke_step") dialStepDownKeys.split(",").map { it.trim() }.filter { it.isNotEmpty() } else null,
+                icon = icon,
+                label = label.trim().ifBlank { null }
+            )
         else -> ActionModel(type = type)
     }
 }
@@ -2856,6 +3339,9 @@ private fun ActionTypeEditor(
     onIconUpload: (suspend (ByteArray) -> String?)? = null,
     allowChaining: Boolean = true,
     extractedIcon: Pair<String, String?>? = null,
+    /** Set by the dial-strip editor — dials have no Action Type dropdown (every dial IS type
+     * "dial" implicitly), so this skips straight to the dial target/process card below. */
+    forceDialMode: Boolean = false,
 ) {
     var dropdownExpanded by remember { mutableStateOf(false) }
     var mediaDropdownExpanded by remember { mutableStateOf(false) }
@@ -2940,6 +3426,7 @@ private fun ActionTypeEditor(
         }
     }
 
+    if (!forceDialMode) {
     InlineDropdownField(
         label = "Action Type",
         selectedLabel = actionTypeLabels[state.type] ?: state.type,
@@ -2970,6 +3457,7 @@ private fun ActionTypeEditor(
         }
     }
     Spacer(modifier = Modifier.height(16.dp))
+    }
 
     if (showIconPicker) {
         CrossDeckTextField(
@@ -3184,34 +3672,139 @@ private fun ActionTypeEditor(
                     ActionStepListEditor(steps = state.multiSteps, allowManualAdd = false)
                 }
                 "dial" -> {
-                    InlineDropdownField(
-                        label = "Dial Target",
-                        selectedLabel = dialTargetLabels[state.dialTarget] ?: state.dialTarget,
-                        expanded = dialDropdownExpanded,
-                        onExpandedChange = { dialDropdownExpanded = it },
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable {
+                            state.isDialStack = !state.isDialStack
+                            if (state.isDialStack && state.dialStackLayers.isEmpty()) {
+                                state.dialStackLayers.add(ActionEditorState(state.toActionModel()))
+                            }
+                        }
                     ) {
-                        dialTargetLabels.forEach { (target, friendly) ->
-                            Text(
-                                text = friendly,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { state.dialTarget = target; dialDropdownExpanded = false }
-                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                        Checkbox(checked = state.isDialStack, onCheckedChange = null)
+                        Text("Stack multiple targets on this dial (tap cycles between them)", color = MaterialTheme.colorScheme.onSurface, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (state.isDialStack) {
+                        state.dialStackLayers.forEachIndexed { index, layer ->
+                            key(index) {
+                                DialStackLayerCard(layer = layer, index = index, onRemove = { state.dialStackLayers.removeAt(index) })
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        TextButton(onClick = { state.dialStackLayers.add(ActionEditorState(ActionModel(type = "dial", dialTarget = "volume"))) }) {
+                            Text("+ Add Layer", color = accentColor)
+                        }
+                    } else {
+                        InlineDropdownField(
+                            label = "Dial Target",
+                            selectedLabel = dialTargetLabels[state.dialTarget] ?: state.dialTarget,
+                            expanded = dialDropdownExpanded,
+                            onExpandedChange = { dialDropdownExpanded = it },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            dialTargetLabels.forEach { (target, friendly) ->
+                                Text(
+                                    text = friendly,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { state.dialTarget = target; dialDropdownExpanded = false }
+                                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                                )
+                            }
+                        }
+                        if (state.dialTarget == "app_volume") {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            CrossDeckTextField(
+                                value = state.dialProcess,
+                                onValueChange = { state.dialProcess = it },
+                                label = "Bind to one app (leave blank to open the live mixer instead)",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            if (state.dialProcess.isBlank()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    "Opens a live mixer on the phone with a slider + mute for every app currently playing audio.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        if (state.dialTarget == "keystroke_step") {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            CrossDeckTextField(
+                                value = state.dialStepUpKeys,
+                                onValueChange = { state.dialStepUpKeys = it },
+                                label = "Step Up keys (drag upward)",
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            CrossDeckTextField(
+                                value = state.dialStepDownKeys,
+                                onValueChange = { state.dialStepDownKeys = it },
+                                label = "Step Down keys (drag downward)",
+                                modifier = Modifier.fillMaxWidth()
                             )
                         }
                     }
-                    if (state.dialTarget == "app_volume") {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            "Opens a live mixer on the phone with a slider + mute for every app currently playing audio — no app to pick here.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
             }
+        }
+    }
+}
+
+/** One dial-stack layer card — target picker + whichever param fields that target needs,
+ * editing `layer` in place. Mirrors the host editor's per-layer card. */
+@Composable
+private fun DialStackLayerCard(layer: ActionEditorState, index: Int, onRemove: () -> Unit) {
+    var dropdownExpanded by remember { mutableStateOf(false) }
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Layer ${index + 1}", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                IconButton(onClick = onRemove) {
+                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Remove layer", tint = MaterialTheme.colorScheme.error)
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            InlineDropdownField(
+                label = "Target",
+                selectedLabel = dialTargetLabels[layer.dialTarget] ?: layer.dialTarget,
+                expanded = dropdownExpanded,
+                onExpandedChange = { dropdownExpanded = it },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                dialTargetLabels.forEach { (target, friendly) ->
+                    Text(
+                        text = friendly,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { layer.dialTarget = target; dropdownExpanded = false }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                }
+            }
+            if (layer.dialTarget == "app_volume") {
+                Spacer(modifier = Modifier.height(8.dp))
+                CrossDeckTextField(value = layer.dialProcess, onValueChange = { layer.dialProcess = it }, label = "App process (blank = live mixer)", modifier = Modifier.fillMaxWidth())
+            }
+            if (layer.dialTarget == "keystroke_step") {
+                Spacer(modifier = Modifier.height(8.dp))
+                CrossDeckTextField(value = layer.dialStepUpKeys, onValueChange = { layer.dialStepUpKeys = it }, label = "Step up keys", modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(8.dp))
+                CrossDeckTextField(value = layer.dialStepDownKeys, onValueChange = { layer.dialStepDownKeys = it }, label = "Step down keys", modifier = Modifier.fillMaxWidth())
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            CrossDeckTextField(value = layer.label, onValueChange = { layer.label = it }, label = "Label shown while active", modifier = Modifier.fillMaxWidth())
         }
     }
 }

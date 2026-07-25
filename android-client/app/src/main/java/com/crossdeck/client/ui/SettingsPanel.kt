@@ -111,6 +111,9 @@ fun SettingsPanel(
             SettingToggleRow("Compact Grid", settings.compactGrid, accentColor) {
                 onSettingsChange(settings.copy(compactGrid = it))
             }
+            SettingToggleRow("Lock Rotation", settings.rotationLocked, accentColor) {
+                onSettingsChange(settings.copy(rotationLocked = it))
+            }
             SettingToggleRow("Keep Screen Awake", settings.keepScreenAwake, accentColor) {
                 onSettingsChange(settings.copy(keepScreenAwake = it))
             }
