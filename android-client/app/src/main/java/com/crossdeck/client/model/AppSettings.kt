@@ -8,5 +8,6 @@ data class AppSettings(
     val iconOnlyMode: Boolean = false,
     val autoReconnect: Boolean = true,
     val confirmRunCommand: Boolean = false,
-    val hasSeenEmptyCellHint: Boolean = false
+    val hasSeenEmptyCellHint: Boolean = false,
+    val rotationLocked: Boolean = false
 )

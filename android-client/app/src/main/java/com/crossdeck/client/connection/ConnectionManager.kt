@@ -147,21 +147,22 @@ class ConnectionManager(context: Context) {
         activeSocket?.send(obj.toString())
     }
 
-    fun sendProfileEditUpdate(profileId: String, button: com.crossdeck.client.model.ButtonModel) {
+    /** list = "buttons" (default) or "dials" — same op shape, different target list on the host. */
+    fun sendProfileEditUpdate(profileId: String, button: com.crossdeck.client.model.ButtonModel, list: String = "buttons") {
         val obj = buildJsonObject {
             put("type", "profile_edit")
             put("profileId", profileId)
-            put("op", "update_button")
+            put("op", if (list == "dials") "update_dial" else "update_button")
             put("button", json.encodeToJsonElement(com.crossdeck.client.model.ButtonModel.serializer(), button))
         }
         activeSocket?.send(obj.toString())
     }
 
-    fun sendProfileEditDelete(profileId: String, buttonId: String) {
+    fun sendProfileEditDelete(profileId: String, buttonId: String, list: String = "buttons") {
         val obj = buildJsonObject {
             put("type", "profile_edit")
             put("profileId", profileId)
-            put("op", "delete_button")
+            put("op", if (list == "dials") "delete_dial" else "delete_button")
             put("buttonId", buttonId)
         }
         activeSocket?.send(obj.toString())
@@ -528,11 +529,12 @@ class ConnectionManager(context: Context) {
 
     /** Sends a drag-reorder from the auto-flow grid — the host applies it to whichever folder
      * scope (root = null) these button IDs belong to, in the given order. */
-    fun sendButtonsReorder(parentFolderId: String?, orderedButtonIds: List<String>) {
+    fun sendButtonsReorder(parentFolderId: String?, orderedButtonIds: List<String>, list: String = "buttons") {
         val ws = activeSocket ?: return
         ws.send(buildJsonObject {
             put("type", "buttons_reorder")
             put("parentFolderId", parentFolderId)
+            put("list", list)
             putJsonArray("buttonIds") { orderedButtonIds.forEach { add(it) } }
         }.toString())
     }
@@ -586,7 +588,8 @@ class ConnectionManager(context: Context) {
         iconOnlyMode = settingsPrefs.getBoolean("icon_only_mode", false),
         autoReconnect = settingsPrefs.getBoolean("auto_reconnect", true),
         confirmRunCommand = settingsPrefs.getBoolean("confirm_run_command", false),
-        hasSeenEmptyCellHint = settingsPrefs.getBoolean("has_seen_empty_cell_hint", false)
+        hasSeenEmptyCellHint = settingsPrefs.getBoolean("has_seen_empty_cell_hint", false),
+        rotationLocked = settingsPrefs.getBoolean("rotation_locked", false)
     )
 
     fun saveSettings(settings: AppSettings) {
@@ -598,6 +601,7 @@ class ConnectionManager(context: Context) {
             .putBoolean("auto_reconnect", settings.autoReconnect)
             .putBoolean("confirm_run_command", settings.confirmRunCommand)
             .putBoolean("has_seen_empty_cell_hint", settings.hasSeenEmptyCellHint)
+            .putBoolean("rotation_locked", settings.rotationLocked)
             .apply()
     }
 
