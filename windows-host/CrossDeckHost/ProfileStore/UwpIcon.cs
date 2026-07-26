@@ -141,8 +141,6 @@ internal static class UwpIcon
         {
             factory.GetImage(new SIZE { cx = 512, cy = 512 }, SIIGBF_BIGGERSIZEOK, out hbm);
             if (hbm == IntPtr.Zero) return null;
-            // Image.FromHbitmap copies the pixel data into a managed Bitmap, so the HBITMAP is
-            // safe to delete once this returns.
             using var raw = System.Drawing.Image.FromHbitmap(hbm);
             return new System.Drawing.Bitmap(raw);
         }

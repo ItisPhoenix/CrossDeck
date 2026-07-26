@@ -27,12 +27,11 @@ data class ButtonModel(
     val label: String,
     val icon: String? = null,
     val action: ActionModel,
-    /** Optional second action fired by long-pressing the button. */
+    /** Fired by tapping a DIAL specifically (a dial has no separate "main tap action" the way a
+     * grid button does — dragging IS the main action, so this is what tap fires). Grid buttons no
+     * longer expose this in the editor (one action per button, matching Stream Deck) — see
+     * docs/superpowers/specs/2026-07-26-button-action-model-and-editor-redesign-design.md. */
     val longPressAction: ActionModel? = null,
-    /** Optional third action fired by double-tapping the button. Grid buttons only — dials
-     * don't use this (a dial's tap already means "fire the press action" or "cycle the stack").
-     * Strictly opt-in: DeckButton only pays the double-tap-detection delay when this is set. */
-    val doublePressAction: ActionModel? = null,
     val parentFolderId: String? = null
 )
 

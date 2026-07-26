@@ -56,17 +56,12 @@ public class ButtonModel
     [JsonPropertyName("action")]
     public ActionModel Action { get; set; } = new();
 
-    /// <summary>Optional second action fired by long-pressing the button on the phone.</summary>
+    /// <summary>Fired by tapping a DIAL specifically (a dial has no separate "main tap action"
+    /// the way a grid button does — dragging IS the main action, so this is what tap fires). Grid
+    /// buttons no longer expose this in the editor (one action per button, matching Stream
+    /// Deck).</summary>
     [JsonPropertyName("longPressAction")]
     public ActionModel? LongPressAction { get; set; }
-
-    /// <summary>Optional third action fired by double-tapping the button on the phone. Grid
-    /// buttons only — dials don't use this (a dial's tap already means "fire the press action"
-    /// or "cycle the stack"). Strictly opt-in: a button with this null keeps the zero-delay tap
-    /// every other button has (see DeckButton.kt's combinedClickable onDoubleClick wiring) —
-    /// only a button that configures one pays the double-tap-window wait.</summary>
-    [JsonPropertyName("doublePressAction")]
-    public ActionModel? DoublePressAction { get; set; }
 
     [JsonPropertyName("parentFolderId")]
     public string? ParentFolderId { get; set; }

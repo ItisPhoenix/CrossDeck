@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -113,6 +112,7 @@ import androidx.compose.material.icons.automirrored.filled.List as ListIcon
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloat
 import android.graphics.BitmapFactory
@@ -256,7 +256,6 @@ fun DeckGridScreen(
     var editingButton by remember { mutableStateOf<ButtonModel?>(null) }
     var editingDial by remember { mutableStateOf<ButtonModel?>(null) }
     var creatingNewDial by remember { mutableStateOf(false) }
-    var longPressMenuButton by remember { mutableStateOf<ButtonModel?>(null) }
     var pendingRunningAppAssign by remember { mutableStateOf<com.crossdeck.client.model.RunningApp?>(null) }
     var creatingNewButton by remember { mutableStateOf(false) }
 
@@ -437,7 +436,7 @@ fun DeckGridScreen(
                 .padding(innerPadding)
         ) {
             val gridBlurRadius by animateDpAsState(
-                targetValue = if (longPressMenuButton != null || showAudioMixer) 18.dp else 0.dp,
+                targetValue = if (showAudioMixer) 18.dp else 0.dp,
                 animationSpec = tween(180),
                 label = "gridBlurRadius"
             )
@@ -663,45 +662,30 @@ fun DeckGridScreen(
                                                     pendingRunningAppAssign = null
                                                 } else if (isEditMode) {
                                                     editingButton = cellButton
-                                                } else if (cellButton.action.type == "multi_action") {
-                                                    // Tap opens the menu immediately (no long-press
-                                                    // hold delay) — a plain tap has nothing else to
-                                                    // do on a chain button, so there's no ambiguity
-                                                    // to protect against by waiting.
-                                                    longPressMenuButton = cellButton
-                                                } else {
-                                                    if (cellButton.action.type == "open_folder") {
-                                                        val destFolder = cellButton.action.targetFolderId
-                                                        if (destFolder != null) {
-                                                            folderHistory =
-                                                                folderHistory + ((currentFolderId ?: "") to cellButton.label)
-                                                            currentFolderId = destFolder
-                                                        }
-                                                    } else if (cellButton.action.type == "dial" && cellButton.action.dialTarget == "app_volume") {
-                                                        showAudioMixer = true
-                                                    } else if (cellButton.action.type == "dial") {
-                                                        activeDialButton = cellButton
-                                                        activeDialSlot = "main"
-                                                        onDialAdjust(cellButton.buttonId, "main", null) // fetch current level
-                                                    } else if (cellButton.action.type == "run_command" && settings.confirmRunCommand) {
-                                                        pendingRunCommand = PendingRunCommand(cellButton, cellButton.action, "short", null)
-                                                    } else {
-                                                        onButtonTap(cellButton)
+                                                } else if (cellButton.action.type == "open_folder") {
+                                                    val destFolder = cellButton.action.targetFolderId
+                                                    if (destFolder != null) {
+                                                        folderHistory =
+                                                            folderHistory + ((currentFolderId ?: "") to cellButton.label)
+                                                        currentFolderId = destFolder
                                                     }
+                                                } else if (cellButton.action.type == "dial" && cellButton.action.dialTarget == "app_volume") {
+                                                    showAudioMixer = true
+                                                } else if (cellButton.action.type == "dial") {
+                                                    activeDialButton = cellButton
+                                                    activeDialSlot = "main"
+                                                    onDialAdjust(cellButton.buttonId, "main", null) // fetch current level
+                                                } else if (cellButton.action.type == "run_command" && settings.confirmRunCommand) {
+                                                    pendingRunCommand = PendingRunCommand(cellButton, cellButton.action, "short", null)
+                                                } else {
+                                                    // multi_action now falls through to here too (it
+                                                    // used to open the LongPressMenu popup instead) —
+                                                    // tapping runs the whole sequence immediately, same
+                                                    // as macro already did and any other action type,
+                                                    // matching Stream Deck.
+                                                    onButtonTap(cellButton)
                                                 }
                                             },
-                                            onLongPress = if (!isEditMode && cellButton.action.type != "multi_action" && cellButton.longPressAction != null) {
-                                                {
-                                                    haptic(HapticFeedbackConstants.LONG_PRESS)
-                                                    longPressMenuButton = cellButton
-                                                }
-                                            } else null,
-                                            onDoublePress = if (!isEditMode && cellButton.action.type != "multi_action" && cellButton.doublePressAction != null) {
-                                                {
-                                                    haptic()
-                                                    onButtonPress(cellButton, "double", null)
-                                                }
-                                            } else null,
                                             modifier = visualModifier.then(dragModifier),
                                             levelValue = dialValue
                                         )
@@ -784,6 +768,7 @@ fun DeckGridScreen(
                     },
                     onEdit = { dial -> if (dial != null) editingDial = dial else creatingNewDial = true },
                     onReorder = onDialsReorder,
+                    audioMixerApps = audioMixerApps,
                 )
 
                 // Page-dot indicator — one dot per profile, current one accent-filled, tap to
@@ -1348,38 +1333,6 @@ fun DeckGridScreen(
                 )
             }
 
-            longPressMenuButton?.let { btn ->
-                LongPressMenu(
-                    button = btn,
-                    accentColor = accentColor,
-                    connectedHostUrl = connectedHostUrl,
-                    authToken = authToken,
-                    onFire = { pressType, stepIndex, action ->
-                        // Mirrors the main grid's onTap special-casing so a popup tile behaves
-                        // exactly as it would if it were the button's own main action.
-                        when {
-                            action.type == "dial" && action.dialTarget == "app_volume" -> showAudioMixer = true
-                            action.type == "dial" -> {
-                                val slot = if (pressType == "long") "longPress" else "main"
-                                activeDialButton = btn.copy(action = action)
-                                activeDialSlot = slot
-                                onDialAdjust(btn.buttonId, slot, null)
-                            }
-                            action.type == "open_folder" -> {
-                                val destFolder = action.targetFolderId
-                                if (destFolder != null) {
-                                    folderHistory = folderHistory + ((currentFolderId ?: "") to btn.label)
-                                    currentFolderId = destFolder
-                                }
-                            }
-                            action.type == "run_command" && settings.confirmRunCommand ->
-                                pendingRunCommand = PendingRunCommand(btn, action, pressType, stepIndex)
-                            else -> onButtonPress(btn, pressType, stepIndex)
-                        }
-                    },
-                    onDismiss = { longPressMenuButton = null }
-                )
-            }
         }
     }
 }
@@ -1492,11 +1445,6 @@ private fun DeckButton(
     accentColor: Color,
     iconOnlyMode: Boolean = false,
     onTap: () -> Unit,
-    onLongPress: (() -> Unit)? = null,
-    /** Null unless this button has a doublePressAction configured — combinedClickable only pays
-     * the double-tap-detection wait when onDoubleClick is non-null, so every other button's tap
-     * stays at today's zero delay (see ButtonModel.doublePressAction's own doc comment). */
-    onDoublePress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     levelValue: Int? = null,
     /** Live PC-side state: Mute actually muted, Play/Pause actually playing, launch_app actually
@@ -1568,12 +1516,10 @@ private fun DeckButton(
                     isPressed = false
                 }
             }
-            .combinedClickable(
+            .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onTap,
-                onLongClick = onLongPress,
-                onDoubleClick = onDoublePress
+                onClick = onTap
             )
             .background(glossyBg, RoundedCornerShape(18.dp))
             .border(
@@ -1747,125 +1693,6 @@ private fun DeckButton(
     }
 }
 
-/** Anchored popup shown on long-press: lists the button's action(s), tap one to fire it,
- * tap outside to cancel with nothing fired. */
-@Composable
-private fun LongPressMenu(
-    button: ButtonModel,
-    accentColor: Color,
-    connectedHostUrl: String?,
-    authToken: String?,
-    onFire: (pressType: String, stepIndex: Int?, action: ActionModel) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val mainSteps = button.action.actions?.takeIf { button.action.type == "multi_action" && it.isNotEmpty() }
-    val longPressSteps = button.longPressAction?.let { lp -> lp.actions?.takeIf { lp.type == "multi_action" && it.isNotEmpty() } }
-    Popup(alignment = Alignment.Center, onDismissRequest = onDismiss) {
-        var entered by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { entered = true }
-        val popScale by animateFloatAsState(
-            targetValue = if (entered) 1f else 0.7f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-            label = "longPressMenuPopScale"
-        )
-        val popAlpha by animateFloatAsState(
-            targetValue = if (entered) 1f else 0f,
-            animationSpec = tween(150),
-            label = "longPressMenuPopAlpha"
-        )
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.graphicsLayer {
-                scaleX = popScale
-                scaleY = popScale
-                alpha = popAlpha
-            }
-        ) {
-            Text(
-                text = if (mainSteps != null || longPressSteps != null) "Tap a button to run it" else "Tap either to run it now",
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White.copy(alpha = 0.6f),
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                modifier = Modifier.horizontalScroll(rememberScrollState())
-            ) {
-                if (mainSteps != null) {
-                    mainSteps.forEachIndexed { i, step ->
-                        DeckButton(
-                            button = button.copy(
-                                buttonId = "${button.buttonId}_step$i",
-                                label = describeActionForMenu(step),
-                                icon = step.icon ?: defaultBuiltinIconForAction(step)?.let { "builtin:$it" },
-                                action = step,
-                                longPressAction = null
-                            ),
-                            isEditMode = false,
-                            connectedHostUrl = connectedHostUrl,
-                            authToken = authToken,
-                            accentColor = accentColor,
-                            onTap = { onFire("short", i, step); onDismiss() },
-                            modifier = Modifier.size(96.dp)
-                        )
-                    }
-                } else {
-                    DeckButton(
-                        button = button.copy(
-                            label = describeActionForMenu(button.action),
-                            icon = button.icon ?: defaultBuiltinIconForAction(button.action)?.let { "builtin:$it" },
-                            longPressAction = null
-                        ),
-                        isEditMode = false,
-                        connectedHostUrl = connectedHostUrl,
-                        authToken = authToken,
-                        accentColor = accentColor,
-                        onTap = { onFire("short", null, button.action); onDismiss() },
-                        modifier = Modifier.size(96.dp)
-                    )
-                    if (longPressSteps != null) {
-                        longPressSteps.forEachIndexed { i, step ->
-                            DeckButton(
-                                button = button.copy(
-                                    buttonId = "${button.buttonId}_lpstep$i",
-                                    label = describeActionForMenu(step),
-                                    icon = step.icon ?: defaultBuiltinIconForAction(step)?.let { "builtin:$it" },
-                                    action = step,
-                                    longPressAction = null
-                                ),
-                                isEditMode = false,
-                                connectedHostUrl = connectedHostUrl,
-                                authToken = authToken,
-                                accentColor = accentColor,
-                                onTap = { onFire("long", i, step); onDismiss() },
-                                modifier = Modifier.size(96.dp)
-                            )
-                        }
-                    } else {
-                        button.longPressAction?.let { lp ->
-                            DeckButton(
-                                button = button.copy(
-                                    buttonId = "${button.buttonId}_lp",
-                                    label = describeActionForMenu(lp),
-                                    icon = lp.icon ?: defaultBuiltinIconForAction(lp)?.let { "builtin:$it" },
-                                    action = lp,
-                                    longPressAction = null
-                                ),
-                                isEditMode = false,
-                                connectedHostUrl = connectedHostUrl,
-                                authToken = authToken,
-                                accentColor = accentColor,
-                                onTap = { onFire("long", null, lp); onDismiss() },
-                                modifier = Modifier.size(96.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /** A run_command fire awaiting the confirm-before-run prompt — carries which exact action
  * (main, long-press, or a chain step) and how to fire it once confirmed. */
 private data class PendingRunCommand(val button: ButtonModel, val action: ActionModel, val pressType: String, val stepIndex: Int?)
@@ -1952,6 +1779,16 @@ private fun EmptyEditButton(onClick: () -> Unit) {
                 modifier = Modifier.size(22.dp)
             )
         }
+    }
+}
+
+/** Generic app-window glyph for Running Apps / Audio Mixer rows when the real icon hasn't resolved. */
+@Composable
+private fun AppIconOrFallback(bmp: ImageBitmap?, size: Dp, modifier: Modifier = Modifier) {
+    bmp?.let {
+        Image(bitmap = it, contentDescription = null, modifier = modifier.size(size))
+    } ?: Box(modifier = modifier.size(size), contentAlignment = Alignment.Center) {
+        Text(text = "🗔", fontSize = (size.value * 0.7f).sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
     }
 }
 
@@ -2045,10 +1882,8 @@ private fun RunningAppsOverlay(
                                             }
                                             .padding(6.dp)
                                     ) {
-                                        bmp?.let {
-                                            Image(bitmap = it, contentDescription = null, modifier = Modifier.size(cellSize * 0.4f))
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                        }
+                                        AppIconOrFallback(bmp, cellSize * 0.4f)
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         Text(
                                             text = app.title,
                                             textAlign = TextAlign.Center,
@@ -2176,10 +2011,8 @@ private fun AudioMixerSheet(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            bmp?.let {
-                                Image(bitmap = it, contentDescription = null, modifier = Modifier.size(24.dp))
-                                Spacer(modifier = Modifier.width(10.dp))
-                            }
+                            AppIconOrFallback(bmp, 24.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = app.processName,
@@ -2246,6 +2079,7 @@ private fun DialStrip(
     onDialTap: (ButtonModel) -> Unit,
     onEdit: (ButtonModel?) -> Unit,
     onReorder: (List<String>) -> Unit,
+    audioMixerApps: List<com.crossdeck.client.model.AudioMixerApp> = emptyList(),
 ) {
     val showAddTile = isEditMode && dials.size < MAX_DIALS
     if (dials.isEmpty() && !showAddTile) return
@@ -2276,6 +2110,7 @@ private fun DialStrip(
                     draggedIndexState = draggedIndexState, dragOffsetState = dragOffsetState,
                     stripCoordinatesState = stripCoordinatesState, dialLevels = dialLevels,
                     onDialAdjust = onDialAdjust, onDialTap = onDialTap, onEdit = onEdit, onReorder = onReorder,
+                    audioMixerApps = audioMixerApps,
                 )
             }
             if (showAddTile) {
@@ -2311,6 +2146,7 @@ private fun DialStrip(
                     draggedIndexState = draggedIndexState, dragOffsetState = dragOffsetState,
                     stripCoordinatesState = stripCoordinatesState, dialLevels = dialLevels,
                     onDialAdjust = onDialAdjust, onDialTap = onDialTap, onEdit = onEdit, onReorder = onReorder,
+                    audioMixerApps = audioMixerApps,
                 )
             }
             if (showAddTile) {
@@ -2354,6 +2190,7 @@ private fun DialStripEntry(
     onDialTap: (ButtonModel) -> Unit,
     onEdit: (ButtonModel?) -> Unit,
     onReorder: (List<String>) -> Unit,
+    audioMixerApps: List<com.crossdeck.client.model.AudioMixerApp> = emptyList(),
 ) {
     val isDraggingThis = draggedIndexState.value == index
     val dragModifier = if (isEditMode) {
@@ -2426,6 +2263,7 @@ private fun DialStripEntry(
             onTap = { onDialTap(dial) },
             onEditTap = { onEdit(dial) },
             modifier = Modifier.fillMaxWidth(),
+            audioMixerApps = audioMixerApps,
         )
     }
 }
@@ -2448,6 +2286,7 @@ private fun DialCell(
     onTap: () -> Unit,
     onEditTap: () -> Unit,
     modifier: Modifier = Modifier,
+    audioMixerApps: List<com.crossdeck.client.model.AudioMixerApp> = emptyList(),
 ) {
     val context = LocalContext.current
     val stackLayers = dial.action.actions
@@ -2474,7 +2313,11 @@ private fun DialCell(
         }
     }
 
-    val activeIcon = activeAction.icon ?: dial.icon
+    // Fall back to the live audioMixerApps feed's icon when this dial has none saved.
+    val liveProcessIcon = if (activeAction.dialTarget == "app_volume" && !activeAction.dialProcess.isNullOrBlank()) {
+        audioMixerApps.find { it.processName.equals(activeAction.dialProcess, ignoreCase = true) }?.icon
+    } else null
+    val activeIcon = activeAction.icon ?: dial.icon ?: liveProcessIcon
     val bmp by produceState<ImageBitmap?>(initialValue = null, activeIcon, connectedHostUrl) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             resolveIconBitmap(context, activeIcon, connectedHostUrl, authToken)
@@ -2708,8 +2551,11 @@ private val actionTypeLabels = mapOf(
     "run_command" to "Run Command",
     "text_snippet" to "Text Snippet",
     "open_folder" to "Open Folder",
-    "multi_action" to "Multiple Actions",
-    "macro" to "Record Macro"
+    // Both run through the identical host-side execution (a sequence of steps with optional
+    // delays) — the only difference is how you build the list. Naming both explicitly here so
+    // a new user can tell they're the same kind of button, built two different ways.
+    "multi_action" to "Multiple Actions (Add Steps Manually)",
+    "macro" to "Record Macro (Record Live)"
 )
 /** Mirrors the host's AutoAssignIcons() exactly, so the client-side preview never disagrees
  * with what the server would fill in anyway (ProfileStore.cs). */
@@ -2828,18 +2674,15 @@ private fun EditButtonDialog(
     val mainActionState = remember(button.buttonId) { ActionEditorState(button.action) }
     var longPressEnabled by remember(button.buttonId) { mutableStateOf(button.longPressAction != null) }
     val longPressState = remember(button.buttonId) { ActionEditorState(button.longPressAction, isLongPress = true) }
-    // Grid buttons only — dials never get a double-press section (forceDialMode gates the UI below).
-    var doublePressEnabled by remember(button.buttonId) { mutableStateOf(button.doublePressAction != null) }
-    val doublePressState = remember(button.buttonId) { ActionEditorState(button.doublePressAction) }
 
-    // Only auto-assigns once the action actually has enough to do something (same gate as Save) —
-    // picking "Launch App" shouldn't stamp an icon before an app is even chosen.
+    // launch_app/open_url skip this — they get a REAL icon via extract_icon below instead.
     LaunchedEffect(
         mainActionState.type, mainActionState.mediaCommand, mainActionState.dialTarget,
         mainActionState.path, mainActionState.searchQuery, mainActionState.url,
         mainActionState.command, mainActionState.textValue, mainActionState.hotkeys
     ) {
-        if (!iconUserSet && missingFieldHint(mainActionState) == null) {
+        if (!iconUserSet && mainActionState.type != "launch_app" && mainActionState.type != "open_url" &&
+            missingFieldHint(mainActionState) == null) {
             defaultBuiltinIconFor(mainActionState)?.let { iconValue = "builtin:$it" }
         }
     }
@@ -2905,12 +2748,8 @@ private fun EditButtonDialog(
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
             val saveHint = missingFieldHint(mainActionState) ?: run {
-                if (longPressEnabled && mainActionState.type != "multi_action") {
-                    missingFieldHint(longPressState)?.let { "Long-press action: $it" }
-                } else null
-            } ?: run {
-                if (!forceDialMode && doublePressEnabled && mainActionState.type != "multi_action") {
-                    missingFieldHint(doublePressState)?.let { "Double-press action: $it" }
+                if (forceDialMode && longPressEnabled) {
+                    missingFieldHint(longPressState)?.let { "Tap action: $it" }
                 } else null
             }
             val canSave = saveHint == null
@@ -2937,9 +2776,8 @@ private fun EditButtonDialog(
                     enabled = canSave,
                     onClick = {
                         val act = mainActionState.toActionModel()
-                        val longPress = if (longPressEnabled && mainActionState.type != "multi_action") longPressState.toActionModel() else null
-                        val doublePress = if (!forceDialMode && doublePressEnabled && mainActionState.type != "multi_action") doublePressState.toActionModel() else null
-                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act, longPressAction = longPress, doublePressAction = doublePress))
+                        val longPress = if (forceDialMode && longPressEnabled) longPressState.toActionModel() else null
+                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act, longPressAction = longPress))
                     }
                 ) {
                     val saveColor = if (canSave) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
@@ -2949,41 +2787,71 @@ private fun EditButtonDialog(
                 }
             }
 
-            saveHint?.let {
-                Text(
-                    text = it,
-                    color = MaterialTheme.colorScheme.error,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
+            // multi_action/macro's own "add a step" hint renders inline next to the step list
+            // instead (see ActionStepListEditor) — showing it again here, disconnected from the
+            // control it's about and possibly scrolled off-screen below, would be redundant.
+            if (mainActionState.type != "multi_action" && mainActionState.type != "macro") {
+                saveHint?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
             }
 
-            CrossDeckTextField(
-                value = label,
-                onValueChange = { label = it; labelUserEdited = true },
-                label = "Label",
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)),
                 modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    // Multiple Actions always shows the live step mosaic instead (a picker between
+                    // distinct steps), so the button's own icon is dead there. Macro keeps it — it's
+                    // one atomic action under the hood, so a real icon represents it more honestly
+                    // than a mosaic.
+                    if (mainActionState.type != "multi_action") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconPreview(icon = iconValue, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(44.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            CrossDeckTextField(
+                                value = label,
+                                onValueChange = { label = it; labelUserEdited = true },
+                                label = "Label",
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { showBuiltinPicker = true }) { Text("Built-in", color = accentColor) }
+                            TextButton(onClick = { imagePickerLauncher.launch("image/*") }, enabled = !isUploading) {
+                                Text(if (isUploading) "Uploading…" else "Upload", color = accentColor)
+                            }
+                            if (iconValue != null) {
+                                TextButton(onClick = { iconValue = null; iconUserSet = false }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                            }
+                        }
+                    } else {
+                        CrossDeckTextField(
+                            value = label,
+                            onValueChange = { label = it; labelUserEdited = true },
+                            label = "Label",
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                "This is what the key looks like",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Multiple Actions always shows the live step mosaic instead (a picker between
-            // distinct steps), so the button's own icon is dead there. Macro keeps it — it's one
-            // atomic action under the hood, so a real icon represents it more honestly than a mosaic.
-            if (mainActionState.type != "multi_action") {
-            Text("Icon", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                IconPreview(icon = iconValue, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(40.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                TextButton(onClick = { showBuiltinPicker = true }) { Text("Built-in", color = accentColor) }
-                TextButton(onClick = { imagePickerLauncher.launch("image/*") }, enabled = !isUploading) {
-                    Text(if (isUploading) "Uploading…" else "Upload", color = accentColor)
-                }
-                if (iconValue != null) {
-                    TextButton(onClick = { iconValue = null; iconUserSet = false }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            }
+            Text("What it does", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.height(8.dp))
 
             key(button.buttonId, "main") {
                 ActionTypeEditor(
@@ -2995,8 +2863,10 @@ private fun EditButtonDialog(
                     connectedHostUrl = connectedHostUrl,
                     authToken = authToken,
                     iconHashCache = iconHashCache,
-                    onAppPicked = { name -> if (!labelUserEdited) { label = name; labelUserEdited = true } },
-                    onIconPicked = { icon -> if (!iconUserSet) { iconValue = icon; iconUserSet = true } },
+                    // Don't lock labelUserEdited/iconUserSet on pick, or switching apps mid-session
+                    // would freeze the label/icon on the first pick forever.
+                    onAppPicked = { name -> if (!labelUserEdited) label = name; if (!iconUserSet) iconValue = null },
+                    onIconPicked = { icon -> if (!iconUserSet) iconValue = icon },
                     forceDialMode = forceDialMode,
                     audioMixerApps = audioMixerApps,
                     onAudioMixerSubscribe = onAudioMixerSubscribe,
@@ -3007,41 +2877,26 @@ private fun EditButtonDialog(
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (mainActionState.type == "multi_action") {
-                // A chain doesn't get a separate long-press action — instead, holding the button
-                // is how the chain runs at all (a tap does nothing). Two configured sequences on
-                // one button would be confusing, so this replaces rather than adds to that slot.
-                Text(
-                    text = "This chain runs when the button is held, not tapped. No separate long-press action for a Multiple Actions button.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                Text(if (forceDialMode) "Tap Action" else "Long-Press Action", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (forceDialMode) {
+                Text("Tap Action", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = if (forceDialMode) "Fires when this dial is tapped (dragging it adjusts the level). Same options as the main action above."
-                    else "Fires when the button is held on the phone. Same options as the main action above.",
+                    text = "Fires when this dial is tapped (dragging it adjusts the level). Same options as the main action above.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { longPressEnabled = !longPressEnabled }) {
                     Checkbox(checked = longPressEnabled, onCheckedChange = null)
-                    Text(if (forceDialMode) "Enable tap action" else "Enable long-press action", color = MaterialTheme.colorScheme.onSurface)
+                    Text("Enable tap action", color = MaterialTheme.colorScheme.onSurface)
                 }
                 if (longPressEnabled) {
                     Spacer(modifier = Modifier.height(8.dp))
                     key(button.buttonId, "longpress") {
-                        // Button 1 gets the exact same numbered card as button 2+ once chained
+                        // Slot 1 gets the exact same numbered card as slot 2+ once chained
                         // (RichStepListEditor's own cards, rendered inside this same
                         // ActionTypeEditor call when longPressState.type == "multi_action") — the
                         // header/add-button below hide once that happens so numbering never shows twice.
-                        // The outer long-press slot never shows its own Label/Icon — once chained,
-                        // RichStepListEditor's own per-card sub-editors (each showIconPicker=true,
-                        // below) are where that belongs, since each is an independent tile in the
-                        // long-press popup. The single/unchained state falls back to the
-                        // type-derived glyph, same as any chain card that's never had a custom icon set.
                         if (longPressState.type == "multi_action") {
                             ActionTypeEditor(
                                 state = longPressState,
@@ -3067,7 +2922,7 @@ private fun EditButtonDialog(
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     Text(
-                                        "Long-Press Button 1",
+                                        "Tap Action 1",
                                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -3093,45 +2948,16 @@ private fun EditButtonDialog(
                         }
                     }
                 }
-            }
-
-            // Grid buttons only — a dial's tap already means "fire the press action" or "cycle
-            // the stack", so there's no double-press slot to configure in forceDialMode.
-            if (!forceDialMode && mainActionState.type != "multi_action") {
-                Spacer(modifier = Modifier.height(20.dp))
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Double-Press Action", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.height(2.dp))
+            } else if (mainActionState.type == "multi_action" || mainActionState.type == "macro") {
                 Text(
-                    text = "Fires on a double-tap. Only buttons with this enabled pay the double-tap detection delay — every other button still fires instantly.",
+                    text = "Tapping this button runs every step below, in order, with any delays you've set.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { doublePressEnabled = !doublePressEnabled }) {
-                    Checkbox(checked = doublePressEnabled, onCheckedChange = null)
-                    Text("Enable double-press action", color = MaterialTheme.colorScheme.onSurface)
-                }
-                if (doublePressEnabled) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    key(button.buttonId, "doublepress") {
-                        ActionTypeEditor(
-                            state = doublePressState,
-                            appList = appList,
-                            onRequestAppList = onRequestAppList,
-                            onRequestExtractIcon = onRequestExtractIcon,
-                            accentColor = accentColor,
-                            connectedHostUrl = connectedHostUrl,
-                            authToken = authToken,
-                            iconHashCache = iconHashCache,
-                            showIconPicker = false,
-                            onIconUpload = onIconUpload,
-                            extractedIcon = extractedIcon,
-                        )
-                    }
-                }
             }
+            // Grid buttons with any other action type: no section here at all — one action per
+            // button, matching Stream Deck. Need more than one thing on a key? Use Multiple
+            // Actions or a Folder.
 
             if (onDelete != null) {
                 Spacer(modifier = Modifier.height(20.dp))
@@ -3908,13 +3734,25 @@ private fun ActionTypeEditor(
                             extractedIcon = extractedIcon,
                         )
                     } else {
-                        ActionStepListEditor(steps = state.multiSteps)
+                        ActionStepListEditor(
+                            steps = state.multiSteps,
+                            appList = appList,
+                            onRequestAppList = onRequestAppList,
+                            onRequestExtractIcon = onRequestExtractIcon,
+                            iconHashCache = iconHashCache,
+                            connectedHostUrl = connectedHostUrl,
+                            authToken = authToken,
+                        )
                     }
                 }
                 "macro" -> {
                     // Macro is captured by recording real input, not by hand-picking a type and
                     // typing a value — that manual row belongs to Multiple Actions, not here.
-                    ActionStepListEditor(steps = state.multiSteps, allowManualAdd = false)
+                    ActionStepListEditor(
+                        steps = state.multiSteps,
+                        allowManualAdd = false,
+                        emptyHint = "Record at least one step to build the macro.",
+                    )
                 }
                 "dial" -> {
                     Row(
@@ -4084,10 +3922,22 @@ private fun DialStackLayerCard(layer: ActionEditorState, index: Int, onRemove: (
 }
 
 @Composable
-private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modifier = Modifier, allowManualAdd: Boolean = true) {
+private fun ActionStepListEditor(
+    steps: MutableList<StepUiState>,
+    modifier: Modifier = Modifier,
+    allowManualAdd: Boolean = true,
+    emptyHint: String = "Add at least one step below to build the chain.",
+    appList: List<com.crossdeck.client.model.DiscoveredApp> = emptyList(),
+    onRequestAppList: () -> Unit = {},
+    onRequestExtractIcon: ((String) -> Unit)? = null,
+    iconHashCache: Map<String, String> = emptyMap(),
+    connectedHostUrl: String? = null,
+    authToken: String? = null,
+) {
     var newType by remember { mutableStateOf("hotkey") }
     var newValue by remember { mutableStateOf("") }
     var typeDropdownExpanded by remember { mutableStateOf(false) }
+    var appPickerExpanded by remember { mutableStateOf(false) }
     var iconPickerForIndex by remember { mutableStateOf<Int?>(null) }
     val accentColor = MaterialTheme.colorScheme.primary
     // open_folder is client-side-only navigation — a no-op inside a PC-side chain, so it's not
@@ -4095,7 +3945,23 @@ private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modi
     val addableTypes = listOf("hotkey", "media_control", "launch_app", "open_url", "run_command", "text_snippet")
 
     Column(modifier = modifier) {
+        if (steps.isEmpty()) {
+            Text(
+                text = emptyHint,
+                color = MaterialTheme.colorScheme.error,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         steps.forEachIndexed { index, step ->
+            // A step's icon is never auto-assigned from its type (defaultBuiltinIconForAction) —
+            // for launch_app specifically it should be the real app icon. Backfills it the moment
+            // the extraction round-trip (kicked off when the app was picked below) resolves.
+            LaunchedEffect(step.path, iconHashCache[step.path]) {
+                if (step.type == "launch_app" && step.icon == null) {
+                    iconHashCache[step.path]?.let { step.icon = it }
+                }
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -4106,8 +3972,8 @@ private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modi
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     IconPreview(
                         icon = step.icon,
-                        connectedHostUrl = null,
-                        authToken = null,
+                        connectedHostUrl = connectedHostUrl,
+                        authToken = authToken,
                         modifier = Modifier.size(28.dp).clickable { iconPickerForIndex = index }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -4150,6 +4016,7 @@ private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modi
                 label = "Step type",
                 selectedLabel = actionTypeLabels[newType] ?: newType,
                 expanded = typeDropdownExpanded,
+                compact = true,
                 onExpandedChange = { typeDropdownExpanded = it },
                 modifier = Modifier.width(150.dp)
             ) {
@@ -4189,13 +4056,56 @@ private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modi
                         )
                     }
                 }
+            } else if (newType == "launch_app") {
+                LaunchedEffect(Unit) { onRequestAppList() }
+                Column(modifier = Modifier.weight(1f)) {
+                    CrossDeckTextField(
+                        value = newValue,
+                        onValueChange = { newValue = it; appPickerExpanded = true },
+                        label = "Path (pick or type custom)",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    val filteredApps = remember(newValue, appList) {
+                        if (newValue.isBlank()) appList
+                        else appList.filter {
+                            it.name.contains(newValue, ignoreCase = true) || it.path.contains(newValue, ignoreCase = true)
+                        }
+                    }
+                    if (appPickerExpanded && filteredApps.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                        ) {
+                            LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
+                                lazyColumnItems(filteredApps, key = { it.path }) { app ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                newValue = app.path
+                                                appPickerExpanded = false
+                                                onRequestExtractIcon?.invoke(app.path)
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                                    ) {
+                                        AppRowIcon(app.path, iconHashCache[app.path], connectedHostUrl, authToken, onRequestExtractIcon)
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(text = app.name, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
                 CrossDeckTextField(
                     value = newValue,
                     onValueChange = { newValue = it },
                     label = when (newType) {
                         "hotkey" -> "Keys (comma-separated)"
-                        "launch_app", "open_folder" -> "Path"
+                        "open_folder" -> "Path"
                         "open_url" -> "URL"
                         "run_command" -> "Command"
                         else -> "Value"
@@ -4208,7 +4118,7 @@ private fun ActionStepListEditor(steps: MutableList<StepUiState>, modifier: Modi
                     val step = StepUiState(ActionModel(type = newType), 0)
                     when (newType) {
                         "hotkey" -> step.keys = newValue
-                        "launch_app" -> step.path = newValue
+                        "launch_app" -> { step.path = newValue; step.icon = iconHashCache[newValue] }
                         "open_folder" -> step.path = newValue
                         "media_control" -> step.mediaCommand = newValue
                         "open_url" -> step.url = newValue
@@ -4344,13 +4254,18 @@ private fun InlineDropdownField(
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    /** Visually subordinates this field — smaller/muted label, tighter padding, muted selected-
+     * value color — for a picker nested inside another picker (e.g. a Multiple Actions step's own
+     * "Step type", nested under the button-level "Action Type"), so which nesting level is being
+     * edited is unambiguous at a glance. */
+    compact: Boolean = false,
     optionsContent: @Composable ColumnScope.() -> Unit
 ) {
     Column(modifier = modifier) {
         Text(
             text = label,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (compact) 0.7f else 1f),
             modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
         )
         Box(
@@ -4358,11 +4273,16 @@ private fun InlineDropdownField(
                 .fillMaxWidth()
                 .clickable { onExpandedChange(!expanded) }
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(10.dp))
-                .padding(horizontal = 16.dp, vertical = 14.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = if (compact) 0.5f else 1f), RoundedCornerShape(10.dp))
+                .padding(horizontal = if (compact) 12.dp else 16.dp, vertical = if (compact) 10.dp else 14.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(selectedLabel, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                Text(
+                    selectedLabel,
+                    style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
+                    color = if (compact) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f)
+                )
                 Icon(
                     imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     contentDescription = null,

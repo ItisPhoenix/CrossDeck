@@ -45,12 +45,11 @@ public partial class ButtonEditorWindow : Window
 
         // Apply styling theme after window loaded
         Loaded += (s, e) => ThemeManager.ApplyTheme(this);
-        Closed += (s, e) => { MainActionConfig.Dispose(); LongPressActionConfig.Dispose(); DoublePressActionConfig.Dispose(); };
+        Closed += (s, e) => { MainActionConfig.Dispose(); LongPressActionConfig.Dispose(); };
 
         var allApps = AppDiscovery.DiscoverApps();
         MainActionConfig.AppList = allApps;
         LongPressActionConfig.AppList = allApps;
-        DoublePressActionConfig.AppList = allApps;
         // The outer long-press slot never shows its own Label/Icon field — once chained,
         // RichActionStepListControl's own per-card sub-editors (each ShowIconPicker=true) are
         // where that's visible, since each is an independent tile in the long-press popup. The
@@ -93,7 +92,6 @@ public partial class ButtonEditorWindow : Window
         };
         MainActionConfig.ActionChanged += UpdateSaveEnabled;
         LongPressActionConfig.ActionChanged += UpdateSaveEnabled;
-        DoublePressActionConfig.ActionChanged += UpdateSaveEnabled;
 
         MainActionConfig.SetAction(button.Action);
         _isDialButton = button.Action.Type == "dial";
@@ -104,16 +102,10 @@ public partial class ButtonEditorWindow : Window
             LongPressButton1Card.Visibility = Visibility.Visible;
             LongPressActionConfig.SetAction(button.LongPressAction);
         }
-        if (button.DoublePressAction != null)
-        {
-            DoublePressEnabledCheck.IsChecked = true;
-            DoublePressCard.Visibility = Visibility.Visible;
-            DoublePressActionConfig.SetAction(button.DoublePressAction);
-        }
 
-        // Matches Android: a Multiple Actions button has no separate long-press/double-press
-        // action — holding it is how the chain runs at all, so those sections are replaced with
-        // an explanatory note. A dial never gets a double-press section at all (see _isDialButton).
+        // Matches Android: Tap Action is dial-only (grid buttons do exactly one thing, matching
+        // Stream Deck). Multiple Actions/Record Macro get an explanatory note instead — tapping
+        // already runs the whole sequence immediately.
         MainActionConfig.ActionTypeChanged += UpdateSecondaryActionSectionsForMainType;
         UpdateSecondaryActionSectionsForMainType(button.Action.Type);
 
@@ -146,17 +138,11 @@ public partial class ButtonEditorWindow : Window
     {
         var mainAction = MainActionConfig.GetAction();
         string? hint = MissingFieldHint(mainAction);
-        if (hint == null && LongPressEnabledCheck.IsChecked == true && mainAction.Type != "multi_action")
+        if (hint == null && _isDialButton && LongPressEnabledCheck.IsChecked == true)
         {
             var lpHint = MissingFieldHint(LongPressActionConfig.GetAction());
-            if (lpHint != null) hint = $"Long-press action: {lpHint}";
+            if (lpHint != null) hint = $"Tap action: {lpHint}";
         }
-        if (hint == null && !_isDialButton && DoublePressEnabledCheck.IsChecked == true && mainAction.Type != "multi_action")
-        {
-            var dpHint = MissingFieldHint(DoublePressActionConfig.GetAction());
-            if (dpHint != null) hint = $"Double-press action: {dpHint}";
-        }
-
         SaveButton.IsEnabled = hint == null;
         SaveHintText.Text = hint ?? "";
         SaveHintText.Visibility = hint == null ? Visibility.Collapsed : Visibility.Visible;
@@ -170,26 +156,19 @@ public partial class ButtonEditorWindow : Window
 
     private void UpdateSecondaryActionSectionsForMainType(string mainType)
     {
-        bool isMultiAction = mainType == "multi_action";
-        LongPressSection.Visibility = isMultiAction ? Visibility.Collapsed : Visibility.Visible;
-        MultiActionLongPressNote.Visibility = isMultiAction ? Visibility.Visible : Visibility.Collapsed;
+        bool isChainType = mainType == "multi_action" || mainType == "macro";
+        LongPressSection.Visibility = _isDialButton ? Visibility.Visible : Visibility.Collapsed;
+        MultiActionLongPressNote.Visibility = (!_isDialButton && isChainType) ? Visibility.Visible : Visibility.Collapsed;
         // Multiple Actions always shows the live step mosaic in the grid instead, so the button's
         // own icon picker would be dead there — same reasoning Macro is exempt from (it's one
         // atomic action, a real icon represents it more honestly than a mosaic of itself).
-        MainIconSection.Visibility = isMultiAction ? Visibility.Collapsed : Visibility.Visible;
-        DoublePressSection.Visibility = (isMultiAction || _isDialButton) ? Visibility.Collapsed : Visibility.Visible;
+        MainIconSection.Visibility = mainType == "multi_action" ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void LongPressEnabledCheck_Changed(object sender, RoutedEventArgs e)
     {
         LongPressButton1Card.Visibility = LongPressEnabledCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         UpdateLongPressButton1Chrome(LongPressActionConfig.GetAction().Type);
-        UpdateSaveEnabled();
-    }
-
-    private void DoublePressEnabledCheck_Changed(object sender, RoutedEventArgs e)
-    {
-        DoublePressCard.Visibility = DoublePressEnabledCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         UpdateSaveEnabled();
     }
 
@@ -294,10 +273,8 @@ public partial class ButtonEditorWindow : Window
         Button.Label = LabelInput.Text;
         Button.Icon = string.IsNullOrEmpty(IconPathText.Text) ? null : IconPathText.Text;
         Button.Action = MainActionConfig.GetAction();
-        Button.LongPressAction = (LongPressEnabledCheck.IsChecked == true && Button.Action.Type != "multi_action")
+        Button.LongPressAction = (_isDialButton && LongPressEnabledCheck.IsChecked == true)
             ? LongPressActionConfig.GetAction() : null;
-        Button.DoublePressAction = (!_isDialButton && DoublePressEnabledCheck.IsChecked == true && Button.Action.Type != "multi_action")
-            ? DoublePressActionConfig.GetAction() : null;
 
         DialogResult = true;
         Close();

@@ -412,7 +412,6 @@ public class WebSocketServer
         var action = pressType switch
         {
             "long" when button.LongPressAction != null => button.LongPressAction,
-            "double" when button.DoublePressAction != null => button.DoublePressAction,
             _ => button.Action
         };
 

@@ -79,22 +79,22 @@
 
                     <Border Height="1" Background="{StaticResource Brush.Hairline}" Margin="0,0,0,18"/>
 
-                    <!-- A chain doesn't get a separate long-press action — instead, holding the
-                         button is how the chain runs at all (a tap does nothing on Android). -->
+                    <!-- Multiple Actions/Record Macro don't get a separate tap slot — tapping the
+                         button already runs the whole sequence immediately. -->
                     <TextBlock x:Name="MultiActionLongPressNote"
-                               Text="This chain runs when the button is held, not tapped. No separate long-press action for a Multiple Actions button."
+                               Text="Tapping this button runs every step below, in order, with any delays you've set."
                                Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,18" TextWrapping="Wrap" Visibility="Collapsed"/>
 
-                    <!-- Optional long-press action — same full option set as the main action above -->
+                    <!-- Tap Action — dials only; grid buttons get one action, no section here. -->
                     <StackPanel x:Name="LongPressSection">
-                        <TextBlock Text="Long-Press Action" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,4"/>
-                        <TextBlock Text="Fires when the button is held on the phone. Same options as the main action above."
+                        <TextBlock Text="Tap Action" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Fires when this dial is tapped (dragging it adjusts the level). Same options as the main action above."
                                    Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                        <CheckBox x:Name="LongPressEnabledCheck" Content="Enable long-press action" FontSize="13" Margin="0,0,0,10"
+                        <CheckBox x:Name="LongPressEnabledCheck" Content="Enable tap action" FontSize="13" Margin="0,0,0,10"
                                   Checked="LongPressEnabledCheck_Changed" Unchecked="LongPressEnabledCheck_Changed"
-                                  ToolTip="When on, holding the button on the phone fires a second, different action"/>
+                                  ToolTip="When on, tapping the dial fires this action"/>
 
-                        <!-- Button 1 always gets the same numbered card as button 2+ once chained
+                        <!-- Slot 1 always gets the same numbered card as slot 2+ once chained
                              (RichActionStepListControl's own cards, inside LongPressActionConfig's
                              MultiActionPanel) — LongPressButton1Header hides once that happens so
                              the numbering is never shown twice. -->
@@ -102,30 +102,13 @@
                                 BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="8"
                                 Padding="12" Margin="0,0,0,10">
                             <StackPanel>
-                                <TextBlock x:Name="LongPressButton1Header" Text="Long-Press Button 1" FontWeight="Bold" FontSize="12"
+                                <TextBlock x:Name="LongPressButton1Header" Text="Tap Action 1" FontWeight="Bold" FontSize="12"
                                            Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,8"/>
                                 <controls:ActionConfigControl x:Name="LongPressActionConfig"/>
                             </StackPanel>
                         </Border>
                         <Button x:Name="AddAnotherLongPressActionButton" Content="+ Add Another Action" Style="{StaticResource StandardButton}"
                                 Margin="0,0,0,20" HorizontalAlignment="Left" Click="AddAnotherLongPressAction_Click"/>
-                    </StackPanel>
-
-                    <!-- Optional double-press action — grid buttons only (hidden for Multiple
-                         Actions and for dials, see UpdateDoublePressSectionVisibility). Strictly
-                         opt-in: leaving this unchecked keeps the button's tap at zero delay. -->
-                    <StackPanel x:Name="DoublePressSection">
-                        <TextBlock Text="Double-Press Action" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,4"/>
-                        <TextBlock Text="Fires when the button is double-tapped on the phone. Only buttons with this enabled pay the double-tap detection delay — every other button still fires instantly."
-                                   Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap"/>
-                        <CheckBox x:Name="DoublePressEnabledCheck" Content="Enable double-press action" FontSize="13" Margin="0,0,0,10"
-                                  Checked="DoublePressEnabledCheck_Changed" Unchecked="DoublePressEnabledCheck_Changed"
-                                  ToolTip="When on, double-tapping the button on the phone fires a third, different action"/>
-                        <Border x:Name="DoublePressCard" Visibility="Collapsed" Background="{StaticResource Brush.Void}"
-                                BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="8"
-                                Padding="12" Margin="0,0,0,20">
-                            <controls:ActionConfigControl x:Name="DoublePressActionConfig"/>
-                        </Border>
                     </StackPanel>
 
                     <TextBlock x:Name="SaveHintText" Foreground="{StaticResource Brush.Alarm}" FontSize="12" Margin="0,0,0,8"

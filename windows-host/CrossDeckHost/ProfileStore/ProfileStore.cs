@@ -562,13 +562,8 @@ public class ProfileStoreService
             string fullPath = ResolveExecutablePath(exeNameOrPath);
             if (!File.Exists(fullPath))
             {
-                // ResolveExecutablePath only checks a fixed set of install directories + PATH —
-                // it never finds an app installed somewhere else (e.g. %AppData%, Spotify/Discord's
-                // usual home). A bare name with no extension is most likely a running process's
-                // name (the app-volume mixer's shape: DialController.GetAudioMixerSnapshot works
-                // in ProcessName terms, not paths) — resolve it via the running process itself, so
-                // this generic path works for callers that can't do that resolution themselves
-                // (e.g. the Android client over the wire).
+                // A bare name with no extension is most likely a running process's name (the
+                // app-volume mixer's shape) — resolve it via the running process itself.
                 if (Path.GetExtension(exeNameOrPath).Length == 0)
                 {
                     try
@@ -707,7 +702,13 @@ public class ProfileStoreService
 
         string assetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CrossDeckHost", "Assets");
         Directory.CreateDirectory(assetsDir);
-        File.WriteAllBytes(Path.Combine(assetsDir, hash + ".png"), resized);
+        var path = Path.Combine(assetsDir, hash + ".png");
+        // Skip write if already cached — avoids concurrent callers racing on the same file handle.
+        if (!File.Exists(path))
+        {
+            try { File.WriteAllBytes(path, resized); }
+            catch (IOException) { /* another thread just won the same write — file exists now */ }
+        }
 
         return hash;
     }
