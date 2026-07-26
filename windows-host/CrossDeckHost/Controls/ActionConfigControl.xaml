@@ -14,7 +14,8 @@
             <ComboBoxItem Content="Open Folder" Tag="open_folder"/>
             <ComboBoxItem Content="Multiple Actions" Tag="multi_action"/>
             <ComboBoxItem Content="Record Macro" Tag="macro"/>
-            <ComboBoxItem x:Name="DialTypeItem" Content="Dial / Slider" Tag="dial"/>
+            <!-- No "Dial / Slider" item here — dials live only in the dial strip below the grid now
+                 (see DialStripEditorWindow / ForceDialMode), never as a pickable grid-button type. -->
         </ComboBox>
 
         <StackPanel x:Name="IconSection" Visibility="Collapsed" Margin="0,0,0,14">
@@ -161,15 +162,56 @@
 
                 <!-- Dial Panel -->
                 <StackPanel x:Name="DialPanel" Visibility="Collapsed">
-                    <TextBlock Text="Dial / Slider Control target" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <ComboBox x:Name="DialTargetCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
-                              ToolTip="What the phone's dial slider adjusts when moved" SelectionChanged="ParamField_SelectionChanged">
-                        <ComboBoxItem Content="Volume Adjust" Tag="volume"/>
-                        <ComboBoxItem Content="Brightness Adjust" Tag="brightness"/>
-                        <ComboBoxItem Content="App Volume (live mixer)" Tag="app_volume"/>
-                    </ComboBox>
-                    <TextBlock Text="App Volume opens a live mixer on the phone with a slider + mute for every app currently playing audio — no app to pick here."
-                               Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                    <CheckBox x:Name="StackDialCheck" Content="Stack multiple targets on this dial (tap cycles between them)"
+                              FontSize="12" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,12" Checked="StackDialCheck_Changed" Unchecked="StackDialCheck_Changed"/>
+
+                    <!-- Single-target view (default, unstacked) -->
+                    <StackPanel x:Name="DialSingleTargetPanel">
+                        <TextBlock Text="Dial Control target" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
+                        <ComboBox x:Name="DialTargetCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
+                                  ToolTip="What this dial adjusts when dragged on the phone" SelectionChanged="DialTargetCombo_SelectionChanged">
+                            <ComboBoxItem Content="Master Volume" Tag="volume"/>
+                            <ComboBoxItem Content="Microphone Volume" Tag="mic"/>
+                            <ComboBoxItem Content="Brightness" Tag="brightness"/>
+                            <ComboBoxItem Content="App Volume" Tag="app_volume"/>
+                            <ComboBoxItem Content="Keystroke Step" Tag="keystroke_step"/>
+                        </ComboBox>
+
+                        <!-- Only shown for App Volume — bind to one app, or leave blank to open the live
+                             multi-app mixer instead (unbound app_volume, existing behaviour). -->
+                        <StackPanel x:Name="AppVolumeProcessPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                            <TextBlock Text="Bind to one app (leave blank to open the live mixer instead)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                            <ComboBox x:Name="DialProcessCombo" IsEditable="True" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
+                                      ToolTip="Pick a currently-playing app, or type its process name" TextBoxBase.TextChanged="ParamField_Changed"/>
+                        </StackPanel>
+
+                        <!-- Only shown for Keystroke Step — each drag detent fires one keystroke
+                             instead of setting an absolute level. -->
+                        <StackPanel x:Name="StepKeysPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                            <TextBlock Text="Step Up (drag upward)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
+                            <TextBox x:Name="StepUpKeysInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" Margin="0,0,0,10" TextChanged="ParamField_Changed"
+                                     ToolTip="e.g. Ctrl,Shift,Equals"/>
+                            <TextBlock Text="Step Down (drag downward)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
+                            <TextBox x:Name="StepDownKeysInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"
+                                     ToolTip="e.g. Ctrl,Minus"/>
+                        </StackPanel>
+
+                        <TextBlock x:Name="DialTargetHintText" Text="Opens a live mixer on the phone with a slider + mute for every app currently playing audio."
+                                   Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <!-- Stacked view — one card per layer, built in code-behind (RebuildDialStackUi),
+                         same imperative-list pattern EditorWindow already uses for the button grid. -->
+                    <StackPanel x:Name="DialStackPanel" Visibility="Collapsed">
+                        <StackPanel x:Name="DialStackLayersHost"/>
+                        <Button x:Name="AddDialLayerButton" Style="{StaticResource StandardButton}" Padding="12,8" Margin="0,4,0,0" Click="AddDialLayer_Click"
+                                ToolTip="Add another target to cycle through with a tap">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="➕" FontSize="13" Margin="0,0,6,0"/>
+                                <TextBlock Text="Add Layer"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>

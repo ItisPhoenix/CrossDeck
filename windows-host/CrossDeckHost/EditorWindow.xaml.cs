@@ -468,18 +468,20 @@ public partial class EditorWindow : Window
     private void RefreshGrid()
     {
         RebuildGrid();
+        RebuildDialRow();
     }
 
     /// <summary>Cross-fades the button grid: fade out → rebuild → fade in.</summary>
     private void RefreshGridWithFade()
     {
-        if (_isFading) { RebuildGrid(); return; }
+        if (_isFading) { RebuildGrid(); RebuildDialRow(); return; }
         _isFading = true;
 
         var fadeOut = new DoubleAnimation(1.0, 0.0, TimeSpan.FromMilliseconds(140));
         fadeOut.Completed += (s, e) =>
         {
             RebuildGrid();
+            RebuildDialRow();
             var fadeIn = new DoubleAnimation(0.0, 1.0, TimeSpan.FromMilliseconds(160));
             fadeIn.Completed += (si, ei) => _isFading = false;
             ButtonGrid.BeginAnimation(UIElement.OpacityProperty, fadeIn);
@@ -511,6 +513,7 @@ public partial class EditorWindow : Window
                 _folderHistory.Clear();
                 _currentFolderId = null;
                 RebuildGrid();
+                RebuildDialRow();
             }));
 
             var historyList = _folderHistory.ToList();
@@ -538,6 +541,7 @@ public partial class EditorWindow : Window
                         _folderHistory.Pop();
                     _currentFolderId = capturedFolderId;
                     RebuildGrid();
+                    RebuildDialRow();
                 };
                 BreadcrumbPanel.Children.Add(MakeBreadcrumbSegment(folderLabel, isLast, clickAction));
             }
@@ -770,6 +774,127 @@ public partial class EditorWindow : Window
                 btn.Drop += Cell_Drop;
 
                 ButtonGrid.Children.Add(btn);
+        }
+    }
+
+    /// <summary>Dial row under the grid — same cell chrome as RebuildGrid but a
+    /// single fixed row, no folders, capped at 6 dials + one trailing "+" slot. Collapses the
+    /// whole strip when the profile has none, so the grid regains that vertical space.</summary>
+    private void RebuildDialRow()
+    {
+        DialRow.Children.Clear();
+        const int maxDials = 6;
+        var dials = _profileStore.Current.Dials.Where(d => d.ParentFolderId == _currentFolderId).ToList();
+        bool showAddSlot = dials.Count < maxDials;
+        DialStripBorder.Visibility = (dials.Count > 0 || showAddSlot) ? Visibility.Visible : Visibility.Collapsed;
+        int totalCells = dials.Count + (showAddSlot ? 1 : 0);
+        DialRow.Columns = Math.Max(1, totalCells);
+
+        for (int index = 0; index < totalCells; index++)
+        {
+            bool hasDial = index < dials.Count;
+            var dialModel = hasDial ? dials[index] : null;
+            bool isAddSlot = index == dials.Count && showAddSlot;
+
+            var btn = new System.Windows.Controls.Button
+            {
+                Style = System.Windows.Application.Current.Resources["DeckButtonStyle"] as Style,
+                Width = 84,
+                Height = 84,
+                Margin = new Thickness(6),
+                Background = ThemeManager.Brush(hasDial ? "Brush.Panel" : "Brush.Void"),
+                BorderBrush = ThemeManager.Brush("Brush.Hairline"),
+                BorderThickness = new Thickness(hasDial ? 1.2 : 1)
+            };
+
+            var stack = new StackPanel { VerticalAlignment = System.Windows.VerticalAlignment.Center, HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
+
+            if (hasDial && dialModel != null)
+            {
+                var iconPath = ProfileStoreService.ResolveIconFilePath(dialModel.Icon);
+                bool iconLoaded = false;
+                if (iconPath != null)
+                {
+                    try
+                    {
+                        var img = new System.Windows.Controls.Image { Width = 32, Height = 32, Stretch = Stretch.Uniform, Source = new BitmapImage(new Uri(iconPath)) };
+                        stack.Children.Add(img);
+                        iconLoaded = true;
+                    }
+                    catch { }
+                }
+                var label = string.IsNullOrWhiteSpace(dialModel.Label)
+                    ? CrossDeckHost.Controls.ActionConfigControl.SuggestLabel(dialModel.Action) ?? "Dial"
+                    : dialModel.Label;
+                stack.Children.Add(new TextBlock
+                {
+                    Text = label,
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+                    TextAlignment = System.Windows.TextAlignment.Center,
+                    Foreground = ThemeManager.Brush(iconLoaded ? "Brush.Mist" : "Brush.Paper"),
+                    FontSize = 10,
+                    FontWeight = System.Windows.FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, iconLoaded ? 4 : 0, 0, 0)
+                });
+            }
+            else if (isAddSlot)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "+",
+                    Foreground = ThemeManager.Brush("Brush.Mist"),
+                    FontSize = 20,
+                    FontWeight = System.Windows.FontWeights.Bold,
+                    HorizontalAlignment = System.Windows.HorizontalAlignment.Center
+                });
+            }
+
+            btn.Content = stack;
+            int capturedIndex = index;
+            btn.Click += (s, e) => SelectDialCell(capturedIndex);
+            DialRow.Children.Add(btn);
+        }
+    }
+
+    /// <summary>Same new/edit/delete/save flow as SelectCell, but against Profile.Dials — a
+    /// separate list, so it reuses UpdateButton/DeleteButton's "buttons" vs "dials" overload
+    /// instead of SelectCell's own hardcoded Buttons calls. Folder-scoped exactly like SelectCell.</summary>
+    private void SelectDialCell(int index)
+    {
+        var dials = _profileStore.Current.Dials.Where(d => d.ParentFolderId == _currentFolderId).ToList();
+        var dialModel = index < dials.Count ? dials[index] : null;
+
+        bool isNew = false;
+        if (dialModel == null)
+        {
+            isNew = true;
+            dialModel = new ButtonModel
+            {
+                ButtonId = $"b_{Guid.NewGuid().ToString().Substring(0, 8)}",
+                Action = new ActionModel { Type = "dial", DialTarget = "volume" },
+                ParentFolderId = _currentFolderId
+            };
+        }
+
+        var editorDlg = new ButtonEditorWindow(dialModel) { Owner = this };
+        editorDlg.MainActionConfig.ForceDialMode = true;
+        if (isNew) editorDlg.DeleteBtn.Visibility = Visibility.Collapsed;
+
+        if (editorDlg.ShowDialog() == true)
+        {
+            if (editorDlg.IsDeleted)
+            {
+                if (!isNew) _profileStore.DeleteButton(_profileStore.Set.ActiveProfileId, dialModel.ButtonId, "dials");
+            }
+            else
+            {
+                _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, editorDlg.Button, "dials");
+            }
+
+            _profileStore.Save();
+            _profileStore.NotifyChanged();
+            RebuildDialRow();
         }
     }
 
@@ -1340,6 +1465,7 @@ public partial class EditorWindow : Window
             _folderHistory.Pop();
             _currentFolderId = _folderHistory.Count > 0 ? _folderHistory.Peek().Id : null;
             RebuildGrid();
+            RebuildDialRow();
         }
     }
 

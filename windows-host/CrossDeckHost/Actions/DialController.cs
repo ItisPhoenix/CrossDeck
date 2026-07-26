@@ -7,16 +7,26 @@ namespace CrossDeckHost.Actions;
 
 public static class DialController
 {
-    public static int SetVolume(int value)
+    public static int SetVolume(int value) => SetEndpointVolume(value, eCapture: false);
+    public static int GetVolume() => GetEndpointVolume(eCapture: false);
+    public static bool? IsMuted() => GetEndpointMuted(eCapture: false);
+
+    /// <summary>Default recording (microphone) device — same WASAPI path as master output volume,
+    /// just eCapture instead of eRender.</summary>
+    public static int SetMicVolume(int value) => SetEndpointVolume(value, eCapture: true);
+    public static int GetMicVolume() => GetEndpointVolume(eCapture: true);
+    public static bool? IsMicMuted() => GetEndpointMuted(eCapture: true);
+
+    private static int SetEndpointVolume(int value, bool eCapture)
     {
         try
         {
-            var volume = GetVolumeObject();
+            var volume = GetVolumeObject(eCapture);
             if (volume == null) return 50;
 
             float newVolume = Math.Clamp(value / 100f, 0f, 1f);
             volume.SetMasterVolumeLevelScalar(newVolume, Guid.Empty);
-            
+
             return (int)Math.Round(newVolume * 100f);
         }
         catch
@@ -25,11 +35,11 @@ public static class DialController
         }
     }
 
-    public static int GetVolume()
+    private static int GetEndpointVolume(bool eCapture)
     {
         try
         {
-            var volume = GetVolumeObject();
+            var volume = GetVolumeObject(eCapture);
             if (volume == null) return 50;
 
             volume.GetMasterVolumeLevelScalar(out float currentVolume);
@@ -41,11 +51,11 @@ public static class DialController
         }
     }
 
-    public static bool? IsMuted()
+    private static bool? GetEndpointMuted(bool eCapture)
     {
         try
         {
-            var volume = GetVolumeObject();
+            var volume = GetVolumeObject(eCapture);
             if (volume == null) return null;
 
             volume.GetMute(out bool muted);
@@ -199,13 +209,13 @@ public static class DialController
     [DllImport("dxva2.dll", EntryPoint = "SetMonitorBrightness", SetLastError = true)]
     private static extern bool SetMonitorBrightness(IntPtr hMonitor, uint dwNewBrightness);
 
-    // WASAPI COM Definitions
-    private static IAudioEndpointVolume? GetVolumeObject()
+    // WASAPI COM Definitions. dataFlow: eRender=0, eCapture=1.
+    private static IAudioEndpointVolume? GetVolumeObject(bool eCapture = false)
     {
         try
         {
             var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
-            enumerator.GetDefaultAudioEndpoint(0, 1, out var device);
+            enumerator.GetDefaultAudioEndpoint(eCapture ? 1 : 0, 1, out var device);
             var iid = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
             device.Activate(ref iid, 23, IntPtr.Zero, out var volumeObj);
             return (IAudioEndpointVolume)volumeObj;

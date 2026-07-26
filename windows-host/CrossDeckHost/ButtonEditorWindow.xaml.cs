@@ -19,6 +19,10 @@ public partial class ButtonEditorWindow : Window
     private bool _labelUserEdited;
     private bool _suppressLabelEdit;
 
+    // A dial (Action.Type == "dial") never gets a double-press action — its tap already means
+    // "fire the press action" or "cycle the stack". Set once from the constructor's button.
+    private bool _isDialButton;
+
     private void DialogClose_Click(object sender, RoutedEventArgs e) => Close();
 
     public ButtonEditorWindow(ButtonModel button)
@@ -41,11 +45,12 @@ public partial class ButtonEditorWindow : Window
 
         // Apply styling theme after window loaded
         Loaded += (s, e) => ThemeManager.ApplyTheme(this);
-        Closed += (s, e) => { MainActionConfig.Dispose(); LongPressActionConfig.Dispose(); };
+        Closed += (s, e) => { MainActionConfig.Dispose(); LongPressActionConfig.Dispose(); DoublePressActionConfig.Dispose(); };
 
         var allApps = AppDiscovery.DiscoverApps();
         MainActionConfig.AppList = allApps;
         LongPressActionConfig.AppList = allApps;
+        DoublePressActionConfig.AppList = allApps;
         // The outer long-press slot never shows its own Label/Icon field — once chained,
         // RichActionStepListControl's own per-card sub-editors (each ShowIconPicker=true) are
         // where that's visible, since each is an independent tile in the long-press popup. The
@@ -88,8 +93,10 @@ public partial class ButtonEditorWindow : Window
         };
         MainActionConfig.ActionChanged += UpdateSaveEnabled;
         LongPressActionConfig.ActionChanged += UpdateSaveEnabled;
+        DoublePressActionConfig.ActionChanged += UpdateSaveEnabled;
 
         MainActionConfig.SetAction(button.Action);
+        _isDialButton = button.Action.Type == "dial";
 
         if (button.LongPressAction != null)
         {
@@ -97,11 +104,18 @@ public partial class ButtonEditorWindow : Window
             LongPressButton1Card.Visibility = Visibility.Visible;
             LongPressActionConfig.SetAction(button.LongPressAction);
         }
+        if (button.DoublePressAction != null)
+        {
+            DoublePressEnabledCheck.IsChecked = true;
+            DoublePressCard.Visibility = Visibility.Visible;
+            DoublePressActionConfig.SetAction(button.DoublePressAction);
+        }
 
-        // Matches Android: a Multiple Actions button has no separate long-press action — holding
-        // it is how the chain runs at all, so the section is replaced with an explanatory note.
-        MainActionConfig.ActionTypeChanged += UpdateLongPressSectionForMainType;
-        UpdateLongPressSectionForMainType(button.Action.Type);
+        // Matches Android: a Multiple Actions button has no separate long-press/double-press
+        // action — holding it is how the chain runs at all, so those sections are replaced with
+        // an explanatory note. A dial never gets a double-press section at all (see _isDialButton).
+        MainActionConfig.ActionTypeChanged += UpdateSecondaryActionSectionsForMainType;
+        UpdateSecondaryActionSectionsForMainType(button.Action.Type);
 
         // Once button 1 itself becomes a chain (multi_action), RichActionStepListControl already
         // numbers its own cards starting at "Long-Press Button 1" — the outer header/add-button
@@ -137,6 +151,11 @@ public partial class ButtonEditorWindow : Window
             var lpHint = MissingFieldHint(LongPressActionConfig.GetAction());
             if (lpHint != null) hint = $"Long-press action: {lpHint}";
         }
+        if (hint == null && !_isDialButton && DoublePressEnabledCheck.IsChecked == true && mainAction.Type != "multi_action")
+        {
+            var dpHint = MissingFieldHint(DoublePressActionConfig.GetAction());
+            if (dpHint != null) hint = $"Double-press action: {dpHint}";
+        }
 
         SaveButton.IsEnabled = hint == null;
         SaveHintText.Text = hint ?? "";
@@ -149,7 +168,7 @@ public partial class ButtonEditorWindow : Window
         _labelUserEdited = true;
     }
 
-    private void UpdateLongPressSectionForMainType(string mainType)
+    private void UpdateSecondaryActionSectionsForMainType(string mainType)
     {
         bool isMultiAction = mainType == "multi_action";
         LongPressSection.Visibility = isMultiAction ? Visibility.Collapsed : Visibility.Visible;
@@ -158,12 +177,19 @@ public partial class ButtonEditorWindow : Window
         // own icon picker would be dead there — same reasoning Macro is exempt from (it's one
         // atomic action, a real icon represents it more honestly than a mosaic of itself).
         MainIconSection.Visibility = isMultiAction ? Visibility.Collapsed : Visibility.Visible;
+        DoublePressSection.Visibility = (isMultiAction || _isDialButton) ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void LongPressEnabledCheck_Changed(object sender, RoutedEventArgs e)
     {
         LongPressButton1Card.Visibility = LongPressEnabledCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         UpdateLongPressButton1Chrome(LongPressActionConfig.GetAction().Type);
+        UpdateSaveEnabled();
+    }
+
+    private void DoublePressEnabledCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        DoublePressCard.Visibility = DoublePressEnabledCheck.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
         UpdateSaveEnabled();
     }
 
@@ -270,6 +296,8 @@ public partial class ButtonEditorWindow : Window
         Button.Action = MainActionConfig.GetAction();
         Button.LongPressAction = (LongPressEnabledCheck.IsChecked == true && Button.Action.Type != "multi_action")
             ? LongPressActionConfig.GetAction() : null;
+        Button.DoublePressAction = (!_isDialButton && DoublePressEnabledCheck.IsChecked == true && Button.Action.Type != "multi_action")
+            ? DoublePressActionConfig.GetAction() : null;
 
         DialogResult = true;
         Close();

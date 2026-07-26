@@ -111,6 +111,23 @@
                                 Margin="0,0,0,20" HorizontalAlignment="Left" Click="AddAnotherLongPressAction_Click"/>
                     </StackPanel>
 
+                    <!-- Optional double-press action — grid buttons only (hidden for Multiple
+                         Actions and for dials, see UpdateDoublePressSectionVisibility). Strictly
+                         opt-in: leaving this unchecked keeps the button's tap at zero delay. -->
+                    <StackPanel x:Name="DoublePressSection">
+                        <TextBlock Text="Double-Press Action" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,4"/>
+                        <TextBlock Text="Fires when the button is double-tapped on the phone. Only buttons with this enabled pay the double-tap detection delay — every other button still fires instantly."
+                                   Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,8" TextWrapping="Wrap"/>
+                        <CheckBox x:Name="DoublePressEnabledCheck" Content="Enable double-press action" FontSize="13" Margin="0,0,0,10"
+                                  Checked="DoublePressEnabledCheck_Changed" Unchecked="DoublePressEnabledCheck_Changed"
+                                  ToolTip="When on, double-tapping the button on the phone fires a third, different action"/>
+                        <Border x:Name="DoublePressCard" Visibility="Collapsed" Background="{StaticResource Brush.Void}"
+                                BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="8"
+                                Padding="12" Margin="0,0,0,20">
+                            <controls:ActionConfigControl x:Name="DoublePressActionConfig"/>
+                        </Border>
+                    </StackPanel>
+
                     <TextBlock x:Name="SaveHintText" Foreground="{StaticResource Brush.Alarm}" FontSize="12" Margin="0,0,0,8"
                                TextWrapping="Wrap" Visibility="Collapsed"/>
 

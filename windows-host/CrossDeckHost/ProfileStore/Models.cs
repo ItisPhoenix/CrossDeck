@@ -33,6 +33,11 @@ public class Profile
 
     [JsonPropertyName("buttons")]
     public List<ButtonModel> Buttons { get; set; } = new();
+
+    /// <summary>Dials live in their own list, not the grid — same ButtonModel shape,
+    /// position = index. Action is the dial itself; LongPressAction is what a tap fires.</summary>
+    [JsonPropertyName("dials")]
+    public List<ButtonModel> Dials { get; set; } = new();
 }
 
 /// <summary>A button's position is its index within Profile.Buttons (filtered to its
@@ -54,6 +59,14 @@ public class ButtonModel
     /// <summary>Optional second action fired by long-pressing the button on the phone.</summary>
     [JsonPropertyName("longPressAction")]
     public ActionModel? LongPressAction { get; set; }
+
+    /// <summary>Optional third action fired by double-tapping the button on the phone. Grid
+    /// buttons only — dials don't use this (a dial's tap already means "fire the press action"
+    /// or "cycle the stack"). Strictly opt-in: a button with this null keeps the zero-delay tap
+    /// every other button has (see DeckButton.kt's combinedClickable onDoubleClick wiring) —
+    /// only a button that configures one pays the double-tap-window wait.</summary>
+    [JsonPropertyName("doublePressAction")]
+    public ActionModel? DoublePressAction { get; set; }
 
     [JsonPropertyName("parentFolderId")]
     public string? ParentFolderId { get; set; }
@@ -91,6 +104,10 @@ public class ActionModel
     [JsonPropertyName("targetFolderId")]
     public string? TargetFolderId { get; set; }
 
+    /// <summary>Used by multi_action/macro for their steps. Also reused for a dial stack: when
+    /// Type == "dial" and this is set (non-empty), each entry is a full dial layer (its own
+    /// DialTarget/DialProcess/Icon/Label) and tapping the dial cycles between them — same list,
+    /// different meaning depending on the parent's Type.</summary>
     [JsonPropertyName("actions")]
     public List<ActionModel>? Actions { get; set; }
 
@@ -99,6 +116,20 @@ public class ActionModel
 
     [JsonPropertyName("dialTarget")]
     public string? DialTarget { get; set; }
+
+    /// <summary>Used when DialTarget == "app_volume" to bind the dial to one process's
+    /// session. Null means "open the live multi-app mixer" (existing behaviour).</summary>
+    [JsonPropertyName("dialProcess")]
+    public string? DialProcess { get; set; }
+
+    /// <summary>Used when DialTarget == "keystroke_step" — each drag detent fires one of these
+    /// (Up when dragging up, Down when dragging down) instead of setting an absolute 0-100
+    /// level. Same key-name format as Keys (CrossDeckHost.Actions.VirtualKey).</summary>
+    [JsonPropertyName("dialStepUpKeys")]
+    public List<string>? DialStepUpKeys { get; set; }
+
+    [JsonPropertyName("dialStepDownKeys")]
+    public List<string>? DialStepDownKeys { get; set; }
 
     [JsonPropertyName("mouseX")]
     public int? MouseX { get; set; }
@@ -116,4 +147,11 @@ public class ActionModel
     /// <summary>Optional override label for a long-press action or a multi-action step.</summary>
     [JsonPropertyName("label")]
     public string? Label { get; set; }
+
+    /// <summary>Resolves which dial layer is actually being addressed — Actions[stackIndex] for
+    /// a stacked dial (Actions non-empty), or this action itself for a plain unstacked dial.
+    /// Clamped so an out-of-range index (e.g. a profile edited to fewer layers than a still-
+    /// connected client remembers) falls back to the last layer instead of throwing.</summary>
+    public ActionModel ResolveDialLayer(int stackIndex) =>
+        Actions is { Count: > 0 } layers ? layers[Math.Clamp(stackIndex, 0, layers.Count - 1)] : this;
 }

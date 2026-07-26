@@ -9,6 +9,7 @@ using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using Button = System.Windows.Controls.Button;
 using TextBox = System.Windows.Controls.TextBox;
+using ComboBox = System.Windows.Controls.ComboBox;
 using CrossDeckHost;
 using CrossDeckHost.Actions;
 using CrossDeckHost.ProfileStore;
@@ -32,6 +33,11 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     // Same rule ButtonEditorWindow applies to the button's own top-level label.
     private bool _labelUserEdited;
     private bool _suppressLabelEdit;
+
+    // Working copy of a dial's stack layers while StackDialCheck is on — each layer is its own
+    // dial config (target/process/step-keys/label). Edited in place by BuildDialLayerCard's
+    // per-row handlers; GetAction() reads this list directly when stacked.
+    private readonly System.Collections.Generic.List<ActionModel> _dialStackLayers = new();
 
     private static readonly System.Collections.Generic.Dictionary<string, string> MediaCommandLabels = new()
     {
@@ -60,7 +66,14 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             ? null
             : action.Command.Trim().Split(' ')[0].Split('\\', '/')[^1],
         "text_snippet" => string.IsNullOrWhiteSpace(action.Text) ? null : action.Text.Trim()[..Math.Min(20, action.Text.Trim().Length)],
-        "dial" => action.DialTarget == "brightness" ? "Brightness" : "Volume",
+        "dial" => action.Actions is { Count: > 0 } ? "Dial Stack" : action.DialTarget switch
+        {
+            "brightness" => "Brightness",
+            "mic" => "Microphone",
+            "app_volume" => action.DialProcess ?? "App Volume",
+            "keystroke_step" => "Keystroke Step",
+            _ => "Volume"
+        },
         "open_folder" => "Open Folder",
         "macro" => "Macro",
         _ => null
@@ -138,6 +151,22 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     {
         get => _allApps;
         set { _allApps = value; PathComboInput.ItemsSource = _allApps; RichStepList.AppList = value; }
+    }
+
+    private string? _forcedType;
+
+    /// <summary>Set by the dial-strip editor (dials have no Action Type dropdown — every dial IS
+    /// type "dial" implicitly). Hides ActionTypeCombo and locks GetAction()'s type to "dial".</summary>
+    public bool ForceDialMode
+    {
+        set
+        {
+            if (!value) return;
+            _forcedType = "dial";
+            ActionTypeCombo.Visibility = Visibility.Collapsed;
+            DialPanel.Visibility = Visibility.Visible;
+            DialProcessCombo.ItemsSource = DialController.GetAudioMixerSnapshot().Select(a => a.ProcessName).ToList();
+        }
     }
 
     public ActionConfigControl()
@@ -245,12 +274,33 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         {
             if (item.Tag?.ToString() == dialTgt) { DialTargetCombo.SelectedItem = item; break; }
         }
+        DialProcessCombo.Text = action.DialProcess ?? "";
+        StepUpKeysInput.Text = action.DialStepUpKeys != null ? string.Join(",", action.DialStepUpKeys) : "";
+        StepDownKeysInput.Text = action.DialStepDownKeys != null ? string.Join(",", action.DialStepDownKeys) : "";
+        UpdateDialTargetPanels(dialTgt);
+
+        bool isStack = action.Type == "dial" && action.Actions is { Count: > 0 };
+        StackDialCheck.IsChecked = isStack;
+        _dialStackLayers.Clear();
+        if (isStack) _dialStackLayers.AddRange(action.Actions!.Select(CloneDialLayer));
+        UpdateDialStackVisibility(isStack);
+        if (isStack) RebuildDialStackUi();
     }
+
+    private static ActionModel CloneDialLayer(ActionModel a) => new ActionModel
+    {
+        Type = "dial",
+        DialTarget = a.DialTarget,
+        DialProcess = a.DialProcess,
+        DialStepUpKeys = a.DialStepUpKeys,
+        DialStepDownKeys = a.DialStepDownKeys,
+        Label = a.Label
+    };
 
     public ActionModel GetAction()
     {
         var activeItem = ActionTypeCombo.SelectedItem as ComboBoxItem;
-        var actionType = activeItem?.Tag?.ToString() ?? "hotkey";
+        var actionType = _forcedType ?? activeItem?.Tag?.ToString() ?? "hotkey";
 
         var action = new ActionModel
         {
@@ -301,7 +351,21 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                 action.Delays = MultiActionStepList.Steps.Select(s => s.DelayAfterMs).ToList();
                 break;
             case "dial":
-                action.DialTarget = (DialTargetCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "volume";
+                if (StackDialCheck.IsChecked == true && _dialStackLayers.Count > 0)
+                {
+                    // The stack container itself carries no single target — whichever layer is
+                    // active resolves it (ActionModel.ResolveDialLayer), same on both host and client.
+                    action.Actions = _dialStackLayers;
+                }
+                else
+                {
+                    var dialTarget = (DialTargetCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "volume";
+                    action.DialTarget = dialTarget;
+                    action.DialProcess = dialTarget == "app_volume" && !string.IsNullOrWhiteSpace(DialProcessCombo.Text)
+                        ? DialProcessCombo.Text.Trim() : null;
+                    action.DialStepUpKeys = dialTarget == "keystroke_step" ? StepUpKeysInput.Text.Split(',').mapStringList() : null;
+                    action.DialStepDownKeys = dialTarget == "keystroke_step" ? StepDownKeysInput.Text.Split(',').mapStringList() : null;
+                }
                 break;
         }
         return action;
@@ -310,6 +374,155 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     private void ParamField_Changed(object sender, TextChangedEventArgs e) => ActionChanged?.Invoke();
 
     private void ParamField_SelectionChanged(object sender, SelectionChangedEventArgs e) => ActionChanged?.Invoke();
+
+    private void DialTargetCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DialTargetCombo.SelectedItem is ComboBoxItem item)
+            UpdateDialTargetPanels(item.Tag?.ToString() ?? "volume");
+        ActionChanged?.Invoke();
+    }
+
+    /// <summary>Only App Volume needs the process picker; only unbound App Volume shows the
+    /// "opens a live mixer" hint (a bound dial behaves like any other single-value dial); only
+    /// Keystroke Step needs the up/down hotkey fields.</summary>
+    private void UpdateDialTargetPanels(string dialTarget)
+    {
+        bool isAppVolume = dialTarget == "app_volume";
+        AppVolumeProcessPanel.Visibility = isAppVolume ? Visibility.Visible : Visibility.Collapsed;
+        DialTargetHintText.Visibility = (isAppVolume && string.IsNullOrWhiteSpace(DialProcessCombo.Text)) ? Visibility.Visible : Visibility.Collapsed;
+        StepKeysPanel.Visibility = dialTarget == "keystroke_step" ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void StackDialCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        bool isStack = StackDialCheck.IsChecked == true;
+        if (isStack && _dialStackLayers.Count == 0)
+        {
+            // Seed the stack with whatever's currently configured in the single-target view, so
+            // checking the box doesn't silently discard it.
+            var target = (DialTargetCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "volume";
+            _dialStackLayers.Add(new ActionModel
+            {
+                Type = "dial",
+                DialTarget = target,
+                DialProcess = target == "app_volume" && !string.IsNullOrWhiteSpace(DialProcessCombo.Text) ? DialProcessCombo.Text.Trim() : null,
+                DialStepUpKeys = target == "keystroke_step" ? StepUpKeysInput.Text.Split(',').mapStringList() : null,
+                DialStepDownKeys = target == "keystroke_step" ? StepDownKeysInput.Text.Split(',').mapStringList() : null
+            });
+        }
+        UpdateDialStackVisibility(isStack);
+        if (isStack) RebuildDialStackUi();
+        ActionChanged?.Invoke();
+    }
+
+    private void UpdateDialStackVisibility(bool isStack)
+    {
+        DialSingleTargetPanel.Visibility = isStack ? Visibility.Collapsed : Visibility.Visible;
+        DialStackPanel.Visibility = isStack ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void AddDialLayer_Click(object sender, RoutedEventArgs e)
+    {
+        _dialStackLayers.Add(new ActionModel { Type = "dial", DialTarget = "volume" });
+        RebuildDialStackUi();
+        ActionChanged?.Invoke();
+    }
+
+    private void RebuildDialStackUi()
+    {
+        DialStackLayersHost.Children.Clear();
+        for (int i = 0; i < _dialStackLayers.Count; i++)
+            DialStackLayersHost.Children.Add(BuildDialLayerCard(i));
+    }
+
+    private static readonly (string Tag, string Label)[] DialLayerTargets =
+    {
+        ("volume", "Master Volume"), ("mic", "Microphone Volume"), ("brightness", "Brightness"),
+        ("app_volume", "App Volume"), ("keystroke_step", "Keystroke Step")
+    };
+
+    /// <summary>One stack-layer card — target picker + whichever param fields that target needs,
+    /// editing _dialStackLayers[index] in place. index is a method parameter, not a captured
+    /// loop variable, so each card's closures stay correctly bound to its own layer even after
+    /// cards are added/removed and the list re-rendered.</summary>
+    private Border BuildDialLayerCard(int index)
+    {
+        var layer = _dialStackLayers[index];
+        var stack = new StackPanel();
+        var card = new Border
+        {
+            Background = ThemeManager.Brush("Brush.Void"),
+            BorderBrush = ThemeManager.Brush("Brush.Hairline"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(10),
+            Margin = new Thickness(0, 0, 0, 8),
+            Child = stack
+        };
+
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var headerText = new TextBlock
+        {
+            Text = $"Layer {index + 1}",
+            FontWeight = FontWeights.SemiBold,
+            Foreground = ThemeManager.Brush("Brush.Paper"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(headerText, 0);
+        header.Children.Add(headerText);
+
+        var removeBtn = new Button { Content = "✕", Style = System.Windows.Application.Current.Resources["StandardButton"] as Style, Padding = new Thickness(8, 4, 8, 4) };
+        Grid.SetColumn(removeBtn, 1);
+        removeBtn.Click += (s, e) => { _dialStackLayers.RemoveAt(index); RebuildDialStackUi(); ActionChanged?.Invoke(); };
+        header.Children.Add(removeBtn);
+        stack.Children.Add(header);
+
+        var targetCombo = new ComboBox { Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 8, 10, 8) };
+        foreach (var (tag, label) in DialLayerTargets) targetCombo.Items.Add(new ComboBoxItem { Content = label, Tag = tag });
+        targetCombo.SelectedItem = targetCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == (layer.DialTarget ?? "volume"));
+        stack.Children.Add(targetCombo);
+
+        var processHint = new TextBlock { Text = "App process name (blank = live mixer)", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 8, 0, 4) };
+        var processBox = new TextBox { Padding = new Thickness(10, 8, 10, 8), Text = layer.DialProcess ?? "" };
+        var upHint = new TextBlock { Text = "Step up keys", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 8, 0, 4) };
+        var upKeysBox = new TextBox { Padding = new Thickness(10, 8, 10, 8), Text = layer.DialStepUpKeys != null ? string.Join(",", layer.DialStepUpKeys) : "" };
+        var downHint = new TextBlock { Text = "Step down keys", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 8, 0, 4) };
+        var downKeysBox = new TextBox { Padding = new Thickness(10, 8, 10, 8), Text = layer.DialStepDownKeys != null ? string.Join(",", layer.DialStepDownKeys) : "" };
+        var labelHint = new TextBlock { Text = "Label shown while this layer is active", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 8, 0, 4) };
+        var labelBox = new TextBox { Padding = new Thickness(10, 8, 10, 8), Text = layer.Label ?? "" };
+
+        void UpdateFieldVisibility()
+        {
+            var t = layer.DialTarget ?? "volume";
+            processHint.Visibility = processBox.Visibility = t == "app_volume" ? Visibility.Visible : Visibility.Collapsed;
+            upHint.Visibility = upKeysBox.Visibility = downHint.Visibility = downKeysBox.Visibility = t == "keystroke_step" ? Visibility.Visible : Visibility.Collapsed;
+        }
+        UpdateFieldVisibility();
+
+        targetCombo.SelectionChanged += (s, e) =>
+        {
+            layer.DialTarget = (targetCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "volume";
+            UpdateFieldVisibility();
+            ActionChanged?.Invoke();
+        };
+        processBox.TextChanged += (s, e) => { layer.DialProcess = string.IsNullOrWhiteSpace(processBox.Text) ? null : processBox.Text.Trim(); ActionChanged?.Invoke(); };
+        upKeysBox.TextChanged += (s, e) => { layer.DialStepUpKeys = upKeysBox.Text.Split(',').mapStringList(); ActionChanged?.Invoke(); };
+        downKeysBox.TextChanged += (s, e) => { layer.DialStepDownKeys = downKeysBox.Text.Split(',').mapStringList(); ActionChanged?.Invoke(); };
+        labelBox.TextChanged += (s, e) => { layer.Label = string.IsNullOrWhiteSpace(labelBox.Text) ? null : labelBox.Text; ActionChanged?.Invoke(); };
+
+        stack.Children.Add(processHint);
+        stack.Children.Add(processBox);
+        stack.Children.Add(upHint);
+        stack.Children.Add(upKeysBox);
+        stack.Children.Add(downHint);
+        stack.Children.Add(downKeysBox);
+        stack.Children.Add(labelHint);
+        stack.Children.Add(labelBox);
+
+        return card;
+    }
 
     private void BrowseActionIcon_Click(object sender, RoutedEventArgs e)
     {

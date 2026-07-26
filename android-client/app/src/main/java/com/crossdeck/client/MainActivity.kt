@@ -113,6 +113,15 @@ class MainActivity : ComponentActivity() {
                                 onButtonsReorder = { parentFolderId, orderedIds ->
                                     connectionManager.sendButtonsReorder(parentFolderId, orderedIds)
                                 },
+                                onDialSave = { updatedDial ->
+                                    connectionManager.sendProfileEditUpdate(profile!!.profileId, updatedDial, list = "dials")
+                                },
+                                onDialDelete = { buttonId ->
+                                    connectionManager.sendProfileEditDelete(profile!!.profileId, buttonId, list = "dials")
+                                },
+                                onDialsReorder = { orderedIds ->
+                                    connectionManager.sendButtonsReorder(null, orderedIds, list = "dials")
+                                },
                                 onIconUpload = { bytes ->
                                     connectionManager.uploadIcon(bytes)
                                 },

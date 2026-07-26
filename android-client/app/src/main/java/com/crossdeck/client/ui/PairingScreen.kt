@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -160,7 +162,11 @@ fun PairingScreen(
                 .fillMaxWidth()
                 .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
                 .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(18.dp))
-                .padding(24.dp),
+                .padding(24.dp)
+                // No-op in the common case (content already fits); only engages in landscape,
+                // where this card's full height (headline + QR + manual-entry fields) can exceed
+                // the available screen height.
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.Center
         ) {
             Text("✦ Pair with your PC", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)

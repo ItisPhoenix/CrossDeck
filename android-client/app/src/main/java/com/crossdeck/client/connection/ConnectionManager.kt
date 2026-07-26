@@ -63,7 +63,7 @@ class ConnectionManager(context: Context) {
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
     // Socket can stay open even if the PC hung without closing it — watch for heartbeat silence.
-    private var lastMessageAtMs = System.currentTimeMillis()
+    private var lastMessageAtMs = android.os.SystemClock.elapsedRealtime()
     private var staleWatchdogJob: kotlinx.coroutines.Job? = null
     private val _isPcResponding = MutableStateFlow(true)
     val isPcResponding: StateFlow<Boolean> = _isPcResponding.asStateFlow()
@@ -263,14 +263,14 @@ class ConnectionManager(context: Context) {
                 if (webSocket !== activeSocket) return // stale callback from a superseded attempt
                 _connectedHostUrl.value = "http://$ip:${port + 1}/"
                 onOpenSendAuth(webSocket)
-                lastMessageAtMs = System.currentTimeMillis()
+                lastMessageAtMs = android.os.SystemClock.elapsedRealtime()
                 _isPcResponding.value = true
                 startStaleWatchdog()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 if (webSocket !== activeSocket) return
-                lastMessageAtMs = System.currentTimeMillis()
+                lastMessageAtMs = android.os.SystemClock.elapsedRealtime()
                 _isPcResponding.value = true
                 handleMessage(text)
             }
@@ -304,7 +304,7 @@ class ConnectionManager(context: Context) {
         staleWatchdogJob = CoroutineScope(Dispatchers.IO).launch {
             while (true) {
                 kotlinx.coroutines.delay(10_000)
-                val silentFor = System.currentTimeMillis() - lastMessageAtMs
+                val silentFor = android.os.SystemClock.elapsedRealtime() - lastMessageAtMs
                 _isPcResponding.value = silentFor < staleTimeoutMs
             }
         }

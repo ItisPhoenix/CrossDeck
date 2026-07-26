@@ -212,12 +212,27 @@ public class ProfileStoreService
         return anyMigrated ? (true, root.ToJsonString()) : (false, json);
     }
 
+    private CancellationTokenSource? _saveDebounceCts;
+
     // The real choke point — every mutator ends here, unlike Save() which not all of them called.
     private void SaveLocked()
     {
         AutoAssignIcons();
+        _saveDebounceCts?.Cancel();
+        _saveDebounceCts = new CancellationTokenSource();
+        var ct = _saveDebounceCts.Token;
         var json = JsonSerializer.Serialize(Set, _jsonOptions);
-        File.WriteAllText(_filePath, json);
+        var filePath = _filePath;
+        Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(300, ct);
+                File.WriteAllText(filePath, json);
+            }
+            catch (OperationCanceledException) { }
+            catch { /* best effort save */ }
+        });
     }
 
     public void SwitchProfile(string profileId)
