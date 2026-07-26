@@ -115,7 +115,7 @@ class ConnectionManager(context: Context) {
     private fun emitToast(message: String, success: Boolean) {
         _toastMessage.value = Pair(message, success)
         CoroutineScope(Dispatchers.IO).launch {
-            kotlinx.coroutines.delay(2500)
+            kotlinx.coroutines.delay(1500)
             _toastMessage.value = null
         }
     }

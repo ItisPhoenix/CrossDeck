@@ -240,10 +240,16 @@ fun DeckGridScreen(
         SignalCyan
     }
 
-    // Show a Snackbar whenever toastMessage becomes non-null
+    // Show a Snackbar whenever toastMessage becomes non-null — capped at 1.5s regardless of
+    // Material3's own SnackbarDuration constants, so every popup in the app reads as the same
+    // fixed-length flash instead of some lingering ~4s (Short) and others clearing sooner.
     LaunchedEffect(toastMessage) {
         toastMessage?.let { (msg, _) ->
-            scope.launch { snackbarHostState.showSnackbar(message = msg, withDismissAction = false) }
+            scope.launch {
+                kotlinx.coroutines.withTimeoutOrNull(1500) {
+                    snackbarHostState.showSnackbar(message = msg, withDismissAction = false)
+                }
+            }
         }
     }
     var isEditMode by remember { mutableStateOf(false) }
@@ -779,6 +785,35 @@ fun DeckGridScreen(
                     onEdit = { dial -> if (dial != null) editingDial = dial else creatingNewDial = true },
                     onReorder = onDialsReorder,
                 )
+
+                // Page-dot indicator — one dot per profile, current one accent-filled, tap to
+                // switch. Lives here (last child of the same Column as the grid + dial strip,
+                // not absolutely bottom-aligned against the whole screen) so it can never overlap
+                // the dial strip regardless of how many dials/rows it grows to.
+                if (profiles.size > 1) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        profiles.forEach { p ->
+                            val isActive = p.profileId == activeProfileId
+                            Box(
+                                modifier = Modifier
+                                    .size(if (isActive) 8.dp else 6.dp)
+                                    .clickable { lastSwitchWasSwipe = false; onProfileSwitch(p.profileId) }
+                                    .background(
+                                        if (isActive) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
+                                        RoundedCornerShape(50)
+                                    )
+                            )
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
 
             // Always-on ambient status — passive, no tap action. The banner below only appears
@@ -1009,33 +1044,6 @@ fun DeckGridScreen(
                             }
                         )
                     }
-                }
-            }
-
-            // Page-dot indicator — one dot per profile, current one accent-filled, tap to switch.
-            if (profiles.size > 1) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Spacer(modifier = Modifier.weight(1f))
-                    profiles.forEach { p ->
-                        val isActive = p.profileId == activeProfileId
-                        Box(
-                            modifier = Modifier
-                                .size(if (isActive) 8.dp else 6.dp)
-                                .clickable { lastSwitchWasSwipe = false; onProfileSwitch(p.profileId) }
-                                .background(
-                                    if (isActive) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
-                                    RoundedCornerShape(50)
-                                )
-                        )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
 
