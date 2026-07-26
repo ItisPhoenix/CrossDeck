@@ -2995,7 +2995,7 @@ private fun EditButtonDialog(
                     connectedHostUrl = connectedHostUrl,
                     authToken = authToken,
                     iconHashCache = iconHashCache,
-                    onAppPicked = { name -> if (!labelUserEdited) label = name },
+                    onAppPicked = { name -> if (!labelUserEdited) { label = name; labelUserEdited = true } },
                     onIconPicked = { icon -> if (!iconUserSet) { iconValue = icon; iconUserSet = true } },
                     forceDialMode = forceDialMode,
                     audioMixerApps = audioMixerApps,

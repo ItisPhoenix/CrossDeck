@@ -398,7 +398,10 @@ public class WebSocketServer
         var buttonId = msg.TryGetProperty("buttonId", out var idEl) ? idEl.GetString() : null;
         var pressType = msg.TryGetProperty("pressType", out var ptEl) ? ptEl.GetString() : "short";
         int? stepIndex = msg.TryGetProperty("stepIndex", out var siEl) && siEl.TryGetInt32(out var si) ? si : null;
-        var button = _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
+        // A dial-strip cell's tap fires as a button_press too (pressType "long", to reuse the
+        // LongPressAction dispatch below) — so dials need looking up alongside grid buttons.
+        var button = _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId)
+            ?? _profileStore.Current.Dials.FirstOrDefault(b => b.ButtonId == buttonId);
 
         if (button is null)
         {
@@ -406,7 +409,12 @@ public class WebSocketServer
             return;
         }
 
-        var action = pressType == "long" && button.LongPressAction != null ? button.LongPressAction : button.Action;
+        var action = pressType switch
+        {
+            "long" when button.LongPressAction != null => button.LongPressAction,
+            "double" when button.DoublePressAction != null => button.DoublePressAction,
+            _ => button.Action
+        };
 
         // A tap on one tile inside the multi-action popup runs just that sub-action, not the chain.
         if (stepIndex is int idx && action.Type == "multi_action" && action.Actions != null && idx >= 0 && idx < action.Actions.Count)
@@ -429,11 +437,13 @@ public class WebSocketServer
     }
 
     /// <summary>Applies a drag-reorder from the Android client's auto-flow grid — same
-    /// ReorderButtons used by the Windows editor's own drag-and-drop.</summary>
+    /// ReorderButtons used by the Windows editor's own drag-and-drop. Optional "list": "dials"
+    /// reorders the dial strip instead of the button grid (dials ignore parentFolderId).</summary>
     private void HandleButtonsReorder(JsonElement msg)
     {
         var parentFolderId = msg.TryGetProperty("parentFolderId", out var fEl) && fEl.ValueKind != JsonValueKind.Null
             ? fEl.GetString() : null;
+        var list = msg.TryGetProperty("list", out var lEl) ? lEl.GetString() ?? "buttons" : "buttons";
         if (!msg.TryGetProperty("buttonIds", out var idsEl) || idsEl.ValueKind != JsonValueKind.Array) return;
 
         var orderedIds = idsEl.EnumerateArray()
@@ -442,44 +452,86 @@ public class WebSocketServer
             .Select(s => s!)
             .ToList();
 
-        _profileStore.ReorderButtons(_profileStore.Set.ActiveProfileId, parentFolderId, orderedIds);
+        _profileStore.ReorderButtons(_profileStore.Set.ActiveProfileId, parentFolderId, orderedIds, list);
+    }
+
+    /// <summary>A dial's wire "slot" is "main"/"longPress" for an unstacked dial, or
+    /// "main:2"/"longPress:2" for layer 2 of a stack — same string flows straight through to
+    /// dial_state/button_state's own "slot" field, so the client's dialLevels key format
+    /// ("$buttonId:$slot") naturally carries the stack layer with zero extra wire fields.</summary>
+    private static (string BaseSlot, int StackIndex) ParseDialSlot(string? slot)
+    {
+        if (slot == null) return ("main", 0);
+        var parts = slot.Split(':', 2);
+        return parts.Length == 2 && int.TryParse(parts[1], out var idx) ? (parts[0], idx) : (slot, 0);
     }
 
     private async Task HandleDialAdjust(WebSocket webSocket, JsonElement msg, CancellationToken ct)
     {
         var buttonId = msg.TryGetProperty("buttonId", out var idEl) ? idEl.GetString() : null;
-        var slot = msg.TryGetProperty("slot", out var slotEl) ? slotEl.GetString() : "main";
+        var rawSlot = msg.TryGetProperty("slot", out var slotEl) ? slotEl.GetString() : "main";
         int targetVal = 0;
         var hasValue = msg.TryGetProperty("value", out var valEl) && valEl.TryGetInt32(out targetVal);
+        var (baseSlot, stackIndex) = ParseDialSlot(rawSlot);
 
-        var button = _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
-        var action = slot == "longPress" ? button?.LongPressAction : button?.Action;
-        if (button is null || action is null || action.Type != "dial")
+        // Dials live in Profile.Dials now, but old grid "dial" buttons (pre-migration, or a
+        // still-connected older host) may still address one by buttonId — check both lists.
+        var button = _profileStore.Current.Dials.FirstOrDefault(b => b.ButtonId == buttonId)
+            ?? _profileStore.Current.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
+        var dialAction = baseSlot == "longPress" ? button?.LongPressAction : button?.Action;
+        if (button is null || dialAction is null || dialAction.Type != "dial")
         {
             await SendJsonAsync(webSocket, new { type = "ack", buttonId, status = "error", message = "invalid dial action configuration" }, ct);
             return;
         }
 
+        // A stacked dial (dialAction.Actions non-empty) addresses one layer at a time by
+        // stackIndex — everything below reads the resolved layer, never the stack container itself.
+        var action = dialAction.ResolveDialLayer(stackIndex);
         var dialTarget = action.DialTarget;
+        var dialProcess = action.DialProcess;
         var resolvedButtonId = button.ButtonId;
-        var resolvedSlot = slot ?? "main";
+        var resolvedSlot = rawSlot ?? "main";
 
-        // app_volume no longer has a single-app target to adjust here — it opens the live
-        // app_mixer_subscribe/audio_mixer_adjust flow on the client instead (see HandleAudioMixerAdjust).
-        if (dialTarget == "app_volume") return;
+        // Unbound app_volume has no single value to adjust here — it opens the live
+        // audio_mixer_subscribe/audio_mixer_adjust flow on the client instead (see HandleAudioMixerAdjust).
+        // A *bound* app_volume dial (DialProcess set) is a normal single-value dial like volume/brightness.
+        if (dialTarget == "app_volume" && string.IsNullOrEmpty(dialProcess)) return;
+
+        // keystroke_step has no 0-100 level at all — "value" here is a signed tick count (one
+        // drag detent = one keystroke), fired through the same hotkey path a "hotkey" action
+        // uses. No level to report back, so this never reaches BroadcastDialStateAsync.
+        if (dialTarget == "keystroke_step")
+        {
+            if (!hasValue || targetVal == 0) return;
+            var keys = targetVal > 0 ? action.DialStepUpKeys : action.DialStepDownKeys;
+            if (keys is not { Count: > 0 }) return;
+            var ticks = Math.Abs(targetVal);
+            _ = Task.Run(async () =>
+            {
+                for (int i = 0; i < ticks; i++)
+                    await _actionExecutor.ExecuteAsync(new ActionModel { Type = "hotkey", Keys = keys });
+            });
+            return;
+        }
 
         // DDC/CI brightness writes go over I2C and can take tens of ms, unlike volume's
         // sub-millisecond COM call — offloaded so a fast slider drag doesn't back up behind
         // slow brightness calls on this socket's single receive loop (same as HandleButtonPress).
         _ = Task.Run(async () =>
         {
-            int newVal = dialTarget == "volume"
-                ? (hasValue ? CrossDeckHost.Actions.DialController.SetVolume(targetVal) : CrossDeckHost.Actions.DialController.GetVolume())
-                : (hasValue ? CrossDeckHost.Actions.DialController.SetBrightness(targetVal) : CrossDeckHost.Actions.DialController.GetBrightness());
+            int newVal = dialTarget switch
+            {
+                "volume" => hasValue ? CrossDeckHost.Actions.DialController.SetVolume(targetVal) : CrossDeckHost.Actions.DialController.GetVolume(),
+                "mic" => hasValue ? CrossDeckHost.Actions.DialController.SetMicVolume(targetVal) : CrossDeckHost.Actions.DialController.GetMicVolume(),
+                "app_volume" => hasValue ? CrossDeckHost.Actions.DialController.SetAppVolume(dialProcess!, targetVal) : CrossDeckHost.Actions.DialController.GetAppVolume(dialProcess!),
+                _ => hasValue ? CrossDeckHost.Actions.DialController.SetBrightness(targetVal) : CrossDeckHost.Actions.DialController.GetBrightness()
+            };
 
             if (newVal < 0)
             {
-                await SendJsonAsync(webSocket, new { type = "ack", buttonId = resolvedButtonId, status = "error", message = "This display doesn't support brightness control" }, CancellationToken.None);
+                var message = dialTarget == "app_volume" ? "That app has no active audio session" : "This display doesn't support brightness control";
+                await SendJsonAsync(webSocket, new { type = "ack", buttonId = resolvedButtonId, status = "error", message }, CancellationToken.None);
                 return;
             }
 
@@ -536,7 +588,15 @@ public class WebSocketServer
         string? icon = null;
         if (!string.IsNullOrWhiteSpace(path))
         {
-            if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            if (path.StartsWith("uwp:", StringComparison.OrdinalIgnoreCase))
+            {
+                // Store/UWP apps have no .exe to extract a classic icon resource from — without
+                // this check the family-name's dot (e.g. "5319275A.WhatsAppDesktop") made the
+                // branch below mistake it for a bare domain and burn a request fetching a favicon
+                // for a garbage URL. Real tile art comes from the Shell's AppsFolder instead.
+                icon = await Task.Run(() => ProfileStoreService.ExtractAndSaveUwpIcon(path.Substring(4)), ct);
+            }
+            else if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                 path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
                 icon = await ProfileStoreService.FetchFaviconIconAsync(path);
@@ -675,8 +735,9 @@ public class WebSocketServer
             return;
         }
 
-        if (op == "update_button")
+        if (op == "update_button" || op == "update_dial")
         {
+            var list = op == "update_dial" ? "dials" : "buttons";
             if (msg.TryGetProperty("button", out var btnEl))
             {
                 try
@@ -684,7 +745,7 @@ public class WebSocketServer
                     var button = JsonSerializer.Deserialize<ButtonModel>(btnEl.GetRawText());
                     if (button is not null)
                     {
-                        _profileStore.UpdateButton(profileId, button);
+                        _profileStore.UpdateButton(profileId, button, list);
                         await SendJsonAsync(webSocket, new { type = "ack", status = "ok" }, ct);
                         return;
                     }
@@ -697,12 +758,13 @@ public class WebSocketServer
             }
             await SendJsonAsync(webSocket, new { type = "ack", status = "error", message = "missing button payload" }, ct);
         }
-        else if (op == "delete_button")
+        else if (op == "delete_button" || op == "delete_dial")
         {
+            var list = op == "delete_dial" ? "dials" : "buttons";
             var buttonId = msg.TryGetProperty("buttonId", out var bIdEl) ? bIdEl.GetString() : null;
             if (buttonId is not null)
             {
-                _profileStore.DeleteButton(profileId, buttonId);
+                _profileStore.DeleteButton(profileId, buttonId, list);
                 await SendJsonAsync(webSocket, new { type = "ack", status = "ok" }, ct);
                 return;
             }

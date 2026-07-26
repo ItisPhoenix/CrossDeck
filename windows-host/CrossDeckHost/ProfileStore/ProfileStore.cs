@@ -41,7 +41,9 @@ public class ProfileStoreService
             {
                 var json = File.ReadAllText(_filePath);
                 var (migrated, migratedJson) = MigrateLegacyPositions(json);
-                var loaded = JsonSerializer.Deserialize<ProfileSet>(migratedJson, _jsonOptions);
+                var (dialsMigrated, dialsJson) = MigrateDialButtons(migratedJson);
+                migrated = migrated || dialsMigrated;
+                var loaded = JsonSerializer.Deserialize<ProfileSet>(dialsJson, _jsonOptions);
                 if (loaded is not null && loaded.Profiles.Count > 0)
                 {
                     Set = loaded;
@@ -103,7 +105,7 @@ public class ProfileStoreService
         bool changed = false;
         foreach (var profile in Set.Profiles)
         {
-            foreach (var b in profile.Buttons)
+            foreach (var b in profile.Buttons.Concat(profile.Dials))
             {
                 if (!string.IsNullOrEmpty(b.Icon)) continue;
                 // Deliberately no fallback for multi_action here — the grid tile falls back to a
@@ -138,7 +140,12 @@ public class ProfileStoreService
         "text_snippet" => "builtin:file-text",
         "macro" => "builtin:disc",
         "open_folder" => "builtin:folder",
-        "dial" => action.DialTarget == "brightness" ? "builtin:sun" : "builtin:volume-2",
+        "dial" => action.Actions is { Count: > 0 } ? "builtin:layers" : action.DialTarget switch
+        {
+            "brightness" => "builtin:sun",
+            "mic" => "builtin:mic",
+            _ => "builtin:volume-2"
+        },
         _ => null
     };
 
@@ -168,6 +175,38 @@ public class ProfileStoreService
 
             buttons.Clear();
             foreach (var b in sorted) buttons.Add(b);
+        }
+
+        return anyMigrated ? (true, root.ToJsonString()) : (false, json);
+    }
+
+    /// <summary>One-time migration: dials used to be plain grid buttons (action.type == "dial").
+    /// The dial strip moved them into their own Dials list, so any surviving
+    /// grid button of that type is pulled out — in place, preserving order — the first time an
+    /// old profiles.json loads. Same shape-sniffing pattern as MigrateLegacyPositions.</summary>
+    private static (bool Migrated, string Json) MigrateDialButtons(string json)
+    {
+        JsonNode? root;
+        try { root = JsonNode.Parse(json); }
+        catch { return (false, json); }
+        if (root is not JsonObject rootObj || rootObj["profiles"] is not JsonArray profiles) return (false, json);
+
+        bool anyMigrated = false;
+        foreach (var profileNode in profiles.OfType<JsonObject>())
+        {
+            if (profileNode["buttons"] is not JsonArray buttons) continue;
+            var dialButtons = buttons.OfType<JsonObject>()
+                .Where(b => (b["action"] as JsonObject)?["type"]?.GetValue<string>() == "dial")
+                .ToList();
+            if (dialButtons.Count == 0) continue;
+            anyMigrated = true;
+
+            var existingDials = (profileNode["dials"] as JsonArray)?.OfType<JsonObject>().ToList() ?? new();
+            foreach (var d in dialButtons) buttons.Remove(d);
+            var dialsArray = new JsonArray();
+            foreach (var d in existingDials) dialsArray.Add(d.DeepClone());
+            foreach (var d in dialButtons) dialsArray.Add(d.DeepClone());
+            profileNode["dials"] = dialsArray;
         }
 
         return anyMigrated ? (true, root.ToJsonString()) : (false, json);
@@ -271,38 +310,45 @@ public class ProfileStoreService
         if (changed) NotifyChanged();
     }
 
-    public void UpdateButton(string profileId, ButtonModel updatedButton)
+    /// <summary>Dials are stored in Profile.Dials rather than Profile.Buttons but otherwise use
+    /// the exact same ButtonModel + mutators — this picks which list a given edit targets.</summary>
+    private static List<ButtonModel> TargetList(Profile profile, string list) =>
+        list == "dials" ? profile.Dials : profile.Buttons;
+
+    public void UpdateButton(string profileId, ButtonModel updatedButton, string list = "buttons")
     {
         lock (_lock)
         {
             var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
             if (target == null) return;
+            var items = TargetList(target, list);
 
             // A button's grid position is just its index in this list (see ButtonModel's own
             // doc comment) — replacing in place keeps it where it was. Remove-then-Add moved
             // every edited button to the end of its folder scope on every single edit.
-            var index = target.Buttons.FindIndex(b => b.ButtonId == updatedButton.ButtonId);
+            var index = items.FindIndex(b => b.ButtonId == updatedButton.ButtonId);
             if (index >= 0)
-                target.Buttons[index] = updatedButton;
+                items[index] = updatedButton;
             else
-                target.Buttons.Add(updatedButton);
+                items.Add(updatedButton);
             SaveLocked();
         }
         NotifyChanged();
     }
 
-    public void DeleteButton(string profileId, string buttonId)
+    public void DeleteButton(string profileId, string buttonId, string list = "buttons")
     {
         bool changed = false;
         lock (_lock)
         {
             var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
             if (target == null) return;
+            var items = TargetList(target, list);
 
-            var existing = target.Buttons.FirstOrDefault(b => b.ButtonId == buttonId);
+            var existing = items.FirstOrDefault(b => b.ButtonId == buttonId);
             if (existing != null)
             {
-                target.Buttons.Remove(existing);
+                items.Remove(existing);
                 SaveLocked();
                 changed = true;
             }
@@ -314,15 +360,17 @@ public class ProfileStoreService
     /// Windows editor's own drag-and-drop and the buttons_reorder message from Android. Cross-scope
     /// interleaving in the underlying list doesn't matter (each scope renders independently,
     /// filtered by ParentFolderId), only within-scope order does, so the whole scope is just
-    /// removed and re-appended in its new order rather than reordered in place.</summary>
-    public void ReorderButtons(string profileId, string? parentFolderId, List<string> orderedButtonIds)
+    /// removed and re-appended in its new order rather than reordered in place. Applies equally
+    /// to list == "dials" — dials are folder-scoped exactly like buttons.</summary>
+    public void ReorderButtons(string profileId, string? parentFolderId, List<string> orderedButtonIds, string list = "buttons")
     {
         lock (_lock)
         {
             var target = Set.Profiles.FirstOrDefault(p => p.ProfileId == profileId);
             if (target == null) return;
+            var items = TargetList(target, list);
 
-            var scopeButtons = target.Buttons.Where(b => b.ParentFolderId == parentFolderId).ToList();
+            var scopeButtons = items.Where(b => b.ParentFolderId == parentFolderId).ToList();
             var byId = scopeButtons.ToDictionary(b => b.ButtonId);
             var reordered = orderedButtonIds.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
             foreach (var b in scopeButtons)
@@ -330,8 +378,8 @@ public class ProfileStoreService
                 if (!reordered.Contains(b)) reordered.Add(b);
             }
 
-            target.Buttons.RemoveAll(b => b.ParentFolderId == parentFolderId);
-            target.Buttons.AddRange(reordered);
+            items.RemoveAll(b => b.ParentFolderId == parentFolderId);
+            items.AddRange(reordered);
             SaveLocked();
         }
         NotifyChanged();
@@ -535,6 +583,57 @@ public class ProfileStoreService
         {
             return null;
         }
+    }
+
+    /// <summary>Same shape as <see cref="ExtractAndSaveIcon"/> but for a "uwp:" ExePath — no .exe
+    /// to read a classic icon resource from, so this goes through the Shell's AppsFolder tile
+    /// image instead (see UwpIcon).</summary>
+    public static string? ExtractAndSaveUwpIcon(string appUserModelId)
+    {
+        try
+        {
+            using var tile = UwpIcon.ExtractTile(appUserModelId);
+            if (tile == null) return null;
+
+            // Every icon on the grid — Discord/Brave/Docker's .ico-derived jumbo icons included —
+            // fills its own square canvas at ~full bleed; the client applies one fixed icon-to-
+            // container ratio uniformly to all of them (DeckGridScreen.kt's iconSize = cellSize *
+            // 0.42), so a smaller host-side inset here would just make THIS icon look smaller than
+            // every other one instead of matching them. Only the corner rounding is host-side
+            // (a plain square would still look like a color block among circular/shield logos).
+            const int canvasSize = 256;
+            const float cornerRadiusFraction = 0.18f;
+            var cornerRadius = canvasSize * cornerRadiusFraction;
+            using var padded = new System.Drawing.Bitmap(canvasSize, canvasSize);
+            using (var g = System.Drawing.Graphics.FromImage(padded))
+            using (var clipPath = RoundedRectPath(0, 0, canvasSize, canvasSize, cornerRadius))
+            {
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.SetClip(clipPath);
+                g.DrawImage(tile, 0, 0, canvasSize, canvasSize);
+            }
+
+            using var ms = new MemoryStream();
+            padded.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            return SaveIconFromBytes(ms.ToArray());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static System.Drawing.Drawing2D.GraphicsPath RoundedRectPath(float x, float y, float width, float height, float radius)
+    {
+        var path = new System.Drawing.Drawing2D.GraphicsPath();
+        var d = radius * 2;
+        path.AddArc(x, y, d, d, 180, 90);
+        path.AddArc(x + width - d, y, d, d, 270, 90);
+        path.AddArc(x + width - d, y + height - d, d, d, 0, 90);
+        path.AddArc(x, y + height - d, d, d, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 
     /// <summary>
