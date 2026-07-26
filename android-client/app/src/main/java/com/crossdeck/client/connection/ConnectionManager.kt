@@ -506,10 +506,24 @@ class ConnectionManager(context: Context) {
         ws.send(buildJsonObject { put("type", "list_apps") }.toString())
     }
 
+    // Two independent screens (the dial-strip grid and the app-volume picker inside the dial
+    // editor) can both want this feed live at once — a plain on/off toggle would have whichever
+    // one unsubscribes first silently kill it for the other. Ref-counted so the wire message only
+    // fires on the 0->1 and 1->0 transitions.
+    private var audioMixerSubscriberCount = 0
+
     /** Subscribes to the live app-volume mixer — a push loop on the host sends an updated
      * audio_mixer message (one row per app currently playing audio) whenever anything changes,
      * same pattern as sendRunningAppsSubscribe. Response arrives async via audioMixerApps. */
     fun sendAudioMixerSubscribe(subscribe: Boolean) {
+        if (subscribe) {
+            audioMixerSubscriberCount++
+            if (audioMixerSubscriberCount != 1) return
+        } else {
+            if (audioMixerSubscriberCount == 0) return
+            audioMixerSubscriberCount--
+            if (audioMixerSubscriberCount != 0) return
+        }
         val ws = activeSocket ?: return
         ws.send(buildJsonObject { put("type", if (subscribe) "audio_mixer_subscribe" else "audio_mixer_unsubscribe") }.toString())
         if (!subscribe) _audioMixerApps.value = emptyList()

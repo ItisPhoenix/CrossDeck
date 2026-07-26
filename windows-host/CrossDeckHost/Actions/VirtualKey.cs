@@ -32,6 +32,20 @@ public static class VirtualKey
         ["Backspace"] = 0x08,
         ["Delete"] = 0x2E,
 
+        // OEM / punctuation (US layout scan codes — same physical key regardless of shift state,
+        // matching how every other key here is unshifted)
+        ["Equal"] = 0xBB,
+        ["Minus"] = 0xBD,
+        ["Comma"] = 0xBC,
+        ["Period"] = 0xBE,
+        ["Semicolon"] = 0xBA,
+        ["Slash"] = 0xBF,
+        ["Backtick"] = 0xC0,
+        ["LeftBracket"] = 0xDB,
+        ["RightBracket"] = 0xDD,
+        ["Backslash"] = 0xDC,
+        ["Quote"] = 0xDE,
+
         // Function keys
         ["F1"] = 0x70, ["F2"] = 0x71, ["F3"] = 0x72, ["F4"] = 0x73,
         ["F5"] = 0x74, ["F6"] = 0x75, ["F7"] = 0x76, ["F8"] = 0x77,

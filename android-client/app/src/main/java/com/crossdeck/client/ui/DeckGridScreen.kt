@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -85,11 +86,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -99,6 +102,7 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -119,11 +123,13 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Animatable
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import java.io.File
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.layout.size
@@ -205,6 +211,15 @@ fun DeckGridScreen(
         view.keepScreenOn = settings.keepScreenAwake
     }
 
+    // A bound app-volume dial only renders while its process shows up in the live mixer feed
+    // (see the DialStrip filter below) — that feed has to actually be subscribed for this screen
+    // to see it, independent of whether the mixer sheet or the dial editor happen to be open.
+    val hasAppVolumeDial = remember(profile.dials) { profile.dials.any { it.action.dialTarget == "app_volume" } }
+    DisposableEffect(hasAppVolumeDial) {
+        if (hasAppVolumeDial) onAudioMixerSubscribe(true)
+        onDispose { if (hasAppVolumeDial) onAudioMixerSubscribe(false) }
+    }
+
     // Rotation Lock setting — pins to whatever orientation the phone is already in the moment
     // the lock is turned on, rather than forcing portrait; ORIENTATION_UNSPECIFIED restores free
     // rotation. Falls back to a no-op if the view's context isn't an Activity for some reason.
@@ -244,6 +259,7 @@ fun DeckGridScreen(
     var activeDialButton by remember { mutableStateOf<ButtonModel?>(null) }
     var activeDialSlot by remember { mutableStateOf("main") }
     var showAudioMixer by remember { mutableStateOf(false) }
+    var mixerFilterProcess by remember { mutableStateOf<String?>(null) }
 
     // Pop one level out of the current folder — used by both the system back button and the
     // on-screen back chevron. folderHistory entries are (parentFolderId, enteredFolderLabel);
@@ -263,36 +279,56 @@ fun DeckGridScreen(
     var showSettingsPanel by remember { mutableStateOf(false) }
     var showRunningApps by remember { mutableStateOf(false) }
 
-    // Track profile change state for 3D flip card transition
+    // The settings drawer and the single-dial slider modal are plain Composables layered in this
+    // same screen, not system Dialogs/Popups/ModalBottomSheets — so unlike EditButtonDialog
+    // (ModalBottomSheet, auto-dismisses on back), Running Apps / Audio Mixer (own BackHandler
+    // already) or LongPressMenu (Popup, auto-dismisses on back), the system back button here fell
+    // straight through to the Activity, closing the whole app instead of just the overlay.
+    BackHandler(enabled = showSettingsPanel) { showSettingsPanel = false }
+    BackHandler(enabled = activeDialButton != null) { activeDialButton = null }
+
+    // Track profile change state for the switch transition. Dropdown/list selection keeps the
+    // existing 3D flip; a swipe gets its own lightweight horizontal slide instead — swiping
+    // already implies a direction, so sliding the new grid in from that side reads as a direct
+    // continuation of the gesture, and it's cheap (no rotationY/cameraDistance, no hidden phase).
     var prevActiveProfileId by remember { mutableStateOf(activeProfileId) }
     var triggerFlip by remember { mutableStateOf(false) }
+    var lastSwitchWasSwipe by remember { mutableStateOf(false) }
+    // +1 => new content slides in from the right (swiped to "next"), -1 => from the left ("previous").
+    var swipeSlideDirection by remember { mutableStateOf(1f) }
+    val slideOffset = remember { Animatable(0f) }
     LaunchedEffect(activeProfileId) {
         if (prevActiveProfileId != activeProfileId) {
-            triggerFlip = true
             currentFolderId = null
             folderHistory = emptyList()
             prevActiveProfileId = activeProfileId
-            kotlinx.coroutines.delay(600)
-            triggerFlip = false
+            if (lastSwitchWasSwipe) {
+                val slideDistancePx = 260f * density
+                slideOffset.snapTo(swipeSlideDirection * slideDistancePx)
+                slideOffset.animateTo(0f, animationSpec = tween(220))
+            } else {
+                triggerFlip = true
+                kotlinx.coroutines.delay(600)
+                triggerFlip = false
+            }
         }
     }
 
-    // 3D rotation animation calculation
+    // 3D rotation animation calculation (dropdown/list-triggered switches only)
     val rotationYAngle by animateFloatAsState(
         targetValue = if (triggerFlip) 180f else 0f,
         animationSpec = tween(durationMillis = 600),
         label = "profileFlip"
     )
 
-    // Auto-flow layout: 5 columns, fixed; rows grow automatically as buttons are added.
-    // A button's position is just its index in this filtered list — no more explicit
-    // row/col coordinates. Capped at 20 (folders exist for organizing beyond that).
-    val columns = 5
+    // Auto-flow layout: cell size is fixed, column count derived from available width (see
+    // BoxWithConstraints below) — rows grow automatically as buttons are added. A button's
+    // position is just its index in this filtered list — no more explicit row/col coordinates.
+    // Capped at 20 (folders exist for organizing beyond that).
     val maxButtons = 20
     val displayedButtons = profile.buttons.filter { it.parentFolderId == currentFolderId }
     val showAddTile = (isEditMode || pendingRunningAppAssign != null) && displayedButtons.size < maxButtons
     val totalCells = displayedButtons.size + if (showAddTile) 1 else 0
-    val rows = kotlin.math.ceil(totalCells.coerceAtLeast(1).toFloat() / columns).toInt()
 
     if (showCreateDialog) {
         AlertDialog(
@@ -399,6 +435,10 @@ fun DeckGridScreen(
                 animationSpec = tween(180),
                 label = "gridBlurRadius"
             )
+            // Reserve headroom for the floating menu/back icons so the top row never renders
+            // under them — smaller in landscape, where there's less vertical room to spare.
+            val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            val topInsetForOrientation = if (isLandscape) 40.dp else 56.dp
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -406,6 +446,7 @@ fun DeckGridScreen(
                     // mixer sheet so their own content reads clearly against a softened backdrop
                     // instead of competing with a crisp grid of near-identical tiles.
                     .blur(gridBlurRadius)
+                    .padding(top = topInsetForOrientation)
             ) {
                 // Grid layout wrapper with 3D Flip capability
                 val canSwipeProfiles = profiles.size > 1 && currentFolderId == null && !isEditMode
@@ -448,9 +489,13 @@ fun DeckGridScreen(
                                                 val threshold = 120f
                                                 if (accum <= -threshold) {
                                                     haptic()
+                                                    lastSwitchWasSwipe = true
+                                                    swipeSlideDirection = 1f
                                                     onProfileSwitch(profiles[(idx + 1) % profiles.size].profileId)
                                                 } else if (accum >= threshold) {
                                                     haptic()
+                                                    lastSwitchWasSwipe = true
+                                                    swipeSlideDirection = -1f
                                                     onProfileSwitch(profiles[(idx - 1 + profiles.size) % profiles.size].profileId)
                                                 }
                                             }
@@ -462,6 +507,7 @@ fun DeckGridScreen(
                         .graphicsLayer {
                             rotationY = rotationYAngle
                             cameraDistance = 12f * density
+                            translationX = slideOffset.value
                         }
                 ) {
                     if (rotationYAngle <= 90f || rotationYAngle >= 270f) {
@@ -470,20 +516,17 @@ fun DeckGridScreen(
                         var gridCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
                         val gridSpacing = if (settings.compactGrid) 4.dp else 6.dp
-                        // Reserve headroom for the floating menu/back icons so the top row never
-                        // renders under them.
-                        val topInset = 56.dp
-                        // Square cells sized to the tighter axis so the grid fits without scrolling
-                        // in the common case; shrinks down to a floor (comfortable tap size), and
-                        // only overflows into a scroll if even the floor doesn't fit — with the
-                        // 20-button cap this should essentially never trigger in practice.
-                        val minCellSize = 60.dp
-                        val cellSize = remember(maxWidth, maxHeight, rows, columns, gridSpacing) {
-                            val availableW = maxWidth - 4.dp - gridSpacing * (columns - 1)
-                            val availableH = maxHeight - 4.dp - topInset - gridSpacing * (rows - 1)
-                            val computed = minOf(availableW / columns, availableH / rows).coerceAtLeast(0.dp)
-                            if (computed < minCellSize) minCellSize else computed
-                        }
+                        // Reflow: cell size is fixed (60dp, the old comfortable-tap floor);
+                        // column count is derived from available width instead of the other way
+                        // around, so portrait and landscape show different column/row counts at
+                        // the SAME physical button size.
+                        val fixedCellSize = 70.dp
+                        val availableWidthDp = maxWidth - 4.dp
+                        val columns = ((availableWidthDp + gridSpacing) / (fixedCellSize + gridSpacing))
+                            .toInt()
+                            .coerceAtLeast(2)
+                        val rows = kotlin.math.ceil(totalCells.coerceAtLeast(1).toFloat() / columns).toInt()
+                        val cellSize = fixedCellSize
 
                         // Content-sized; the parent Box centers it in both axes. verticalScroll is a
                         // no-op when content already fits (the common case) and only engages once the
@@ -495,8 +538,21 @@ fun DeckGridScreen(
                                 .onGloballyPositioned { gridCoordinates = it }
                         ) {
                         for (r in 0 until rows) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(gridSpacing)) {
-                        for (c in 0 until columns) {
+                        // A short last row (fewer real cells than columns) is centered instead of
+                        // left-justified with invisible trailing filler — only its real slots are
+                        // emitted, at an explicit width matching a full row so centering has
+                        // something to center within.
+                        val slotsInRow = minOf(columns, totalCells - r * columns)
+                        val isPartialRow = slotsInRow < columns
+                        Row(
+                            horizontalArrangement = if (isPartialRow)
+                                Arrangement.spacedBy(gridSpacing, Alignment.CenterHorizontally)
+                            else Arrangement.spacedBy(gridSpacing),
+                            modifier = if (isPartialRow)
+                                Modifier.width(cellSize * columns + gridSpacing * (columns - 1))
+                            else Modifier
+                        ) {
+                        for (c in 0 until slotsInRow) {
                                 val index = r * columns + c
                                 val cellButton = displayedButtons.getOrNull(index)
                                 val isAddTile = index == displayedButtons.size && showAddTile
@@ -692,16 +748,29 @@ fun DeckGridScreen(
                 // cellSize math absorbs the height loss automatically and vertical drags here never
                 // fight the profile-swipe handler above.
                 DialStrip(
-                    dials = profile.dials.filter { it.parentFolderId == currentFolderId },
+                    dials = profile.dials.filter { dial ->
+                        dial.parentFolderId == currentFolderId &&
+                            // A bound app-volume dial only shows while its process is actually
+                            // running — reappears at this same list position (this is a filter,
+                            // not a reorder) the moment the process starts again.
+                            (dial.action.dialTarget != "app_volume" || dial.action.dialProcess.isNullOrBlank() ||
+                                audioMixerApps.any { it.processName.equals(dial.action.dialProcess, ignoreCase = true) })
+                    },
                     dialLevels = dialLevels,
                     isEditMode = isEditMode,
+                    isLandscape = isLandscape,
                     accentColor = accentColor,
                     connectedHostUrl = connectedHostUrl,
                     authToken = authToken,
                     haptic = ::haptic,
                     onDialAdjust = onDialAdjust,
                     onDialTap = { dial ->
-                        if (dial.action.dialTarget == "app_volume" && dial.action.dialProcess.isNullOrBlank()) {
+                        val boundProcess = dial.action.dialProcess?.takeIf { dial.action.dialTarget == "app_volume" && it.isNotBlank() }
+                        if (dial.action.dialTarget == "app_volume" && boundProcess == null) {
+                            mixerFilterProcess = null
+                            showAudioMixer = true
+                        } else if (boundProcess != null) {
+                            mixerFilterProcess = boundProcess
                             showAudioMixer = true
                         } else if (dial.longPressAction != null) {
                             onButtonPress(dial, "long", null)
@@ -902,6 +971,7 @@ fun DeckGridScreen(
                             },
                             onClick = {
                                 expanded = false
+                                lastSwitchWasSwipe = false
                                 onProfileSwitch(p.profileId)
                             }
                         )
@@ -958,7 +1028,7 @@ fun DeckGridScreen(
                         Box(
                             modifier = Modifier
                                 .size(if (isActive) 8.dp else 6.dp)
-                                .clickable { onProfileSwitch(p.profileId) }
+                                .clickable { lastSwitchWasSwipe = false; onProfileSwitch(p.profileId) }
                                 .background(
                                     if (isActive) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
                                     RoundedCornerShape(50)
@@ -996,6 +1066,7 @@ fun DeckGridScreen(
                                 connectionHostInfo = connectionHostInfo,
                                 onForgetHost = onForgetHost,
                                 onClearIconCache = onClearIconCache,
+                                onDismiss = { showSettingsPanel = false },
                                 haptic = { haptic() }
                             )
                         }
@@ -1042,11 +1113,12 @@ fun DeckGridScreen(
                 DisposableEffect(Unit) { onDispose { onAudioMixerSubscribe(false) } }
                 AudioMixerSheet(
                     apps = audioMixerApps,
+                    filterProcess = mixerFilterProcess,
                     connectedHostUrl = connectedHostUrl,
                     authToken = authToken,
                     accentColor = accentColor,
                     onAdjust = onAudioMixerAdjust,
-                    onDismiss = { showAudioMixer = false }
+                    onDismiss = { showAudioMixer = false; mixerFilterProcess = null }
                 )
             }
 
@@ -1239,6 +1311,8 @@ fun DeckGridScreen(
                     },
                     onDelete = null,
                     forceDialMode = true,
+                    audioMixerApps = audioMixerApps,
+                    onAudioMixerSubscribe = onAudioMixerSubscribe,
                 )
             }
             if (editingDial != null) {
@@ -1261,6 +1335,8 @@ fun DeckGridScreen(
                         editingDial = null
                     },
                     forceDialMode = true,
+                    audioMixerApps = audioMixerApps,
+                    onAudioMixerSubscribe = onAudioMixerSubscribe,
                 )
             }
 
@@ -2030,6 +2106,10 @@ private fun RunningAppsOverlay(
 @Composable
 private fun AudioMixerSheet(
     apps: List<com.crossdeck.client.model.AudioMixerApp>,
+    // Set when opened by tapping a dial bound to one specific process (see the DialStrip
+    // onDialTap wiring above) — shows just that app, headered with its name, instead of the
+    // full live mixer.
+    filterProcess: String? = null,
     connectedHostUrl: String?,
     authToken: String?,
     accentColor: Color,
@@ -2037,6 +2117,7 @@ private fun AudioMixerSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val displayedApps = if (filterProcess != null) apps.filter { it.processName.equals(filterProcess, ignoreCase = true) } else apps
     BackHandler { onDismiss() }
 
     Box(
@@ -2057,12 +2138,12 @@ private fun AudioMixerSheet(
                 .clickable(enabled = false) {},
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("App Volume", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+            Text(filterProcess ?: "App Volume", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (apps.isEmpty()) {
+            if (displayedApps.isEmpty()) {
                 Text(
-                    text = "Nothing is playing audio right now",
+                    text = if (filterProcess != null) "That app has no active audio session" else "Nothing is playing audio right now",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp)
                 )
@@ -2073,7 +2154,7 @@ private fun AudioMixerSheet(
                     modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    lazyColumnItems(apps, key = { it.processName }) { app ->
+                    lazyColumnItems(displayedApps, key = { it.processName }) { app ->
                         // Local drag state so a slider mid-drag doesn't get overwritten by the next
                         // push-loop tick's server-reported level — same pattern as the single-app dial sheet.
                         var localValue by remember(app.processName) { mutableStateOf(app.level.toFloat()) }
@@ -2145,6 +2226,7 @@ private fun DialStrip(
     dials: List<ButtonModel>,
     dialLevels: Map<String, Int>,
     isEditMode: Boolean,
+    isLandscape: Boolean,
     accentColor: Color,
     connectedHostUrl: String?,
     authToken: String?,
@@ -2160,107 +2242,183 @@ private fun DialStrip(
     val showAddTile = isEditMode && dials.size < MAX_DIALS
     if (dials.isEmpty() && !showAddTile) return
 
-    // Long-press-then-drag reorder, edit mode only — same pattern as the grid's own drag-reorder,
-    // just horizontal-only math since the strip is a single row. Kept on an outer Box wrapping
-    // DialCell (rather than merged into DialCell's own pointerInput) so the drag detector and
-    // DialCell's tap/adjust gesture never fight over the same pointer stream.
-    var draggedIndex by remember { mutableStateOf<Int?>(null) }
-    var dragOffsetX by remember { mutableStateOf(0f) }
-    var rowCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // Long-press-then-drag reorder, edit mode only — same pattern as the grid's own drag-reorder.
+    // Landscape drags horizontally (strip is a row), portrait drags vertically (strip is a
+    // column) — see DialStripEntry. Kept on an outer Box wrapping DialCell (rather than merged
+    // into DialCell's own pointerInput) so the drag detector and DialCell's tap/adjust gesture
+    // never fight over the same pointer stream.
+    val draggedIndexState = remember { mutableStateOf<Int?>(null) }
+    val dragOffsetState = remember { mutableStateOf(0f) }
+    val stripCoordinatesState = remember { mutableStateOf<LayoutCoordinates?>(null) }
 
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .onGloballyPositioned { rowCoordinates = it }
-    ) {
-        dials.forEachIndexed { index, dial ->
-            val isDraggingThis = draggedIndex == index
-            val dragModifier = if (isEditMode) {
-                Modifier.pointerInput(index, dials) {
-                    var hasMoved = false
-                    detectDragGesturesAfterLongPress(
-                        onDragStart = {
-                            hasMoved = false
-                            haptic(HapticFeedbackConstants.LONG_PRESS)
-                            draggedIndex = index
-                            dragOffsetX = 0f
-                        },
-                        onDrag = { change, dragAmount ->
-                            change.consume()
-                            hasMoved = true
-                            dragOffsetX += dragAmount.x
-                        },
-                        onDragEnd = {
-                            val coords = rowCoordinates
-                            val startIdx = draggedIndex
-                            if (hasMoved && coords != null && startIdx != null && startIdx < dials.size) {
-                                val cellWidthPx = coords.size.width / dials.size.coerceAtLeast(1)
-                                val startX = startIdx * cellWidthPx
-                                val touchX = startX + cellWidthPx / 2 + dragOffsetX
-                                val targetIdx = (touchX / cellWidthPx).toInt().coerceIn(0, dials.size - 1)
-                                if (targetIdx != startIdx) {
-                                    haptic(HapticFeedbackConstants.KEYBOARD_TAP)
-                                    val reordered = dials.map { it.buttonId }.toMutableList()
-                                    val movedId = reordered.removeAt(startIdx)
-                                    reordered.add(targetIdx, movedId)
-                                    onReorder(reordered)
-                                }
-                            }
-                            draggedIndex = null
-                            dragOffsetX = 0f
-                        },
-                        onDragCancel = {
-                            draggedIndex = null
-                            dragOffsetX = 0f
-                        }
-                    )
-                }
-            } else Modifier
-
-            val visualModifier = if (isDraggingThis) {
-                Modifier
-                    .zIndex(10f)
-                    .graphicsLayer {
-                        translationX = dragOffsetX
-                        scaleX = 1.08f
-                        scaleY = 1.08f
-                        shadowElevation = 8.dp.toPx()
-                    }
-            } else Modifier
-
-            Box(modifier = Modifier.weight(1f).then(visualModifier).then(dragModifier)) {
-                DialCell(
-                    dial = dial,
-                    dialLevels = dialLevels,
-                    isEditMode = isEditMode,
-                    accentColor = accentColor,
-                    connectedHostUrl = connectedHostUrl,
-                    authToken = authToken,
-                    haptic = haptic,
-                    onAdjust = { slot, value -> onDialAdjust(dial.buttonId, slot, value) },
-                    onTap = { onDialTap(dial) },
-                    onEditTap = { onEdit(dial) },
-                    modifier = Modifier.fillMaxWidth(),
+    if (isLandscape) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .onGloballyPositioned { stripCoordinatesState.value = it }
+        ) {
+            dials.forEachIndexed { index, dial ->
+                DialStripEntry(
+                    slotModifier = Modifier.weight(1f),
+                    index = index, dial = dial, dials = dials, isLandscape = true,
+                    isEditMode = isEditMode, accentColor = accentColor,
+                    connectedHostUrl = connectedHostUrl, authToken = authToken, haptic = haptic,
+                    draggedIndexState = draggedIndexState, dragOffsetState = dragOffsetState,
+                    stripCoordinatesState = stripCoordinatesState, dialLevels = dialLevels,
+                    onDialAdjust = onDialAdjust, onDialTap = onDialTap, onEdit = onEdit, onReorder = onReorder,
                 )
             }
-        }
-        if (showAddTile) {
-            Surface(
-                shape = RoundedCornerShape(14.dp),
-                color = accentColor.copy(alpha = 0.12f),
-                border = androidx.compose.foundation.BorderStroke(1.2.dp, accentColor.copy(alpha = 0.5f)),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(72.dp)
-                    .clickable { haptic(HapticFeedbackConstants.KEYBOARD_TAP); onEdit(null) }
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "Add dial", tint = accentColor)
+            if (showAddTile) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = accentColor.copy(alpha = 0.12f),
+                    border = androidx.compose.foundation.BorderStroke(1.2.dp, accentColor.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .clickable { haptic(HapticFeedbackConstants.KEYBOARD_TAP); onEdit(null) }
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "Add dial", tint = accentColor)
+                    }
                 }
             }
         }
+    } else {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .onGloballyPositioned { stripCoordinatesState.value = it }
+        ) {
+            dials.forEachIndexed { index, dial ->
+                DialStripEntry(
+                    slotModifier = Modifier.fillMaxWidth(),
+                    index = index, dial = dial, dials = dials, isLandscape = false,
+                    isEditMode = isEditMode, accentColor = accentColor,
+                    connectedHostUrl = connectedHostUrl, authToken = authToken, haptic = haptic,
+                    draggedIndexState = draggedIndexState, dragOffsetState = dragOffsetState,
+                    stripCoordinatesState = stripCoordinatesState, dialLevels = dialLevels,
+                    onDialAdjust = onDialAdjust, onDialTap = onDialTap, onEdit = onEdit, onReorder = onReorder,
+                )
+            }
+            if (showAddTile) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = accentColor.copy(alpha = 0.12f),
+                    border = androidx.compose.foundation.BorderStroke(1.2.dp, accentColor.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clickable { haptic(HapticFeedbackConstants.KEYBOARD_TAP); onEdit(null) }
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(imageVector = Icons.Default.Add, contentDescription = "Add dial", tint = accentColor)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One draggable-to-reorder dial-strip slot — extracted so the landscape Row and portrait Column
+ * branches above share the exact same drag-reorder + DialCell wiring instead of duplicating it. */
+@Composable
+private fun DialStripEntry(
+    slotModifier: Modifier,
+    index: Int,
+    dial: ButtonModel,
+    dials: List<ButtonModel>,
+    isLandscape: Boolean,
+    isEditMode: Boolean,
+    accentColor: Color,
+    connectedHostUrl: String?,
+    authToken: String?,
+    haptic: (Int) -> Unit,
+    draggedIndexState: MutableState<Int?>,
+    dragOffsetState: MutableState<Float>,
+    stripCoordinatesState: MutableState<LayoutCoordinates?>,
+    dialLevels: Map<String, Int>,
+    onDialAdjust: (buttonId: String, slot: String, value: Int?) -> Unit,
+    onDialTap: (ButtonModel) -> Unit,
+    onEdit: (ButtonModel?) -> Unit,
+    onReorder: (List<String>) -> Unit,
+) {
+    val isDraggingThis = draggedIndexState.value == index
+    val dragModifier = if (isEditMode) {
+        Modifier.pointerInput(index, dials, isLandscape) {
+            var hasMoved = false
+            detectDragGesturesAfterLongPress(
+                onDragStart = {
+                    hasMoved = false
+                    haptic(HapticFeedbackConstants.LONG_PRESS)
+                    draggedIndexState.value = index
+                    dragOffsetState.value = 0f
+                },
+                onDrag = { change, dragAmount ->
+                    change.consume()
+                    hasMoved = true
+                    dragOffsetState.value += if (isLandscape) dragAmount.x else dragAmount.y
+                },
+                onDragEnd = {
+                    val coords = stripCoordinatesState.value
+                    val startIdx = draggedIndexState.value
+                    if (hasMoved && coords != null && startIdx != null && startIdx < dials.size) {
+                        val cellExtentPx = (if (isLandscape) coords.size.width else coords.size.height) / dials.size.coerceAtLeast(1)
+                        val startPos = startIdx * cellExtentPx
+                        val touchPos = startPos + cellExtentPx / 2 + dragOffsetState.value
+                        val targetIdx = (touchPos / cellExtentPx).toInt().coerceIn(0, dials.size - 1)
+                        if (targetIdx != startIdx) {
+                            haptic(HapticFeedbackConstants.KEYBOARD_TAP)
+                            val reordered = dials.map { it.buttonId }.toMutableList()
+                            val movedId = reordered.removeAt(startIdx)
+                            reordered.add(targetIdx, movedId)
+                            onReorder(reordered)
+                        }
+                    }
+                    draggedIndexState.value = null
+                    dragOffsetState.value = 0f
+                },
+                onDragCancel = {
+                    draggedIndexState.value = null
+                    dragOffsetState.value = 0f
+                }
+            )
+        }
+    } else Modifier
+
+    val visualModifier = if (isDraggingThis) {
+        Modifier
+            .zIndex(10f)
+            .graphicsLayer {
+                if (isLandscape) translationX = dragOffsetState.value else translationY = dragOffsetState.value
+                scaleX = 1.08f
+                scaleY = 1.08f
+                shadowElevation = 8.dp.toPx()
+            }
+    } else Modifier
+
+    Box(
+        modifier = slotModifier
+            .then(visualModifier)
+            .then(dragModifier)
+    ) {
+        DialCell(
+            dial = dial,
+            dialLevels = dialLevels,
+            isEditMode = isEditMode,
+            accentColor = accentColor,
+            connectedHostUrl = connectedHostUrl,
+            authToken = authToken,
+            haptic = haptic,
+            onAdjust = { slot, value -> onDialAdjust(dial.buttonId, slot, value) },
+            onTap = { onDialTap(dial) },
+            onEditTap = { onEdit(dial) },
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -2315,106 +2473,170 @@ private fun DialCell(
         }
     }
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = modifier
-            .height(72.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-            .pointerInput(dial.buttonId, isEditMode, isUnboundMixer, isStack, currentLayer, isKeystroke) {
-                if (isEditMode || (isUnboundMixer && !isStack)) {
-                    detectTapGestures(onTap = {
-                        haptic(HapticFeedbackConstants.KEYBOARD_TAP)
-                        if (isEditMode) onEditTap() else onTap()
-                    })
-                } else {
-                    // Full-height drag traverses the full 0-100 range for a level dial, or ~20
-                    // keystroke ticks for a keystroke_step one — same throttle-by-5 + haptic-detent
-                    // pattern as the single-dial modal's Slider, just driven by a raw vertical drag.
-                    val rangePx = size.height.toFloat() * 3f
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        var totalDy = 0f
-                        var draggedEnough = false
-                        var pendingTicks = 0
-                        var event: androidx.compose.ui.input.pointer.PointerEvent
-                        do {
-                            event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (change.pressed) {
-                                val dy = change.positionChange().y
-                                totalDy += dy
-                                if (!draggedEnough && kotlin.math.abs(totalDy) > 12f) {
-                                    draggedEnough = true
-                                    dragging = true
-                                }
-                                if (draggedEnough && !isUnboundMixer) {
-                                    change.consume()
-                                    if (isKeystroke) {
-                                        val ticksNow = (-totalDy / rangePx * 20f).roundToInt()
-                                        val delta = ticksNow - pendingTicks
-                                        if (delta != 0) {
-                                            haptic(HapticFeedbackConstants.CLOCK_TICK)
-                                            onAdjust(slot, delta)
-                                            pendingTicks = ticksNow
-                                        }
-                                    } else {
-                                        val newLevel = (localLevel - (dy / rangePx * 100f).roundToInt()).coerceIn(0, 100)
-                                        if (newLevel != localLevel) {
-                                            localLevel = newLevel
-                                            if (kotlin.math.abs(localLevel - lastSent) >= 5) {
-                                                haptic(HapticFeedbackConstants.CLOCK_TICK)
-                                                onAdjust(slot, localLevel)
-                                                lastSent = localLevel
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } while (event.changes.any { it.id == down.id && it.pressed })
+    // Icon tap-zone: cycles a stacked dial's layer, opens the live mixer for an unbound
+    // app_volume dial, or fires the configured Press action — same "secondary action" this dial
+    // has always had, just re-anchored to the icon specifically (see spec: the Slider now owns
+    // the rest of the bar's touch area, so the old "tap anywhere on the cell" gesture would
+    // otherwise collide with dragging the Slider).
+    fun fireIconTap() {
+        haptic(HapticFeedbackConstants.KEYBOARD_TAP)
+        if (isStack) {
+            currentLayer = (currentLayer + 1) % layerCount
+            onAdjust(if (currentLayer == 0) "main" else "main:$currentLayer", null)
+        } else {
+            onTap()
+        }
+    }
 
-                        if (draggedEnough) {
-                            if (!isKeystroke && !isUnboundMixer && localLevel != lastSent) onAdjust(slot, localLevel)
-                            dragging = false
-                        } else if (isStack) {
-                            haptic(HapticFeedbackConstants.KEYBOARD_TAP)
-                            currentLayer = (currentLayer + 1) % layerCount
-                            onAdjust(if (currentLayer == 0) "main" else "main:$currentLayer", null)
-                        } else {
-                            haptic(HapticFeedbackConstants.KEYBOARD_TAP)
-                            onTap()
-                        }
-                    }
-                }
-            }
+    val labelText = (activeAction.label?.takeIf { it.isNotBlank() } ?: dial.label)
+        .ifBlank { dialTargetLabels[activeAction.dialTarget ?: ""] ?: "Dial" }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, accentColor.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
     ) {
-        bmp?.let {
-            Image(bitmap = it, contentDescription = null, modifier = Modifier.size(24.dp))
-        } ?: Text(text = "🎚", fontSize = 16.sp)
-        Spacer(modifier = Modifier.height(2.dp))
-        if (!isUnboundMixer && !isKeystroke) {
+        // 48dp minimum touch target (Android/WCAG) — the icon graphic itself stays visually
+        // smaller, centered within this box, per the design-principles doc's touch-target rule.
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(48.dp)
+                .clickable(
+                    enabled = !isEditMode,
+                    onClick = ::fireIconTap
+                )
+        ) {
+            bmp?.let {
+                Image(bitmap = it, contentDescription = null, modifier = Modifier.size(20.dp))
+            } ?: Text(text = "🎚", fontSize = 16.sp)
+        }
+
+        if (isEditMode) {
+            // Edit mode never adjusts a value — tapping anywhere on the cell opens the editor,
+            // same as a grid button. The icon's own click above is disabled in this branch so
+            // there's exactly one tap target, not two different behaviors on one cell.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clickable(onClick = onEditTap)
+            ) {
+                Text(
+                    text = labelText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.CenterStart).padding(end = 10.dp)
+                )
+            }
+        } else if (isUnboundMixer) {
+            // No 0-100 value to represent — the whole remaining width is just a label; tapping it
+            // (like the icon) opens the live mixer, since there's nothing to drag here at all.
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clickable(onClick = onTap)
+            ) {
+                Text(
+                    text = labelText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.align(Alignment.CenterStart).padding(end = 10.dp)
+                )
+            }
+        } else if (isKeystroke) {
+            // Action Trigger / keystroke-step: no continuous value, so no Slider — a label plus
+            // explicit tap zones that each fire one tick of the CCW/CW action. "value" on the wire
+            // is a signed tick count, unchanged from today (dial_adjust with value ±1).
+            Text(
+                text = labelText,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(start = 4.dp)
+            )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clickable {
+                        haptic(HapticFeedbackConstants.CLOCK_TICK)
+                        onAdjust(slot, -1)
+                    }
+            ) { Text("−", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface) }
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(48.dp)
+                    .clickable {
+                        haptic(HapticFeedbackConstants.CLOCK_TICK)
+                        onAdjust(slot, 1)
+                    }
+            ) { Text("+", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface) }
+        } else {
+            // Level dial: label above a real Slider, percent to the right. The Slider is the
+            // ONLY thing that owns drag/tap-to-jump from here down — no more hand-rolled pointer
+            // math, so there's no axis/sign to get backwards.
+            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = labelText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Slider(
+                    value = localLevel.toFloat(),
+                    onValueChange = { newValue ->
+                        dragging = true
+                        val newLevel = newValue.roundToInt().coerceIn(0, 100)
+                        if (newLevel != localLevel) {
+                            localLevel = newLevel
+                            if (kotlin.math.abs(localLevel - lastSent) >= 5) {
+                                haptic(HapticFeedbackConstants.CLOCK_TICK)
+                                onAdjust(slot, localLevel)
+                                lastSent = localLevel
+                            }
+                        }
+                    },
+                    onValueChangeFinished = {
+                        if (localLevel != lastSent) onAdjust(slot, localLevel)
+                        lastSent = localLevel
+                        dragging = false
+                    },
+                    valueRange = 0f..100f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = accentColor,
+                        activeTrackColor = accentColor,
+                        inactiveTrackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                    ),
+                    modifier = Modifier.fillMaxWidth().height(24.dp)
+                )
+            }
             Text(
                 text = "${localLevel}%",
                 style = MaterialTheme.typography.labelSmall,
                 color = accentColor,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(end = 12.dp)
             )
         }
-        Text(
-            text = (activeAction.label?.takeIf { it.isNotBlank() } ?: dial.label).ifBlank { dialTargetLabels[activeAction.dialTarget ?: ""] ?: "Dial" },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 2.dp)
-        )
-        if (isStack) {
+
+        if (isStack && !isKeystroke) {
             Text(
                 text = "${currentLayer + 1}/$layerCount",
                 fontSize = 9.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.padding(end = 10.dp)
             )
         }
     }
@@ -2561,6 +2783,8 @@ private fun EditButtonDialog(
     /** True when editing a dial-strip entry instead of a grid button — locks the main action to
      * type "dial" and hides the Action Type dropdown (see ActionTypeEditor's forceDialMode). */
     forceDialMode: Boolean = false,
+    audioMixerApps: List<com.crossdeck.client.model.AudioMixerApp> = emptyList(),
+    onAudioMixerSubscribe: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2764,7 +2988,10 @@ private fun EditButtonDialog(
                     authToken = authToken,
                     iconHashCache = iconHashCache,
                     onAppPicked = { name -> if (!labelUserEdited) label = name },
+                    onIconPicked = { icon -> if (!iconUserSet) { iconValue = icon; iconUserSet = true } },
                     forceDialMode = forceDialMode,
+                    audioMixerApps = audioMixerApps,
+                    onAudioMixerSubscribe = onAudioMixerSubscribe,
                 )
             }
 
@@ -3324,6 +3551,7 @@ private fun ActionEditorState.convertToChain() {
 
 /** Action-type dropdown + per-type parameter card — reused for both the main action and the
  * long-press action so long-press gets the exact same picker set as the main action. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun ActionTypeEditor(
     state: ActionEditorState,
@@ -3335,6 +3563,7 @@ private fun ActionTypeEditor(
     authToken: String?,
     iconHashCache: Map<String, String>,
     onAppPicked: ((name: String) -> Unit)? = null,
+    onIconPicked: ((icon: String?) -> Unit)? = null,
     showIconPicker: Boolean = false,
     onIconUpload: (suspend (ByteArray) -> String?)? = null,
     allowChaining: Boolean = true,
@@ -3342,6 +3571,8 @@ private fun ActionTypeEditor(
     /** Set by the dial-strip editor — dials have no Action Type dropdown (every dial IS type
      * "dial" implicitly), so this skips straight to the dial target/process card below. */
     forceDialMode: Boolean = false,
+    audioMixerApps: List<com.crossdeck.client.model.AudioMixerApp> = emptyList(),
+    onAudioMixerSubscribe: (Boolean) -> Unit = {},
 ) {
     var dropdownExpanded by remember { mutableStateOf(false) }
     var mediaDropdownExpanded by remember { mutableStateOf(false) }
@@ -3424,6 +3655,12 @@ private fun ActionTypeEditor(
                 suggestedLabel(state)?.let { state.label = it }
             }
         }
+    }
+
+    val showingAppVolumePicker = forceDialMode && !state.isDialStack && state.dialTarget == "app_volume"
+    DisposableEffect(showingAppVolumePicker) {
+        if (showingAppVolumePicker) onAudioMixerSubscribe(true)
+        onDispose { if (showingAppVolumePicker) onAudioMixerSubscribe(false) }
     }
 
     if (!forceDialMode) {
@@ -3717,19 +3954,48 @@ private fun ActionTypeEditor(
                         }
                         if (state.dialTarget == "app_volume") {
                             Spacer(modifier = Modifier.height(12.dp))
-                            CrossDeckTextField(
-                                value = state.dialProcess,
-                                onValueChange = { state.dialProcess = it },
-                                label = "Bind to one app (leave blank to open the live mixer instead)",
-                                modifier = Modifier.fillMaxWidth()
+                            Text(
+                                "Bind to one app — currently playing audio (leave unselected to open the live mixer instead)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            if (state.dialProcess.isBlank()) {
-                                Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
+                            if (audioMixerApps.isEmpty()) {
                                 Text(
-                                    "Opens a live mixer on the phone with a slider + mute for every app currently playing audio.",
+                                    "Waiting for audio to play…",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                 )
+                            } else {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    audioMixerApps.forEach { app ->
+                                        val isSelected = state.dialProcess.equals(app.processName, ignoreCase = true)
+                                        Surface(
+                                            shape = RoundedCornerShape(20.dp),
+                                            color = if (isSelected) accentColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                if (isSelected) 1.5.dp else 1.dp,
+                                                if (isSelected) accentColor else MaterialTheme.colorScheme.outline
+                                            ),
+                                            modifier = Modifier.clickable {
+                                                if (isSelected) {
+                                                    state.dialProcess = ""
+                                                } else {
+                                                    state.dialProcess = app.processName
+                                                    onAppPicked?.invoke(app.processName)
+                                                    onIconPicked?.invoke(app.icon)
+                                                }
+                                            }
+                                        ) {
+                                            Text(
+                                                text = app.processName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = if (isSelected) accentColor else MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                         if (state.dialTarget == "keystroke_step") {
