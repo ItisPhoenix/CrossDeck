@@ -28,6 +28,9 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
     // does, so without this guard, merely SELECTING an existing button would spuriously auto-apply
     // its own unchanged config and pop the Undo toast before any real edit happened.
     private bool _isLoading;
+    // Real backing value (a content hash or "builtin:name") — IconPathText only ever shows the
+    // friendly label derived from this, never the raw reference.
+    private string _iconRef = "";
 
     public ButtonPropertyPanel()
     {
@@ -66,7 +69,7 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
             LongPressActionConfig.IsLongPress = true;
             MainActionConfig.ExtractIconOnSelect = true;
             LongPressActionConfig.ExtractIconOnSelect = true;
-            MainActionConfig.IconExtracted += hash => { IconPathText.Text = hash; TryApply(); };
+            MainActionConfig.IconExtracted += hash => { SetIconRef(hash); TryApply(); };
             MainActionConfig.ShowEnterFolderShortcut();
             MainActionConfig.EnterFolderShortcutClicked += () => { TryApply(); EnterFolderRequested?.Invoke(); };
             MainActionConfig.ActionChanged += () =>
@@ -92,7 +95,7 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
         LabelInput.Text = button.Label;
         _suppressLabelEdit = false;
         _labelUserEdited = !string.IsNullOrWhiteSpace(button.Label);
-        IconPathText.Text = button.Icon ?? "";
+        SetIconRef(button.Icon);
 
         MainActionConfig.SetAction(button.Action);
         UpdateSecondaryActionSectionsForMainType(button.Action.Type);
@@ -172,7 +175,7 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
         if (_isDialButton && LongPressEnabledCheck.IsChecked == true && MissingFieldHint(LongPressActionConfig.GetAction()) != null) return;
 
         _button.Label = LabelInput.Text;
-        _button.Icon = string.IsNullOrEmpty(IconPathText.Text) ? null : IconPathText.Text;
+        _button.Icon = string.IsNullOrEmpty(_iconRef) ? null : _iconRef;
         _button.Action = mainAction;
         _button.LongPressAction = (_isDialButton && LongPressEnabledCheck.IsChecked == true)
             ? LongPressActionConfig.GetAction() : null;
@@ -180,16 +183,25 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
         Applied?.Invoke(_button);
     }
 
+    /// <summary>Sets the real icon reference and refreshes both the friendly label and the
+    /// thumbnail derived from it — the one place IconPathText's displayed text gets written.</summary>
+    private void SetIconRef(string? value)
+    {
+        _iconRef = value ?? "";
+        IconPathText.Text = ActionConfigControl.FriendlyIconLabel(_iconRef);
+    }
+
     private void UpdatePreview()
     {
         PreviewLabel.Text = string.IsNullOrWhiteSpace(LabelInput.Text) ? "(no label)" : LabelInput.Text;
-        var iconPath = ProfileStoreService.ResolveIconFilePath(IconPathText.Text);
+        var iconPath = ProfileStoreService.ResolveIconFilePath(_iconRef);
         if (iconPath != null && File.Exists(iconPath))
         {
-            try { PreviewIcon.Source = new BitmapImage(new Uri(iconPath)); return; }
+            try { PreviewIcon.Source = new BitmapImage(new Uri(iconPath)); IconThumbnail.Source = PreviewIcon.Source; return; }
             catch { /* fall through to blank */ }
         }
         PreviewIcon.Source = null;
+        IconThumbnail.Source = null;
     }
 
     private void LabelInput_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
@@ -246,7 +258,7 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
             {
                 byte[] rawBytes = File.ReadAllBytes(dlg.FileName);
                 string hash = ProfileStoreService.SaveIconFromBytes(rawBytes);
-                IconPathText.Text = hash;
+                SetIconRef(hash);
                 TryApply();
             }
             catch (Exception ex)
@@ -287,7 +299,7 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
             };
             btn.Click += (s, e) =>
             {
-                IconPathText.Text = "builtin:" + name;
+                SetIconRef("builtin:" + name);
                 BuiltinIconsDrawer.Visibility = Visibility.Collapsed;
                 TryApply();
             };

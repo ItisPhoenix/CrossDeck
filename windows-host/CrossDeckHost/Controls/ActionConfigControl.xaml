@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:CrossDeckHost.Controls">
     <StackPanel>
-        <ComboBox x:Name="ActionTypeCombo" Margin="0,0,0,14" Padding="10,8" FontSize="13" Height="36" SelectionChanged="ActionTypeCombo_SelectionChanged"
+        <ComboBox x:Name="ActionTypeCombo" Margin="0,0,0,8" Padding="6,4" FontSize="13" Height="36" SelectionChanged="ActionTypeCombo_SelectionChanged"
                   ToolTip="What this button does when pressed">
             <ComboBoxItem Content="Keyboard Shortcut" Tag="hotkey"/>
             <ComboBoxItem Content="Launch App" Tag="launch_app"/>
@@ -18,29 +18,34 @@
                  (see DialStripEditorWindow / ForceDialMode), never as a pickable grid-button type. -->
         </ComboBox>
 
-        <StackPanel x:Name="IconSection" Visibility="Collapsed" Margin="0,0,0,14">
+        <StackPanel x:Name="IconSection" Visibility="Collapsed" Margin="0,0,0,8">
             <TextBlock Text="Label" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
-            <TextBox x:Name="ActionLabelText" Padding="10,8" FontSize="13" Margin="0,0,0,14" TextChanged="ActionLabelText_TextChanged"
+            <TextBox x:Name="ActionLabelText" Padding="6,4" FontSize="13" Margin="0,0,0,8" TextChanged="ActionLabelText_TextChanged"
                      ToolTip="Optional name shown on this step's tile — leave blank to auto-describe it"/>
             <!-- Multi-action has no icon of its own — each step already shows its own icon. -->
             <StackPanel x:Name="ActionIconOnlySection">
                 <TextBlock Text="Icon" FontSize="12" Foreground="{StaticResource Brush.Mist}" Margin="0,0,0,6"/>
                 <Grid Margin="0,0,0,8">
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBox x:Name="ActionIconText" Padding="10,8" FontSize="13" IsReadOnly="True" Margin="0,0,8,0"
-                             ToolTip="Current icon reference — read-only, use Browse or Built-in to change it"/>
-                    <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Margin="0,0,8,0" Click="BrowseActionIcon_Click"
+                    <Border Width="36" Height="36" CornerRadius="8" Background="{StaticResource Brush.Void}"
+                            BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" Margin="0,0,8,0">
+                        <Image x:Name="ActionIconThumbnail" Stretch="Uniform" Margin="5"/>
+                    </Border>
+                    <TextBox x:Name="ActionIconText" Grid.Column="1" Padding="6,4" FontSize="13" IsReadOnly="True" Margin="0,0,8,0"
+                             ToolTip="What kind of icon is set — Browse or Built-in to change it"/>
+                    <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="8,5" Margin="0,0,8,0" Click="BrowseActionIcon_Click"
                             ToolTip="Upload a custom image from this PC">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="📂" FontSize="13" Margin="0,0,6,0"/>
                             <TextBlock Text="Browse"/>
                         </StackPanel>
                     </Button>
-                    <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="12,8" Click="ToggleActionBuiltinIcons_Click"
+                    <Button Grid.Column="3" Style="{StaticResource StandardButton}" Padding="8,5" Click="ToggleActionBuiltinIcons_Click"
                             ToolTip="Choose from CrossDeck's bundled icon set">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="🎨" FontSize="13" Margin="0,0,6,0"/>
@@ -48,7 +53,7 @@
                         </StackPanel>
                     </Button>
                 </Grid>
-                <Border x:Name="ActionBuiltinIconsDrawer" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="10" Visibility="Collapsed">
+                <Border x:Name="ActionBuiltinIconsDrawer" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="8" Visibility="Collapsed">
                     <ScrollViewer Height="130" VerticalScrollBarVisibility="Auto">
                         <WrapPanel x:Name="ActionIconWrapPanel" Orientation="Horizontal"/>
                     </ScrollViewer>
@@ -56,12 +61,12 @@
             </StackPanel>
         </StackPanel>
 
-        <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Container}" Padding="14">
+        <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Container}" Padding="10">
             <Grid>
                 <!-- Keyboard Shortcut Panel -->
                 <StackPanel x:Name="HotkeyPanel" Visibility="Collapsed">
                     <TextBlock Text="Hotkey Combination (e.g. Ctrl,Shift,A)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <TextBox x:Name="HotkeyInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
+                    <TextBox x:Name="HotkeyInput" Padding="6,4" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
                 </StackPanel>
 
                 <!-- Launch App Panel -->
@@ -72,7 +77,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <ComboBox x:Name="PathComboInput" IsEditable="True" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
+                        <ComboBox x:Name="PathComboInput" IsEditable="True" Padding="6,4" FontSize="13" Background="{StaticResource Brush.Void}"
                                   SelectionChanged="PathComboInput_SelectionChanged" TextSearch.TextPath="Name"
                                   MaxDropDownHeight="280" ToolTip="Pick from discovered apps, or type/paste a full .exe path">
                             <ComboBox.ItemTemplate>
@@ -84,7 +89,7 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
-                        <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="12,8" Click="BrowseApp_Click" Margin="8,0,0,0"
+                        <Button Grid.Column="1" Style="{StaticResource StandardButton}" Padding="8,5" Click="BrowseApp_Click" Margin="8,0,0,0"
                                 ToolTip="Browse the file system for an .exe directly">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="📂" FontSize="13" Margin="0,0,6,0"/>
@@ -97,7 +102,7 @@
                 <!-- Media Control Panel -->
                 <StackPanel x:Name="MediaControlPanel" Visibility="Collapsed">
                     <TextBlock Text="Media Key Trigger" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <ComboBox x:Name="MediaCommandCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" SelectionChanged="ParamField_SelectionChanged"
+                    <ComboBox x:Name="MediaCommandCombo" Padding="6,4" FontSize="13" Background="{StaticResource Brush.Void}" SelectionChanged="ParamField_SelectionChanged"
                               ToolTip="Which media command this button sends to whatever's currently playing">
                         <ComboBoxItem Content="Play / Pause" Tag="PlayPause"/>
                         <ComboBoxItem Content="Next Track" Tag="NextTrack"/>
@@ -119,7 +124,7 @@
                         <Border Grid.Column="0" Width="30" Height="30" CornerRadius="{StaticResource Radius.Control}" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" Margin="0,0,10,0" VerticalAlignment="Center">
                             <Image x:Name="FaviconPreview" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0"/>
                         </Border>
-                        <TextBox x:Name="UrlInput" Grid.Column="1" Padding="10,8" FontSize="13" TextChanged="UrlInput_TextChanged"
+                        <TextBox x:Name="UrlInput" Grid.Column="1" Padding="6,4" FontSize="13" TextChanged="UrlInput_TextChanged"
                                  ToolTip="https:// is added automatically if you leave it off"/>
                     </Grid>
                     <TextBlock x:Name="FaviconStatusText" Text="" Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="40,0,0,0"/>
@@ -128,20 +133,20 @@
                 <!-- Run Command Panel -->
                 <StackPanel x:Name="RunCommandPanel" Visibility="Collapsed">
                     <TextBlock Text="Shell / Terminal Command" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <TextBox x:Name="CommandInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
+                    <TextBox x:Name="CommandInput" Padding="6,4" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
                 </StackPanel>
 
                 <!-- Text Snippet Panel -->
                 <StackPanel x:Name="TextSnippetPanel" Visibility="Collapsed">
                     <TextBlock Text="Text to Paste" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <TextBox x:Name="SnippetTextInput" Padding="10,8" FontSize="13" Height="64" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
+                    <TextBox x:Name="SnippetTextInput" Padding="6,4" FontSize="13" Height="64" AcceptsReturn="True" TextWrapping="Wrap" VerticalContentAlignment="Top" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"/>
                 </StackPanel>
 
                 <!-- Folder Panel -->
                 <StackPanel x:Name="FolderPanel" Visibility="Collapsed">
                     <TextBlock Text="Target Folder ID (leave empty to auto-generate)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                    <TextBox x:Name="TargetFolderIdInput" Padding="10,8" FontSize="13" Margin="0,0,0,10" Background="{StaticResource Brush.Void}"/>
-                    <Button x:Name="EnterFolderButton" Style="{StaticResource AccentButton}" Padding="12,8" Click="EnterFolder_Click" Visibility="Collapsed"
+                    <TextBox x:Name="TargetFolderIdInput" Padding="6,4" FontSize="13" Margin="0,0,0,8" Background="{StaticResource Brush.Void}"/>
+                    <Button x:Name="EnterFolderButton" Style="{StaticResource AccentButton}" Padding="8,5" Click="EnterFolder_Click" Visibility="Collapsed"
                             ToolTip="Jump into this folder in the grid editor to add buttons to it">
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                             <TextBlock Text="📁" FontSize="13" Margin="0,0,6,0"/>
@@ -163,12 +168,12 @@
                 <!-- Dial Panel -->
                 <StackPanel x:Name="DialPanel" Visibility="Collapsed">
                     <CheckBox x:Name="StackDialCheck" Content="Stack multiple targets on this dial (tap cycles between them)"
-                              FontSize="12" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,12" Checked="StackDialCheck_Changed" Unchecked="StackDialCheck_Changed"/>
+                              FontSize="12" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,8" Checked="StackDialCheck_Changed" Unchecked="StackDialCheck_Changed"/>
 
                     <!-- Single-target view (default, unstacked) -->
                     <StackPanel x:Name="DialSingleTargetPanel">
                         <TextBlock Text="Dial Control target" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                        <ComboBox x:Name="DialTargetCombo" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
+                        <ComboBox x:Name="DialTargetCombo" Padding="6,4" FontSize="13" Background="{StaticResource Brush.Void}"
                                   ToolTip="What this dial adjusts when dragged on the phone" SelectionChanged="DialTargetCombo_SelectionChanged">
                             <ComboBoxItem Content="Master Volume" Tag="volume"/>
                             <ComboBoxItem Content="Microphone Volume" Tag="mic"/>
@@ -179,20 +184,20 @@
 
                         <!-- Only shown for App Volume — bind to one app, or leave blank to open the live
                              multi-app mixer instead (unbound app_volume, existing behaviour). -->
-                        <StackPanel x:Name="AppVolumeProcessPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                        <StackPanel x:Name="AppVolumeProcessPanel" Visibility="Collapsed" Margin="0,8,0,0">
                             <TextBlock Text="Bind to one app (leave blank to open the live mixer instead)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6" TextWrapping="Wrap"/>
-                            <ComboBox x:Name="DialProcessCombo" IsEditable="True" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}"
+                            <ComboBox x:Name="DialProcessCombo" IsEditable="True" Padding="6,4" FontSize="13" Background="{StaticResource Brush.Void}"
                                       ToolTip="Pick a currently-playing app, or type its process name" TextBoxBase.TextChanged="ParamField_Changed"/>
                         </StackPanel>
 
                         <!-- Only shown for Keystroke Step — each drag detent fires one keystroke
                              instead of setting an absolute level. -->
-                        <StackPanel x:Name="StepKeysPanel" Visibility="Collapsed" Margin="0,10,0,0">
+                        <StackPanel x:Name="StepKeysPanel" Visibility="Collapsed" Margin="0,8,0,0">
                             <TextBlock Text="Step Up (drag upward)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                            <TextBox x:Name="StepUpKeysInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" Margin="0,0,0,10" TextChanged="ParamField_Changed"
+                            <TextBox x:Name="StepUpKeysInput" Padding="6,4" FontSize="13" Background="{StaticResource Brush.Void}" Margin="0,0,0,8" TextChanged="ParamField_Changed"
                                      ToolTip="e.g. Ctrl,Shift,Equals"/>
                             <TextBlock Text="Step Down (drag downward)" Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,0,0,6"/>
-                            <TextBox x:Name="StepDownKeysInput" Padding="10,8" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"
+                            <TextBox x:Name="StepDownKeysInput" Padding="6,4" FontSize="13" Background="{StaticResource Brush.Void}" TextChanged="ParamField_Changed"
                                      ToolTip="e.g. Ctrl,Minus"/>
                         </StackPanel>
 
@@ -204,7 +209,7 @@
                          same imperative-list pattern EditorWindow already uses for the button grid. -->
                     <StackPanel x:Name="DialStackPanel" Visibility="Collapsed">
                         <StackPanel x:Name="DialStackLayersHost"/>
-                        <Button x:Name="AddDialLayerButton" Style="{StaticResource StandardButton}" Padding="12,8" Margin="0,4,0,0" Click="AddDialLayer_Click"
+                        <Button x:Name="AddDialLayerButton" Style="{StaticResource StandardButton}" Padding="8,5" Margin="0,4,0,0" Click="AddDialLayer_Click"
                                 ToolTip="Add another target to cycle through with a tap">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="➕" FontSize="13" Margin="0,0,6,0"/>

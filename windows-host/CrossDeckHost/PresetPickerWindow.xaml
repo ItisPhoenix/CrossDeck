@@ -10,7 +10,7 @@
         <WindowChrome CaptionHeight="36" ResizeBorderThickness="0" GlassFrameThickness="0" UseAeroCaptionButtons="False"/>
     </WindowChrome.WindowChrome>
     <Border Background="{StaticResource Brush.Panel}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="12">
-        <Grid Margin="24">
+        <Grid Margin="18">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -18,9 +18,9 @@
                 </Grid.RowDefinitions>
 
                 <Button Grid.Row="0" Style="{StaticResource CaptionButton}" Content="✕" HorizontalAlignment="Right" VerticalAlignment="Top"
-                        Margin="0,-12,-12,0" WindowChrome.IsHitTestVisibleInChrome="True" Click="DialogClose_Click"/>
-                <TextBlock Grid.Row="0" Text="Choose a Default Preset" Foreground="{StaticResource Brush.Paper}" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
-                <TextBlock Grid.Row="1" Text="Select a template profile to configure your initial deck layout." Foreground="{StaticResource Brush.Paper}" FontSize="13" Opacity="0.7" HorizontalAlignment="Center" Margin="0,0,0,24"/>
+                        Margin="0,-8,-8,0" WindowChrome.IsHitTestVisibleInChrome="True" Click="DialogClose_Click"/>
+                <TextBlock Grid.Row="0" Text="Choose a Default Preset" Foreground="{StaticResource Brush.Paper}" FontSize="20" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                <TextBlock Grid.Row="1" Text="Select a template profile to configure your initial deck layout." Foreground="{StaticResource Brush.Paper}" FontSize="13" Opacity="0.7" HorizontalAlignment="Center" Margin="0,0,0,16"/>
 
                 <Grid Grid.Row="2">
                     <Grid.ColumnDefinitions>
@@ -30,13 +30,13 @@
                     </Grid.ColumnDefinitions>
 
                     <!-- Card 1: Productivity -->
-                    <Button Grid.Column="0" Margin="8,0" Click="Productivity_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
+                    <Button Grid.Column="0" Margin="6,0" Click="Productivity_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="12">
                                     <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="💻" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                                        <TextBlock Text="Productivity" Foreground="{StaticResource Brush.SignalCyan}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="💻" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="Productivity" Foreground="{StaticResource Brush.SignalCyan}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6"/>
                                         <TextBlock Text="Macros for browser, volume adjustments, lock PC, and office workflows." Foreground="{StaticResource Brush.Paper}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>
@@ -51,13 +51,13 @@
                     </Button>
 
                     <!-- Card 2: Streaming -->
-                    <Button Grid.Column="1" Margin="8,0" Click="Streaming_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
+                    <Button Grid.Column="1" Margin="6,0" Click="Streaming_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="12">
                                     <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="🎙️" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                                        <TextBlock Text="Streaming" Foreground="{StaticResource Brush.VoltViolet}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="🎙️" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="Streaming" Foreground="{StaticResource Brush.VoltViolet}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6"/>
                                         <TextBlock Text="Macros for media triggers, volume control, mic mute, and stream tools." Foreground="{StaticResource Brush.Paper}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>
@@ -72,13 +72,13 @@
                     </Button>
 
                     <!-- Card 3: Blank -->
-                    <Button Grid.Column="2" Margin="8,0" Click="Blank_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
+                    <Button Grid.Column="2" Margin="6,0" Click="Blank_Click" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1.2">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="16">
+                                <Border x:Name="cardBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource Radius.Container}" Padding="12">
                                     <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="📄" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,12"/>
-                                        <TextBlock Text="Blank" Foreground="{StaticResource Brush.Paper}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="📄" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                                        <TextBlock Text="Blank" Foreground="{StaticResource Brush.Paper}" FontSize="16" FontWeight="Bold" HorizontalAlignment="Center" Margin="0,0,0,6"/>
                                         <TextBlock Text="Start with an empty profile. Add your own buttons and macros from scratch." Foreground="{StaticResource Brush.Paper}" FontSize="11" TextWrapping="Wrap" TextAlignment="Center" Opacity="0.7"/>
                                     </StackPanel>
                                 </Border>

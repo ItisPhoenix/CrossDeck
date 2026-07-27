@@ -40,6 +40,12 @@ public partial class EditorWindow : Window
     private ButtonModel? _preEditSnapshot;
     private bool _snapshotShownThisSelection;
 
+    // AppDiscovery.DiscoverApps() walks Start Menu shortcuts via COM (WScript.Shell) plus UWP
+    // package enumeration — slow enough to visibly lag every single grid-cell click if run
+    // synchronously each time. Scanned once in the background after the window loads instead;
+    // refreshed only on explicit re-scan (none needed yet — installed apps rarely change mid-session).
+    private System.Collections.Generic.List<DiscoveredApp> _discoveredAppsCache = new();
+
     public EditorWindow(ProfileStoreService profileStore, Server.WebSocketServer? server, Server.PairingManager? pairing = null, Server.AutoProfileWatcher? profileWatcher = null)
     {
         InitializeComponent();
@@ -69,6 +75,11 @@ public partial class EditorWindow : Window
             RefreshProfileSelector();
             RefreshGrid();
             UpdateConnectionStatusCard();
+
+            Task.Run(() => AppDiscovery.DiscoverApps()).ContinueWith(t =>
+            {
+                _discoveredAppsCache = t.Result;
+            }, TaskScheduler.FromCurrentSynchronizationContext());
         };
         Closed += (s, e) =>
         {
@@ -306,9 +317,9 @@ public partial class EditorWindow : Window
         };
         dialog.Loaded += (s, e) => ThemeManager.ApplyTheme(dialog);
 
-        var stack = new StackPanel { Margin = new Thickness(12) };
+        var stack = new StackPanel { Margin = new Thickness(10) };
         stack.Children.Add(new TextBlock { Text = "Profile Name:", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 4) });
-        var input = new System.Windows.Controls.TextBox { Padding = new Thickness(4), Margin = new Thickness(0, 0, 0, 12) };
+        var input = new System.Windows.Controls.TextBox { Padding = new Thickness(4), Margin = new Thickness(0, 0, 0, 8) };
         stack.Children.Add(input);
 
         var btnStack = new StackPanel 
@@ -356,9 +367,9 @@ public partial class EditorWindow : Window
         };
         dialog.Loaded += (s, e) => ThemeManager.ApplyTheme(dialog);
 
-        var stack = new StackPanel { Margin = new Thickness(12) };
+        var stack = new StackPanel { Margin = new Thickness(10) };
         stack.Children.Add(new TextBlock { Text = "New Profile Name:", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 4) });
-        var input = new System.Windows.Controls.TextBox { Text = _profileStore.Current.Name, Padding = new Thickness(4), Margin = new Thickness(0, 0, 0, 12) };
+        var input = new System.Windows.Controls.TextBox { Text = _profileStore.Current.Name, Padding = new Thickness(4), Margin = new Thickness(0, 0, 0, 8) };
         stack.Children.Add(input);
 
         var btnStack = new StackPanel 
@@ -847,7 +858,7 @@ public partial class EditorWindow : Window
         _preEditSnapshot = null; // dials never had undo support before this redesign either
         _snapshotShownThisSelection = true; // suppresses the undo-snapshot branch for dials
 
-        var allApps = AppDiscovery.DiscoverApps();
+        var allApps = _discoveredAppsCache;
         PropertyPanel.LoadButton(dialModel, isNew, isDial: true, allApps);
     }
 
@@ -1049,7 +1060,7 @@ public partial class EditorWindow : Window
         _preEditSnapshot = isNew ? null : JsonSerializer.Deserialize<ButtonModel>(JsonSerializer.Serialize(buttonModel));
         _snapshotShownThisSelection = false;
 
-        var allApps = AppDiscovery.DiscoverApps();
+        var allApps = _discoveredAppsCache;
         PropertyPanel.LoadButton(buttonModel, isNew, isDial: false, allApps);
     }
 
@@ -1484,10 +1495,10 @@ public partial class EditorWindow : Window
         };
         dialog.Loaded += (s, e) => ThemeManager.ApplyTheme(dialog);
 
-        var stack = new StackPanel { Margin = new Thickness(16) };
+        var stack = new StackPanel { Margin = new Thickness(12) };
 
-        stack.Children.Add(new TextBlock { Text = "Theme", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 6) });
-        var accentCombo = new System.Windows.Controls.ComboBox { Height = 28, FontSize = 11, Margin = new Thickness(0, 0, 0, 16) };
+        stack.Children.Add(new TextBlock { Text = "Theme", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 5) });
+        var accentCombo = new System.Windows.Controls.ComboBox { Height = 26, FontSize = 11, Margin = new Thickness(0, 0, 0, 10) };
         var accentOptions = new (string Name, string Hex)[]
         {
             ("Neon Cyan", "#00E5FF"), ("Neon Purple", "#8b5cf6"), ("Cyberpunk Yellow", "#ffb703"),
@@ -1519,7 +1530,7 @@ public partial class EditorWindow : Window
             Content = "Start CrossDeck on PC startup",
             FontSize = 11,
             IsChecked = _profileStore.Set.RunOnBoot,
-            Margin = new Thickness(0, 0, 0, 16)
+            Margin = new Thickness(0, 0, 0, 10)
         };
         runOnBootCheck.Checked += RunOnBootCheck_Changed;
         runOnBootCheck.Unchecked += RunOnBootCheck_Changed;
@@ -1528,12 +1539,12 @@ public partial class EditorWindow : Window
         bool isConnected = _server != null && _server.IsClientConnected;
         if (!isConnected && _pairing != null && _server != null)
         {
-            stack.Children.Add(new TextBlock { Text = "Pairing", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 6) });
-            var qrImage = new System.Windows.Controls.Image { Width = 120, Height = 120, Stretch = Stretch.Uniform, Source = QrImage.Source };
+            stack.Children.Add(new TextBlock { Text = "Pairing", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 5) });
+            var qrImage = new System.Windows.Controls.Image { Width = 110, Height = 110, Stretch = Stretch.Uniform, Source = QrImage.Source };
             stack.Children.Add(new Border
             {
-                Background = System.Windows.Media.Brushes.White, CornerRadius = new CornerRadius(8), Padding = new Thickness(6),
-                HorizontalAlignment = System.Windows.HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 10),
+                Background = System.Windows.Media.Brushes.White, CornerRadius = new CornerRadius(8), Padding = new Thickness(5),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 8),
                 Child = qrImage
             });
             var addrRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
@@ -1559,7 +1570,7 @@ public partial class EditorWindow : Window
                 Text = "Scan the QR in the phone app, or enter the address + PIN. Same WiFi required.",
                 Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 8)
             });
-            var regenBtn = new System.Windows.Controls.Button { Content = "🔄 New PIN", Margin = new Thickness(0, 0, 0, 16) };
+            var regenBtn = new System.Windows.Controls.Button { Content = "🔄 New PIN", Margin = new Thickness(0, 0, 0, 10) };
             regenBtn.Click += (s, e) =>
             {
                 _pairing?.GenerateNewPin();

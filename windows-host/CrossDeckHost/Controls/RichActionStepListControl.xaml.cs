@@ -62,7 +62,7 @@ public partial class RichActionStepListControl : System.Windows.Controls.UserCon
             // reparented into the freshly built one below — WPF forbids double-parenting.
             if (editor.Parent is Panel oldParent) oldParent.Children.Remove(editor);
 
-            var header = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            var header = new Grid { Margin = new Thickness(0, 0, 0, 6) };
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -78,17 +78,17 @@ public partial class RichActionStepListControl : System.Windows.Controls.UserCon
             header.Children.Add(title);
 
             var btnPanel = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
-            var upBtn = new Button { Content = "↑", Width = 28, Height = 28, Padding = new Thickness(0), FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index > 0, ToolTip = "Move up" };
+            var upBtn = new Button { Content = "↑", Width = 24, Height = 24, Padding = new Thickness(0), FontSize = 11, Margin = new Thickness(4, 0, 0, 0), IsEnabled = index > 0, ToolTip = "Move up" };
             upBtn.Click += (s, e) => { var m = _subEditors[index]; _subEditors.RemoveAt(index); _subEditors.Insert(index - 1, m); RebuildRows(); ActionChanged?.Invoke(); };
-            var downBtn = new Button { Content = "↓", Width = 28, Height = 28, Padding = new Thickness(0), FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index < _subEditors.Count - 1, ToolTip = "Move down" };
+            var downBtn = new Button { Content = "↓", Width = 24, Height = 24, Padding = new Thickness(0), FontSize = 11, Margin = new Thickness(4, 0, 0, 0), IsEnabled = index < _subEditors.Count - 1, ToolTip = "Move down" };
             downBtn.Click += (s, e) => { var m = _subEditors[index]; _subEditors.RemoveAt(index); _subEditors.Insert(index + 1, m); RebuildRows(); ActionChanged?.Invoke(); };
             var removeBtn = new Button
             {
-                Content = new TextBlock { Text = "", FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"), FontSize = 12 },
-                Width = 28,
-                Height = 28,
+                Content = new TextBlock { Text = "", FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"), FontSize = 13, Foreground = System.Windows.Media.Brushes.White, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                Width = 24,
+                Height = 24,
                 Padding = new Thickness(0),
-                Margin = new Thickness(6, 0, 0, 0),
+                Margin = new Thickness(4, 0, 0, 0),
                 ToolTip = "Remove long-press button",
                 Style = (Style)FindResource("DangerButton")
             };
@@ -109,8 +109,8 @@ public partial class RichActionStepListControl : System.Windows.Controls.UserCon
                 BorderBrush = ThemeManager.Brush("Brush.Hairline"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(12),
-                Margin = new Thickness(0, 0, 0, 10),
+                Padding = new Thickness(10),
+                Margin = new Thickness(0, 0, 0, 8),
                 Child = content
             };
             StepsPanel.Children.Add(card);
@@ -121,7 +121,7 @@ public partial class RichActionStepListControl : System.Windows.Controls.UserCon
             Content = "+ Add Another Action",
             Style = (Style)FindResource("StandardButton"),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
-            Padding = new Thickness(12, 8, 12, 8)
+            Padding = new Thickness(10, 6, 10, 6)
         };
         addBtn.Click += (s, e) => { AddSubEditor(); RebuildRows(); ActionChanged?.Invoke(); };
         StepsPanel.Children.Add(addBtn);

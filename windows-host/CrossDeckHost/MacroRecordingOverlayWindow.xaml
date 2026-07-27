@@ -1,0 +1,21 @@
+<Window x:Class="CrossDeckHost.MacroRecordingOverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Recording…" SizeToContent="WidthAndHeight" WindowStartupLocation="Manual"
+        WindowStyle="None" ResizeMode="NoResize" Background="Transparent"
+        Topmost="True" ShowInTaskbar="False"
+        FontFamily="Segoe UI Variable, Segoe UI" FontSize="12">
+    <Border Background="#14141B" BorderBrush="{StaticResource Brush.Alarm}" BorderThickness="1.5"
+            CornerRadius="12" Padding="12,10" MouseLeftButtonDown="Border_MouseLeftButtonDown">
+        <StackPanel Orientation="Horizontal">
+            <Ellipse x:Name="PulseDot" Width="10" Height="10" Fill="{StaticResource Brush.Alarm}"
+                     VerticalAlignment="Center" Margin="0,0,10,0"/>
+            <TextBlock Text="Recording…" Foreground="{StaticResource Brush.Paper}" FontWeight="SemiBold"
+                       VerticalAlignment="Center" Margin="0,0,14,0"/>
+            <Button Content="Cancel" Style="{StaticResource StandardButton}" Padding="10,6" Margin="0,0,8,0"
+                    Click="CancelButton_Click" ToolTip="Discard everything recorded so far"/>
+            <Button Content="■ Stop" Style="{StaticResource DangerButton}" Padding="10,6"
+                    Click="StopButton_Click" ToolTip="Finish recording and keep the steps"/>
+        </StackPanel>
+    </Border>
+</Window>

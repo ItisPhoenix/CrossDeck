@@ -36,6 +36,7 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
     }
 
     private readonly MacroRecorder _macroRecorder = new();
+    private MacroRecordingOverlayWindow? _overlay;
 
     // Only one panel can record at a time — a second Record press elsewhere is a no-op while
     // one is already running, so the two hooks never race to append into two different lists.
@@ -50,6 +51,7 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
     public void Dispose()
     {
         _macroRecorder.Dispose();
+        _overlay?.Close();
         if (_activeRecorder == this) _activeRecorder = null;
     }
 
@@ -67,22 +69,22 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
                 BorderBrush = ThemeManager.Brush("Brush.Hairline"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(8, 6, 8, 6),
-                Margin = new Thickness(0, 0, 0, 6)
+                Padding = new Thickness(6, 5, 6, 5),
+                Margin = new Thickness(0, 0, 0, 4)
             };
 
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(100) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 30 });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var iconBtn = new Button
             {
-                Width = 28,
-                Height = 28,
+                Width = 24,
+                Height = 24,
                 Padding = new Thickness(2),
                 Background = ThemeManager.Brush("Brush.Void"),
                 ToolTip = "Set an icon for this step"
@@ -101,36 +103,48 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
                 Text = DescribeStep(step.Action),
                 Foreground = ThemeManager.Brush("Brush.Paper"),
                 FontSize = 12,
-                TextWrapping = TextWrapping.Wrap,
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(8, 0, 0, 0)
             };
             Grid.SetColumn(summary, 1);
             grid.Children.Add(summary);
 
+            var labelCell = new Grid { Margin = new Thickness(6, 0, 0, 0) };
+            var labelPlaceholder = new TextBlock
+            {
+                Text = "Label", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"),
+                Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                IsHitTestVisible = false,
+                Visibility = string.IsNullOrEmpty(step.Action.Label) ? Visibility.Visible : Visibility.Collapsed
+            };
             var labelBox = new TextBox
             {
                 Text = step.Action.Label ?? "",
-                Padding = new Thickness(6, 4, 6, 4),
+                Background = System.Windows.Media.Brushes.Transparent,
+                Padding = new Thickness(4, 4, 4, 4),
                 FontSize = 11,
-                Margin = new Thickness(8, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
                 ToolTip = "Optional label shown on this step's tile"
             };
             labelBox.TextChanged += (s, e) =>
             {
                 step.Action.Label = string.IsNullOrWhiteSpace(labelBox.Text) ? null : labelBox.Text;
+                labelPlaceholder.Visibility = string.IsNullOrEmpty(labelBox.Text) ? Visibility.Visible : Visibility.Collapsed;
                 summary.Text = DescribeStep(step.Action);
             };
-            Grid.SetColumn(labelBox, 2);
-            grid.Children.Add(labelBox);
+            labelCell.Children.Add(labelPlaceholder);
+            labelCell.Children.Add(labelBox);
+            Grid.SetColumn(labelCell, 2);
+            grid.Children.Add(labelCell);
 
-            var upBtn = new Button { Content = "↑", Width = 28, Height = 28, Padding = new Thickness(0), FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index > 0, ToolTip = "Move up" };
+            var upBtn = new Button { Content = "↑", Width = 24, Height = 24, Padding = new Thickness(0), FontSize = 11, Margin = new Thickness(4, 0, 0, 0), IsEnabled = index > 0, ToolTip = "Move up" };
             upBtn.Click += (s, e) => Steps.Move(index, index - 1);
             Grid.SetColumn(upBtn, 3);
             grid.Children.Add(upBtn);
 
-            var downBtn = new Button { Content = "↓", Width = 28, Height = 28, Padding = new Thickness(0), FontSize = 12, Margin = new Thickness(6, 0, 0, 0), IsEnabled = index < Steps.Count - 1, ToolTip = "Move down" };
+            var downBtn = new Button { Content = "↓", Width = 24, Height = 24, Padding = new Thickness(0), FontSize = 11, Margin = new Thickness(4, 0, 0, 0), IsEnabled = index < Steps.Count - 1, ToolTip = "Move down" };
             downBtn.Click += (s, e) => Steps.Move(index, index + 1);
             Grid.SetColumn(downBtn, 4);
             grid.Children.Add(downBtn);
@@ -140,11 +154,11 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             // this app) renders reliably since it's a bundled system icon font, not a symbol lookup.
             var removeBtn = new Button
             {
-                Content = new TextBlock { Text = "", FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"), FontSize = 12 },
-                Width = 28,
-                Height = 28,
+                Content = new TextBlock { Text = "", FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"), FontSize = 13, Foreground = System.Windows.Media.Brushes.White, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                Width = 24,
+                Height = 24,
                 Padding = new Thickness(0),
-                Margin = new Thickness(6, 0, 0, 0),
+                Margin = new Thickness(4, 0, 0, 0),
                 ToolTip = "Remove step",
                 Style = (Style)FindResource("DangerButton")
             };
@@ -205,25 +219,63 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
 
     private void RecordMacro_Click(object sender, RoutedEventArgs e)
     {
-        if (_macroRecorder.IsRecording)
+        if (_macroRecorder.IsRecording) StopRecording();
+        else StartRecording();
+    }
+
+    private void StartRecording()
+    {
+        if (_activeRecorder != null) return; // another panel is already recording
+        _activeRecorder = this;
+        _macroRecorder.Start();
+        RecordMacroIcon.Text = "■";
+        RecordMacroText.Text = "Stop Recording";
+        RecordMacroButton.Style = (Style)FindResource("DangerButton");
+        RecordMacroHint.Visibility = Visibility.Visible;
+
+        _overlay = new MacroRecordingOverlayWindow();
+        _overlay.StopRequested += StopRecording;
+        _overlay.CancelRequested += CancelRecording;
+        _overlay.Show();
+    }
+
+    /// <summary>Finishes recording and keeps whatever was captured — the floating overlay's Stop
+    /// button and the in-panel Stop button both land here.</summary>
+    private void StopRecording()
+    {
+        var recorded = _macroRecorder.Stop();
+        foreach (var step in recorded) Steps.Add(step);
+        ResetRecordingUi();
+    }
+
+    /// <summary>Discards everything captured this session instead of keeping it — confirmed first
+    /// since there's no undo once the recorded steps are gone.</summary>
+    private void CancelRecording()
+    {
+        var owner = System.Windows.Window.GetWindow(this);
+        var result = System.Windows.MessageBox.Show(owner,
+            "Discard everything recorded in this session?", "Cancel Recording",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (result != MessageBoxResult.Yes) return;
+
+        _macroRecorder.Stop();
+        ResetRecordingUi();
+    }
+
+    private void ResetRecordingUi()
+    {
+        _activeRecorder = null;
+        RecordMacroIcon.Text = "●";
+        RecordMacroText.Text = "Record Keystrokes & Clicks";
+        RecordMacroButton.Style = (Style)FindResource("StandardButton");
+        RecordMacroHint.Visibility = Visibility.Collapsed;
+
+        if (_overlay != null)
         {
-            var recorded = _macroRecorder.Stop();
-            foreach (var step in recorded) Steps.Add(step);
-            _activeRecorder = null;
-            RecordMacroIcon.Text = "●";
-            RecordMacroText.Text = "Record Keystrokes & Clicks";
-            RecordMacroButton.Style = (Style)FindResource("StandardButton");
-            RecordMacroHint.Visibility = Visibility.Collapsed;
-        }
-        else
-        {
-            if (_activeRecorder != null) return; // another panel is already recording
-            _activeRecorder = this;
-            _macroRecorder.Start();
-            RecordMacroIcon.Text = "■";
-            RecordMacroText.Text = "Stop Recording";
-            RecordMacroButton.Style = (Style)FindResource("DangerButton");
-            RecordMacroHint.Visibility = Visibility.Visible;
+            _overlay.StopRequested -= StopRecording;
+            _overlay.CancelRequested -= CancelRecording;
+            _overlay.Close();
+            _overlay = null;
         }
     }
 

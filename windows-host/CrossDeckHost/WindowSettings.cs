@@ -54,8 +54,12 @@ public static class WindowSettings
 
             double left  = Math.Clamp(geo.Left,   0, screenW - 100);
             double top   = Math.Clamp(geo.Top,    0, screenH - 60);
-            double width = Math.Clamp(geo.Width,  400, screenW);
-            double height = Math.Clamp(geo.Height, 300, screenH);
+            // Floor to the window's own MinWidth/MinHeight, not a hardcoded number — otherwise a
+            // size saved before those minimums were raised (e.g. an older, smaller default) keeps
+            // restoring a cramped window forever, even though the window can no longer resize that
+            // small by hand.
+            double width = Math.Clamp(geo.Width,  window.MinWidth, screenW);
+            double height = Math.Clamp(geo.Height, window.MinHeight, screenH);
 
             window.Left   = left;
             window.Top    = top;

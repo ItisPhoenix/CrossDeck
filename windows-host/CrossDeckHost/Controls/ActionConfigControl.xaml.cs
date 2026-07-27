@@ -25,6 +25,12 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
 {
     private System.Collections.Generic.List<DiscoveredApp> _allApps = new();
     private bool _suppressFilter;
+    // The app PathComboInput.Text's friendly name currently refers to, if any — GetAction() uses
+    // its real ExePath instead of the displayed name. Cleared whenever the user types (a custom
+    // path), so a hand-edited path never gets silently replaced by a stale selection's ExePath.
+    private DiscoveredApp? _pathSelectedApp;
+    // Real backing value for this action's own icon — ActionIconText only shows FriendlyIconLabel(this).
+    private string _actionIconRef = "";
     private CancellationTokenSource? _faviconCts;
     private static readonly System.Net.Http.HttpClient _faviconHttpClient = new() { Timeout = TimeSpan.FromSeconds(4) };
 
@@ -77,6 +83,15 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         "open_folder" => "Open Folder",
         "macro" => "Macro",
         _ => null
+    };
+
+    /// <summary>Human-readable stand-in for an icon reference — raw values are either a
+    /// "builtin:name" tag or a content hash, neither meaningful to show as literal text.</summary>
+    public static string FriendlyIconLabel(string? iconRef) => iconRef switch
+    {
+        null or "" => "No icon set",
+        var s when s.StartsWith("builtin:", StringComparison.OrdinalIgnoreCase) => "Built-in: " + s["builtin:".Length..],
+        _ => "Custom icon"
     };
 
     /// <summary>Raised with the extracted/fetched icon hash — only fires when ExtractIconOnSelect is true.</summary>
@@ -223,7 +238,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
 
         SetActionTypeSelection(action.Type);
 
-        ActionIconText.Text = action.Icon ?? "";
+        SetActionIconRef(action.Icon);
         _suppressLabelEdit = true;
         ActionLabelText.Text = action.Label ?? "";
         _suppressLabelEdit = false;
@@ -233,8 +248,9 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         if (action.Type == "launch_app")
         {
             var matched = _allApps.FirstOrDefault(a => a.ExePath.Equals(action.Path, StringComparison.OrdinalIgnoreCase));
+            _pathSelectedApp = matched;
             PathComboInput.SelectedItem = matched;
-            PathComboInput.Text = matched?.ExePath ?? action.Path ?? "";
+            PathComboInput.Text = matched?.Name ?? action.Path ?? "";
         }
 
         string mediaCmd = action.MediaCommand ?? "PlayPause";
@@ -305,7 +321,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         var action = new ActionModel
         {
             Type = actionType,
-            Icon = string.IsNullOrEmpty(ActionIconText.Text) ? null : ActionIconText.Text,
+            Icon = string.IsNullOrEmpty(_actionIconRef) ? null : _actionIconRef,
             Label = string.IsNullOrEmpty(ActionLabelText.Text) ? null : ActionLabelText.Text
         };
         switch (actionType)
@@ -314,9 +330,8 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                 action.Keys = HotkeyInput.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList();
                 break;
             case "launch_app":
-                action.Path = string.IsNullOrEmpty(PathComboInput.Text)
-                    ? (PathComboInput.SelectedItem as DiscoveredApp)?.ExePath
-                    : PathComboInput.Text;
+                action.Path = _pathSelectedApp?.ExePath
+                    ?? (string.IsNullOrEmpty(PathComboInput.Text) ? null : PathComboInput.Text);
                 break;
             case "media_control":
                 action.MediaCommand = (MediaCommandCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "PlayPause";
@@ -455,8 +470,8 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             BorderBrush = ThemeManager.Brush("Brush.Hairline"),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(10),
-            Margin = new Thickness(0, 0, 0, 8),
+            Padding = new Thickness(8),
+            Margin = new Thickness(0, 0, 0, 6),
             Child = stack
         };
 
@@ -473,25 +488,25 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         Grid.SetColumn(headerText, 0);
         header.Children.Add(headerText);
 
-        var removeBtn = new Button { Content = "✕", Style = System.Windows.Application.Current.Resources["StandardButton"] as Style, Padding = new Thickness(8, 4, 8, 4) };
+        var removeBtn = new Button { Content = "✕", Style = System.Windows.Application.Current.Resources["StandardButton"] as Style, Padding = new Thickness(6, 3, 6, 3) };
         Grid.SetColumn(removeBtn, 1);
         removeBtn.Click += (s, e) => { _dialStackLayers.RemoveAt(index); RebuildDialStackUi(); ActionChanged?.Invoke(); };
         header.Children.Add(removeBtn);
         stack.Children.Add(header);
 
-        var targetCombo = new ComboBox { Margin = new Thickness(0, 8, 0, 0), Padding = new Thickness(10, 8, 10, 8) };
+        var targetCombo = new ComboBox { Margin = new Thickness(0, 6, 0, 0), Padding = new Thickness(6, 4, 6, 4) };
         foreach (var (tag, label) in DialLayerTargets) targetCombo.Items.Add(new ComboBoxItem { Content = label, Tag = tag });
         targetCombo.SelectedItem = targetCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == (layer.DialTarget ?? "volume"));
         stack.Children.Add(targetCombo);
 
-        var processHint = new TextBlock { Text = "App process name (blank = live mixer)", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 8, 0, 4) };
-        var processBox = new TextBox { Padding = new Thickness(10, 8, 10, 8), Text = layer.DialProcess ?? "" };
-        var upHint = new TextBlock { Text = "Step up keys", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 8, 0, 4) };
-        var upKeysBox = new TextBox { Padding = new Thickness(10, 8, 10, 8), Text = layer.DialStepUpKeys != null ? string.Join(",", layer.DialStepUpKeys) : "" };
-        var downHint = new TextBlock { Text = "Step down keys", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 8, 0, 4) };
-        var downKeysBox = new TextBox { Padding = new Thickness(10, 8, 10, 8), Text = layer.DialStepDownKeys != null ? string.Join(",", layer.DialStepDownKeys) : "" };
-        var labelHint = new TextBlock { Text = "Label shown while this layer is active", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 8, 0, 4) };
-        var labelBox = new TextBox { Padding = new Thickness(10, 8, 10, 8), Text = layer.Label ?? "" };
+        var processHint = new TextBlock { Text = "App process name (blank = live mixer)", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
+        var processBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.DialProcess ?? "" };
+        var upHint = new TextBlock { Text = "Step up keys", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
+        var upKeysBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.DialStepUpKeys != null ? string.Join(",", layer.DialStepUpKeys) : "" };
+        var downHint = new TextBlock { Text = "Step down keys", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
+        var downKeysBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.DialStepDownKeys != null ? string.Join(",", layer.DialStepDownKeys) : "" };
+        var labelHint = new TextBlock { Text = "Label shown while this layer is active", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
+        var labelBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.Label ?? "" };
 
         void UpdateFieldVisibility()
         {
@@ -530,13 +545,28 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         if (dlg.ShowDialog() != true) return;
         try
         {
-            ActionIconText.Text = ProfileStoreService.SaveIconFromBytes(File.ReadAllBytes(dlg.FileName));
+            SetActionIconRef(ProfileStoreService.SaveIconFromBytes(File.ReadAllBytes(dlg.FileName)));
             ActionChanged?.Invoke();
         }
         catch (Exception ex)
         {
             System.Windows.MessageBox.Show($"Couldn't load that image: {ex.Message}", "Icon Upload Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    /// <summary>Sets the real per-action icon reference and refreshes ActionIconText's friendly
+    /// label plus its thumbnail — the one place ActionIconText's displayed text gets written.</summary>
+    private void SetActionIconRef(string? value)
+    {
+        _actionIconRef = value ?? "";
+        ActionIconText.Text = FriendlyIconLabel(_actionIconRef);
+        var iconPath = ProfileStoreService.ResolveIconFilePath(_actionIconRef);
+        if (iconPath != null && File.Exists(iconPath))
+        {
+            try { ActionIconThumbnail.Source = new BitmapImage(new Uri(iconPath)); return; }
+            catch { /* fall through to blank */ }
+        }
+        ActionIconThumbnail.Source = null;
     }
 
     private void ToggleActionBuiltinIcons_Click(object sender, RoutedEventArgs e) =>
@@ -566,7 +596,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             };
             btn.Click += (s, e) =>
             {
-                ActionIconText.Text = "builtin:" + name;
+                SetActionIconRef("builtin:" + name);
                 ActionBuiltinIconsDrawer.Visibility = Visibility.Collapsed;
                 ActionChanged?.Invoke();
             };
@@ -641,6 +671,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             tb.TextChanged += (s, e) =>
             {
                 if (_suppressFilter) return;
+                _pathSelectedApp = null;
                 var query = tb.Text;
                 PathComboInput.ItemsSource = string.IsNullOrWhiteSpace(query)
                     ? _allApps
@@ -661,7 +692,10 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     {
         if (PathComboInput.SelectedItem is DiscoveredApp app)
         {
-            PathComboInput.Text = app.ExePath;
+            _pathSelectedApp = app;
+            _suppressFilter = true;
+            PathComboInput.Text = app.Name;
+            _suppressFilter = false;
             TryAutoExtractAppIcon(app.ExePath);
         }
         ActionChanged?.Invoke();
@@ -693,7 +727,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     {
         if (IsLongPress || !AllowChaining)
         {
-            ActionIconText.Text = hash;
+            SetActionIconRef(hash);
             ActionChanged?.Invoke();
         }
         IconExtracted?.Invoke(hash);
@@ -707,6 +741,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         };
         if (dlg.ShowDialog() == true)
         {
+            _pathSelectedApp = null;
             PathComboInput.Text = dlg.FileName;
             TryAutoExtractAppIcon(dlg.FileName);
             ActionChanged?.Invoke();
