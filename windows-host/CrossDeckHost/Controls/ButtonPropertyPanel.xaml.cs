@@ -97,6 +97,7 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
         _labelUserEdited = !string.IsNullOrWhiteSpace(button.Label);
         SetIconRef(button.Icon);
 
+        MainActionConfig.ForceDialMode = isDial;
         MainActionConfig.SetAction(button.Action);
         UpdateSecondaryActionSectionsForMainType(button.Action.Type);
 

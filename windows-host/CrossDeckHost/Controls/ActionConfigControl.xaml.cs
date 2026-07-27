@@ -170,18 +170,38 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
 
     private string? _forcedType;
 
-    /// <summary>Set by the dial-strip editor (dials have no Action Type dropdown — every dial IS
-    /// type "dial" implicitly). Hides ActionTypeCombo and locks GetAction()'s type to "dial".</summary>
+    // Two-way toggle (not a latch) since the docked panel reuses one instance across buttons.
     public bool ForceDialMode
     {
         set
         {
-            if (!value) return;
-            _forcedType = "dial";
-            ActionTypeCombo.Visibility = Visibility.Collapsed;
-            DialPanel.Visibility = Visibility.Visible;
-            DialProcessCombo.ItemsSource = DialController.GetAudioMixerSnapshot().Select(a => a.ProcessName).ToList();
+            _forcedType = value ? "dial" : null;
+            ActionTypeCombo.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
+            if (value)
+            {
+                CollapseAllTypePanels();
+                DialPanel.Visibility = Visibility.Visible;
+                DialProcessCombo.ItemsSource = DialController.GetAudioMixerSnapshot().Select(a => a.ProcessName).ToList();
+            }
+            else
+            {
+                DialPanel.Visibility = Visibility.Collapsed;
+            }
         }
+    }
+
+    // Shared by ForceDialMode and ActionTypeCombo_SelectionChanged, which bypasses each other.
+    private void CollapseAllTypePanels()
+    {
+        HotkeyPanel.Visibility = Visibility.Collapsed;
+        LaunchAppPanel.Visibility = Visibility.Collapsed;
+        MediaControlPanel.Visibility = Visibility.Collapsed;
+        OpenUrlPanel.Visibility = Visibility.Collapsed;
+        RunCommandPanel.Visibility = Visibility.Collapsed;
+        TextSnippetPanel.Visibility = Visibility.Collapsed;
+        FolderPanel.Visibility = Visibility.Collapsed;
+        MultiActionPanel.Visibility = Visibility.Collapsed;
+        DialPanel.Visibility = Visibility.Collapsed;
     }
 
     public ActionConfigControl()
@@ -616,15 +636,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     {
         if (HotkeyPanel == null) return; // UI not fully initialized
 
-        HotkeyPanel.Visibility = Visibility.Collapsed;
-        LaunchAppPanel.Visibility = Visibility.Collapsed;
-        MediaControlPanel.Visibility = Visibility.Collapsed;
-        OpenUrlPanel.Visibility = Visibility.Collapsed;
-        RunCommandPanel.Visibility = Visibility.Collapsed;
-        TextSnippetPanel.Visibility = Visibility.Collapsed;
-        FolderPanel.Visibility = Visibility.Collapsed;
-        MultiActionPanel.Visibility = Visibility.Collapsed;
-        DialPanel.Visibility = Visibility.Collapsed;
+        CollapseAllTypePanels();
 
         if (ActionTypeCombo.SelectedItem is ComboBoxItem selectedItem)
         {

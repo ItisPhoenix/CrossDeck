@@ -2866,7 +2866,7 @@ private fun EditButtonDialog(
                     // Don't lock labelUserEdited/iconUserSet on pick, or switching apps mid-session
                     // would freeze the label/icon on the first pick forever.
                     onAppPicked = { name -> if (!labelUserEdited) label = name; if (!iconUserSet) iconValue = null },
-                    onIconPicked = { icon -> if (!iconUserSet) iconValue = icon },
+                    onDialProcessPicked = { name, icon -> label = name.replaceFirstChar { it.uppercase() }; iconValue = icon },
                     forceDialMode = forceDialMode,
                     audioMixerApps = audioMixerApps,
                     onAudioMixerSubscribe = onAudioMixerSubscribe,
@@ -3397,7 +3397,8 @@ private fun ActionTypeEditor(
     authToken: String?,
     iconHashCache: Map<String, String>,
     onAppPicked: ((name: String) -> Unit)? = null,
-    onIconPicked: ((icon: String?) -> Unit)? = null,
+    // Always overwrites label+icon, unlike onAppPicked which respects the user-edit lock.
+    onDialProcessPicked: ((name: String, icon: String?) -> Unit)? = null,
     showIconPicker: Boolean = false,
     onIconUpload: (suspend (ByteArray) -> String?)? = null,
     allowChaining: Boolean = true,
@@ -3828,8 +3829,7 @@ private fun ActionTypeEditor(
                                                     state.dialProcess = ""
                                                 } else {
                                                     state.dialProcess = app.processName
-                                                    onAppPicked?.invoke(app.processName)
-                                                    onIconPicked?.invoke(app.icon)
+                                                    onDialProcessPicked?.invoke(app.processName, app.icon)
                                                 }
                                             }
                                         ) {

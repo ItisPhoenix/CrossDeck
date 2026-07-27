@@ -234,9 +234,20 @@ public static class DialController
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IMMDeviceEnumerator
     {
-        int NotImpl1();
+        [PreserveSig]
+        int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices);
         [PreserveSig]
         int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+    }
+
+    [Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDeviceCollection
+    {
+        [PreserveSig]
+        int GetCount(out int count);
+        [PreserveSig]
+        int Item(int index, out IMMDevice device);
     }
 
     [Guid("D666063F-1587-4E43-81F1-B948E807363F")]
@@ -275,45 +286,57 @@ public static class DialController
     // Per-app (session) volume control for the multi-volume feature — separate COM path from
     // the master IAudioEndpointVolume above. Fresh lookup every call, same reasoning as
     // GetVolumeObject(): sessions are transient, appearing/disappearing as apps play/stop audio.
-    private static IAudioSessionManager2? GetSessionManager()
+    // Enumerates ALL active render endpoints, not just the default — apps can own a session on a non-default one.
+    private static IEnumerable<IAudioSessionManager2> GetSessionManagers()
     {
-        try
-        {
-            var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
-            enumerator.GetDefaultAudioEndpoint(0, 1, out var device);
-            var iid = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
-            device.Activate(ref iid, 23, IntPtr.Zero, out var mgrObj);
-            return (IAudioSessionManager2)mgrObj;
-        }
-        catch { return null; }
-    }
+        IMMDeviceEnumerator? enumerator = null;
+        try { enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumerator()); } catch { }
+        if (enumerator == null) yield break;
+        if (enumerator.EnumAudioEndpoints(0 /*eRender*/, 1 /*DEVICE_STATE_ACTIVE*/, out var collection) != 0) yield break;
+        if (collection.GetCount(out int count) != 0) yield break;
 
-    /// <summary>Enumerates every real (non-system-sounds) audio session's control + owning
-    /// process name once — the shared loop behind every per-app query below, so the same
-    /// COM enumeration isn't duplicated per call site.</summary>
-    private static IEnumerable<(string ProcessName, uint Pid, IAudioSessionControl2 Control)> EnumerateAudioSessions()
-    {
-        var mgr = GetSessionManager();
-        if (mgr == null) yield break;
-        if (mgr.GetSessionEnumerator(out var sessionEnum) != 0) yield break;
-        if (sessionEnum.GetCount(out int count) != 0) yield break;
-
-        for (int i = 0; i < count; i++)
+        for (int d = 0; d < count; d++)
         {
-            string? processName = null;
-            uint pid = 0;
-            IAudioSessionControl2? session = null;
+            IAudioSessionManager2? mgr = null;
             try
             {
-                // GetSession's QueryInterface can throw per-session, must be inside the guard.
-                if (sessionEnum.GetSession(i, out session) != 0) continue;
-                if (session.IsSystemSoundsSession() == 0) continue; // S_OK (0) = is system sounds, skip
-                if (session.GetProcessId(out pid) != 0) continue;
-                using var proc = System.Diagnostics.Process.GetProcessById((int)pid);
-                processName = proc.ProcessName;
+                if (collection.Item(d, out var device) == 0)
+                {
+                    var iid = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+                    device.Activate(ref iid, 23, IntPtr.Zero, out var mgrObj);
+                    mgr = (IAudioSessionManager2)mgrObj;
+                }
             }
             catch { }
-            if (processName != null && session != null) yield return (processName, pid, session);
+            if (mgr != null) yield return mgr;
+        }
+    }
+
+    // Shared loop behind every per-app query below, across every active render endpoint.
+    private static IEnumerable<(string ProcessName, uint Pid, IAudioSessionControl2 Control)> EnumerateAudioSessions()
+    {
+        foreach (var mgr in GetSessionManagers())
+        {
+            if (mgr.GetSessionEnumerator(out var sessionEnum) != 0) continue;
+            if (sessionEnum.GetCount(out int count) != 0) continue;
+
+            for (int i = 0; i < count; i++)
+            {
+                string? processName = null;
+                uint pid = 0;
+                IAudioSessionControl2? session = null;
+                try
+                {
+                    // GetSession's QueryInterface can throw per-session, must be inside the guard.
+                    if (sessionEnum.GetSession(i, out session) != 0) continue;
+                    if (session.IsSystemSoundsSession() == 0) continue; // S_OK (0) = is system sounds, skip
+                    if (session.GetProcessId(out pid) != 0) continue;
+                    using var proc = System.Diagnostics.Process.GetProcessById((int)pid);
+                    processName = proc.ProcessName;
+                }
+                catch { }
+                if (processName != null && session != null) yield return (processName, pid, session);
+            }
         }
     }
 
