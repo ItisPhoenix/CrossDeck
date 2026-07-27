@@ -234,7 +234,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         {
             var matched = _allApps.FirstOrDefault(a => a.ExePath.Equals(action.Path, StringComparison.OrdinalIgnoreCase));
             PathComboInput.SelectedItem = matched;
-            if (matched == null) PathComboInput.Text = action.Path ?? "";
+            PathComboInput.Text = matched?.ExePath ?? action.Path ?? "";
         }
 
         string mediaCmd = action.MediaCommand ?? "PlayPause";
@@ -311,7 +311,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         switch (actionType)
         {
             case "hotkey":
-                action.Keys = HotkeyInput.Text.Split(',').mapStringList();
+                action.Keys = HotkeyInput.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList();
                 break;
             case "launch_app":
                 action.Path = string.IsNullOrEmpty(PathComboInput.Text)
@@ -363,8 +363,8 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                     action.DialTarget = dialTarget;
                     action.DialProcess = dialTarget == "app_volume" && !string.IsNullOrWhiteSpace(DialProcessCombo.Text)
                         ? DialProcessCombo.Text.Trim() : null;
-                    action.DialStepUpKeys = dialTarget == "keystroke_step" ? StepUpKeysInput.Text.Split(',').mapStringList() : null;
-                    action.DialStepDownKeys = dialTarget == "keystroke_step" ? StepDownKeysInput.Text.Split(',').mapStringList() : null;
+                    action.DialStepUpKeys = dialTarget == "keystroke_step" ? StepUpKeysInput.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList() : null;
+                    action.DialStepDownKeys = dialTarget == "keystroke_step" ? StepDownKeysInput.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList() : null;
                 }
                 break;
         }
@@ -406,8 +406,8 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                 Type = "dial",
                 DialTarget = target,
                 DialProcess = target == "app_volume" && !string.IsNullOrWhiteSpace(DialProcessCombo.Text) ? DialProcessCombo.Text.Trim() : null,
-                DialStepUpKeys = target == "keystroke_step" ? StepUpKeysInput.Text.Split(',').mapStringList() : null,
-                DialStepDownKeys = target == "keystroke_step" ? StepDownKeysInput.Text.Split(',').mapStringList() : null
+                DialStepUpKeys = target == "keystroke_step" ? StepUpKeysInput.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList() : null,
+                DialStepDownKeys = target == "keystroke_step" ? StepDownKeysInput.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList() : null
             });
         }
         UpdateDialStackVisibility(isStack);
@@ -508,8 +508,8 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             ActionChanged?.Invoke();
         };
         processBox.TextChanged += (s, e) => { layer.DialProcess = string.IsNullOrWhiteSpace(processBox.Text) ? null : processBox.Text.Trim(); ActionChanged?.Invoke(); };
-        upKeysBox.TextChanged += (s, e) => { layer.DialStepUpKeys = upKeysBox.Text.Split(',').mapStringList(); ActionChanged?.Invoke(); };
-        downKeysBox.TextChanged += (s, e) => { layer.DialStepDownKeys = downKeysBox.Text.Split(',').mapStringList(); ActionChanged?.Invoke(); };
+        upKeysBox.TextChanged += (s, e) => { layer.DialStepUpKeys = upKeysBox.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList(); ActionChanged?.Invoke(); };
+        downKeysBox.TextChanged += (s, e) => { layer.DialStepDownKeys = downKeysBox.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList(); ActionChanged?.Invoke(); };
         labelBox.TextChanged += (s, e) => { layer.Label = string.IsNullOrWhiteSpace(labelBox.Text) ? null : labelBox.Text; ActionChanged?.Invoke(); };
 
         stack.Children.Add(processHint);
@@ -678,7 +678,9 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
     private void TryAutoExtractAppIcon(string exePath)
     {
         if (!ExtractIconOnSelect) return;
-        var hash = ProfileStoreService.ExtractAndSaveIcon(exePath);
+        var hash = exePath.StartsWith("uwp:", StringComparison.OrdinalIgnoreCase)
+            ? ProfileStoreService.ExtractAndSaveUwpIcon(exePath.Substring(4))
+            : ProfileStoreService.ExtractAndSaveIcon(exePath);
         if (hash != null) ApplyExtractedIcon(hash);
     }
 

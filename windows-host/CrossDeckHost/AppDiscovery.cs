@@ -1,15 +1,30 @@
+using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using CrossDeckHost.ProfileStore;
 
 namespace CrossDeckHost;
 
 /// <summary>One installed app found via Start Menu shortcut enumeration.</summary>
-public record DiscoveredApp(string Name, string ExePath)
+public record DiscoveredApp(string Name, string ExePath) : INotifyPropertyChanged
 {
+    private System.Windows.Media.ImageSource? _icon;
+
     /// <summary>Populated on first use by the picker UI, not during discovery — extracting an
-    /// icon for every installed app upfront would stutter on a machine with 100+ apps.</summary>
-    public System.Windows.Media.ImageSource? Icon { get; set; }
+    /// icon for every installed app upfront would stutter on a machine with 100+ apps. Raises
+    /// PropertyChanged so the dropdown's Image binding (bound before Icon is loaded) refreshes.</summary>
+    public System.Windows.Media.ImageSource? Icon
+    {
+        get => _icon;
+        set
+        {
+            _icon = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Icon)));
+        }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
 }
 
 /// <summary>
@@ -24,15 +39,36 @@ public static class AppDiscovery
 {
     private static readonly Dictionary<string, System.Windows.Media.ImageSource?> _iconCache = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Extracts and caches a small icon for an app row. UWP apps (uwp: prefix) aren't
-    /// covered here — skipped, not worth the extra Shell API surface for a picker thumbnail.</summary>
+    /// <summary>Extracts and caches a small icon for an app row, including UWP apps (uwp: prefix)
+    /// via the same IShellItemImageFactory/asset lookup already used for the Android picker.</summary>
     public static System.Windows.Media.ImageSource? GetOrLoadIcon(string exePath)
     {
         if (_iconCache.TryGetValue(exePath, out var cached)) return cached;
         if (exePath.StartsWith("uwp:", StringComparison.OrdinalIgnoreCase))
         {
-            _iconCache[exePath] = null;
-            return null;
+            System.Windows.Media.ImageSource? uwpResult = null;
+            try
+            {
+                using var tile = UwpIcon.ExtractTile(exePath.Substring(4));
+                if (tile != null)
+                {
+                    var hbitmap = tile.GetHbitmap();
+                    try
+                    {
+                        uwpResult = System.Windows.Interop.Imaging.CreateBitmapSourceFromHBitmap(
+                            hbitmap, IntPtr.Zero, System.Windows.Int32Rect.Empty,
+                            System.Windows.Media.Imaging.BitmapSizeOptions.FromEmptyOptions());
+                        uwpResult.Freeze();
+                    }
+                    finally
+                    {
+                        DeleteObject(hbitmap);
+                    }
+                }
+            }
+            catch { /* not every package resolves — row just shows no icon */ }
+            _iconCache[exePath] = uwpResult;
+            return uwpResult;
         }
 
         System.Windows.Media.ImageSource? result = null;
@@ -52,6 +88,9 @@ public static class AppDiscovery
         _iconCache[exePath] = result;
         return result;
     }
+
+    [DllImport("gdi32.dll")]
+    private static extern bool DeleteObject(IntPtr hObject);
 
     // Start Menu clutter that isn't something you'd want to assign to a deck button.
     private static readonly string[] ExcludeNameSubstrings =

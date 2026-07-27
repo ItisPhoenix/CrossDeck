@@ -23,6 +23,8 @@ public static class ThemeManager
     public static void ApplyTheme(Window window)
     {
         UpdateAccentResource();
+        // Ad-hoc code-built dialogs never set their own Background, so it defaults to light.
+        window.Background = Brush("Brush.Void");
     }
 
     /// <summary>Looks up a design token brush (e.g. "Brush.Void") from Resources/Colors.xaml.</summary>

@@ -190,7 +190,7 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
 
         var action = type switch
         {
-            "hotkey" => new ActionModel { Type = type, Keys = value.Split(',').mapStringList() },
+            "hotkey" => new ActionModel { Type = type, Keys = value.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList() },
             "launch_app" => new ActionModel { Type = type, Path = value },
             "media_control" => new ActionModel { Type = type, MediaCommand = value },
             "open_url" => new ActionModel { Type = type, Url = value },

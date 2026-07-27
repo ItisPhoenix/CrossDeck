@@ -30,6 +30,16 @@ public partial class EditorWindow : Window
     private readonly Server.PairingManager? _pairing;
     private readonly Server.AutoProfileWatcher? _profileWatcher;
 
+    // Currently-selected cell being edited in the property panel — null when nothing is selected.
+    private ButtonModel? _selectedModel;
+    private bool _selectedIsNew;
+    private bool _selectedIsDial;
+    // Deep clone taken at selection time (existing cells only) — used for the FIRST auto-apply's
+    // undo snapshot only, not every keystroke, so Undo restores "before I started editing" instead
+    // of "one keystroke ago."
+    private ButtonModel? _preEditSnapshot;
+    private bool _snapshotShownThisSelection;
+
     public EditorWindow(ProfileStoreService profileStore, Server.WebSocketServer? server, Server.PairingManager? pairing = null, Server.AutoProfileWatcher? profileWatcher = null)
     {
         InitializeComponent();
@@ -57,16 +67,8 @@ public partial class EditorWindow : Window
             ThemeManager.AccentColor = _profileStore.Set.AccentColor;
             ThemeManager.ApplyTheme(this);
             RefreshProfileSelector();
-            RefreshProfileTabStrip();
             RefreshGrid();
             UpdateConnectionStatusCard();
-
-            // Set auto-run checkbox initial state without triggering selection handler
-            RunOnBootCheck.Checked -= RunOnBootCheck_Changed;
-            RunOnBootCheck.Unchecked -= RunOnBootCheck_Changed;
-            RunOnBootCheck.IsChecked = _profileStore.Set.RunOnBoot;
-            RunOnBootCheck.Checked += RunOnBootCheck_Changed;
-            RunOnBootCheck.Unchecked += RunOnBootCheck_Changed;
         };
         Closed += (s, e) =>
         {
@@ -78,6 +80,7 @@ public partial class EditorWindow : Window
                 _server.ClientAuthenticated -= OnClientConnectionStatusChanged;
                 _server.ClientDisconnected -= OnClientConnectionStatusChanged;
             }
+            PropertyPanel.Dispose();
         };
 
         // Persist window geometry on every move/resize, and re-fit the grid's cell size to
@@ -85,6 +88,11 @@ public partial class EditorWindow : Window
         // populates ButtonGridScroller's real size).
         LocationChanged += (s, e) => WindowSettings.Save(this);
         SizeChanged     += (s, e) => { WindowSettings.Save(this); RebuildGrid(); };
+
+        PropertyPanel.Applied += OnPropertyPanelApplied;
+        PropertyPanel.DeleteRequested += OnPropertyPanelDeleteRequested;
+        PropertyPanel.EnterFolderRequested += OnPropertyPanelEnterFolderRequested;
+        PairingPopup.PlacementTarget = ConnectionChip;
     }
 
     private void OnProfileChangedOnThread(Profile profile)
@@ -92,7 +100,6 @@ public partial class EditorWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             RefreshProfileSelector();
-            RefreshProfileTabStrip();
             RefreshGrid();
         }));
     }
@@ -102,7 +109,6 @@ public partial class EditorWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             RefreshProfileSelector();
-            RefreshProfileTabStrip();
             RefreshGrid();
         }));
     }
@@ -113,14 +119,12 @@ public partial class EditorWindow : Window
         ProfileListContainer.Children.Clear();
         var activeProfileId = _profileStore.Set.ActiveProfileId;
 
-        // Associated process textbox
         TriggerProcessTxt.Text = _profileStore.Current.TriggerProcess ?? "";
 
         foreach (var profile in _profileStore.Set.Profiles)
         {
             var isSelected = profile.ProfileId == activeProfileId;
 
-            // Card container
             var border = new Border
             {
                 Background = ThemeManager.Brush(isSelected ? "Brush.Panel" : "Brush.Void"),
@@ -134,7 +138,6 @@ public partial class EditorWindow : Window
 
             var mainStack = new StackPanel();
 
-            // Name & Capacity header
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -145,13 +148,12 @@ public partial class EditorWindow : Window
                 Foreground = ThemeManager.Brush("Brush.Paper"),
                 FontWeight = System.Windows.FontWeights.SemiBold,
                 FontSize = 12.5,
-                VerticalAlignment = System.Windows.VerticalAlignment.Center
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis
             };
             Grid.SetColumn(nameTxt, 0);
             grid.Children.Add(nameTxt);
 
-            // Root-page count, not the whole profile — folders are separate 20-capped pages of
-            // their own now, so a single profile-wide fraction wouldn't mean anything.
             int buttonCount = profile.Buttons?.Count(b => b.ParentFolderId == null) ?? 0;
             int totalSlots = 20;
             var capTxt = new TextBlock
@@ -159,43 +161,15 @@ public partial class EditorWindow : Window
                 Text = $"{buttonCount}/{totalSlots}",
                 Foreground = ThemeManager.Brush("Brush.Mist"),
                 FontSize = 10.5,
-                VerticalAlignment = System.Windows.VerticalAlignment.Center
+                VerticalAlignment = System.Windows.VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0)
             };
             Grid.SetColumn(capTxt, 1);
             grid.Children.Add(capTxt);
 
             mainStack.Children.Add(grid);
-
-            // Mini previews row (First 4 buttons)
-            var miniStack = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-            if (profile.Buttons != null)
-            {
-                var buttonsWithIcons = profile.Buttons.Where(b => !string.IsNullOrEmpty(b.Icon)).Take(4).ToList();
-                foreach (var btn in buttonsWithIcons)
-                {
-                    try
-                    {
-                        var resolvedPath = ProfileStoreService.ResolveIconFilePath(btn.Icon);
-                        if (File.Exists(resolvedPath))
-                        {
-                            var img = new System.Windows.Controls.Image
-                            {
-                                Width = 16,
-                                Height = 16,
-                                Margin = new Thickness(0, 0, 4, 0),
-                                Source = new BitmapImage(new Uri(resolvedPath))
-                            };
-                            miniStack.Children.Add(img);
-                        }
-                    }
-                    catch { /* skip */ }
-                }
-            }
-            mainStack.Children.Add(miniStack);
-
             border.Child = mainStack;
 
-            // Interactive hovers
             border.MouseEnter += (s, e) =>
             {
                 if (profile.ProfileId != _profileStore.Set.ActiveProfileId)
@@ -212,78 +186,70 @@ public partial class EditorWindow : Window
                     border.BorderBrush = ThemeManager.Brush("Brush.Hairline");
                 }
             };
-            border.MouseLeftButtonDown += (s, e) =>
-            {
-                SwitchToProfile(profile.ProfileId);
-            };
+            border.MouseLeftButtonDown += (s, e) => SwitchToProfile(profile.ProfileId);
 
-            // Right-click context menu: Export / Import profile
             var ctx = new ContextMenu();
-
+            var renameItem = new MenuItem { Header = "✏️ Rename…" };
+            renameItem.Click += (s, e) => { SwitchToProfile(profile.ProfileId); RenameProfileButton_Click(s, e); };
+            var deleteItem = new MenuItem { Header = "🗑️ Delete Page" };
+            deleteItem.Click += (s, e) => { SwitchToProfile(profile.ProfileId); DeleteProfileButton_Click(s, e); };
             var exportItem = new MenuItem { Header = "📤 Export Profile…" };
             exportItem.Click += (s, e) => ExportProfile(profile);
-
             var importItem = new MenuItem { Header = "📥 Import Profile…" };
             importItem.Click += (s, e) => ImportProfile();
-
-            ctx.Items.Add(exportItem);
+            ctx.Items.Add(renameItem);
+            ctx.Items.Add(deleteItem);
             ctx.Items.Add(new Separator());
+            ctx.Items.Add(exportItem);
             ctx.Items.Add(importItem);
             border.ContextMenu = ctx;
 
             ProfileListContainer.Children.Add(border);
         }
-    }
 
-    private void RefreshProfileTabStrip()
-    {
-        if (ProfileTabStrip == null) return;
-        ProfileTabStrip.Children.Clear();
-        var activeProfileId = _profileStore.Set.ActiveProfileId;
-
-        foreach (var profile in _profileStore.Set.Profiles)
+        // Trailing "+ New Page" row — replaces the old dedicated sidebar button.
+        var addRow = new Border
         {
-            var isSelected = profile.ProfileId == activeProfileId;
-            var tab = new Border
+            Padding = new Thickness(10),
+            Margin = new Thickness(0, 0, 0, 8),
+            CornerRadius = new CornerRadius(10),
+            BorderBrush = ThemeManager.Brush("Brush.Hairline"),
+            BorderThickness = new Thickness(1),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Child = new TextBlock
             {
-                Background = ThemeManager.Brush(isSelected ? "Brush.Panel" : "Brush.Void"),
-                BorderBrush = isSelected ? ThemeManager.Brush("Brush.Accent") : ThemeManager.Brush("Brush.Hairline"),
-                BorderThickness = new Thickness(isSelected ? 1.5 : 1),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(12, 6, 12, 6),
-                Margin = new Thickness(0, 0, 6, 0),
-                Cursor = System.Windows.Input.Cursors.Hand,
-                Child = new TextBlock
-                {
-                    Text = profile.Name,
-                    Foreground = ThemeManager.Brush(isSelected ? "Brush.Paper" : "Brush.Mist"),
-                    FontWeight = isSelected ? System.Windows.FontWeights.SemiBold : System.Windows.FontWeights.Normal,
-                    FontSize = 12.5
-                }
-            };
-            tab.MouseLeftButtonDown += (s, e) => SwitchToProfile(profile.ProfileId);
+                Text = "+ New Page",
+                Foreground = ThemeManager.Brush("Brush.Accent"),
+                FontSize = 12.5,
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center
+            }
+        };
+        addRow.MouseLeftButtonDown += (s, e) => NewProfileButton_Click(s, e);
+        ProfileListContainer.Children.Add(addRow);
 
-            var ctx = new ContextMenu();
-            var exportItem = new MenuItem { Header = "📤 Export Profile…" };
-            exportItem.Click += (s, e) => ExportProfile(profile);
-            var importItem = new MenuItem { Header = "📥 Import Profile…" };
-            importItem.Click += (s, e) => ImportProfile();
-            ctx.Items.Add(exportItem);
-            ctx.Items.Add(new Separator());
-            ctx.Items.Add(importItem);
-            tab.ContextMenu = ctx;
-
-            ProfileTabStrip.Children.Add(tab);
-        }
+        // Secondary "or import a preset" link — replaces the old dedicated sidebar button.
+        var presetLink = new TextBlock
+        {
+            Text = "Import a preset…",
+            Foreground = ThemeManager.Brush("Brush.Mist"),
+            FontSize = 11,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            TextDecorations = TextDecorations.Underline,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+        presetLink.MouseLeftButtonDown += (s, e) => AddPresetProfileButton_Click(s, e);
+        ProfileListContainer.Children.Add(presetLink);
     }
 
     private void SwitchToProfile(string profileId)
     {
+        PropertyPanel.Clear();
+        _selectedModel = null;
         _currentFolderId = null;
         _folderHistory.Clear();
         _profileStore.SwitchProfile(profileId);
         RefreshProfileSelector();
-        RefreshProfileTabStrip();
         RefreshGridWithFade();
     }
 
@@ -341,7 +307,7 @@ public partial class EditorWindow : Window
         dialog.Loaded += (s, e) => ThemeManager.ApplyTheme(dialog);
 
         var stack = new StackPanel { Margin = new Thickness(12) };
-        stack.Children.Add(new TextBlock { Text = "Profile Name:", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
+        stack.Children.Add(new TextBlock { Text = "Profile Name:", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 4) });
         var input = new System.Windows.Controls.TextBox { Padding = new Thickness(4), Margin = new Thickness(0, 0, 0, 12) };
         stack.Children.Add(input);
 
@@ -391,7 +357,7 @@ public partial class EditorWindow : Window
         dialog.Loaded += (s, e) => ThemeManager.ApplyTheme(dialog);
 
         var stack = new StackPanel { Margin = new Thickness(12) };
-        stack.Children.Add(new TextBlock { Text = "New Profile Name:", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 4) });
+        stack.Children.Add(new TextBlock { Text = "New Profile Name:", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 4) });
         var input = new System.Windows.Controls.TextBox { Text = _profileStore.Current.Name, Padding = new Thickness(4), Margin = new Thickness(0, 0, 0, 12) };
         stack.Children.Add(input);
 
@@ -496,7 +462,6 @@ public partial class EditorWindow : Window
 
         // --- Breadcrumb panel ---
         BreadcrumbPanel.Visibility = _currentFolderId != null ? Visibility.Visible : Visibility.Collapsed;
-        ProfileTabScroller.Visibility = _currentFolderId != null ? Visibility.Collapsed : Visibility.Visible;
         BreadcrumbPanel.Children.Clear();
         if (_currentFolderId == null)
         {
@@ -865,10 +830,9 @@ public partial class EditorWindow : Window
         var dials = _profileStore.Current.Dials.Where(d => d.ParentFolderId == _currentFolderId).ToList();
         var dialModel = index < dials.Count ? dials[index] : null;
 
-        bool isNew = false;
-        if (dialModel == null)
+        bool isNew = dialModel == null;
+        if (isNew)
         {
-            isNew = true;
             dialModel = new ButtonModel
             {
                 ButtonId = $"b_{Guid.NewGuid().ToString().Substring(0, 8)}",
@@ -877,25 +841,14 @@ public partial class EditorWindow : Window
             };
         }
 
-        var editorDlg = new ButtonEditorWindow(dialModel) { Owner = this };
-        editorDlg.MainActionConfig.ForceDialMode = true;
-        if (isNew) editorDlg.DeleteBtn.Visibility = Visibility.Collapsed;
+        _selectedModel = dialModel;
+        _selectedIsNew = isNew;
+        _selectedIsDial = true;
+        _preEditSnapshot = null; // dials never had undo support before this redesign either
+        _snapshotShownThisSelection = true; // suppresses the undo-snapshot branch for dials
 
-        if (editorDlg.ShowDialog() == true)
-        {
-            if (editorDlg.IsDeleted)
-            {
-                if (!isNew) _profileStore.DeleteButton(_profileStore.Set.ActiveProfileId, dialModel.ButtonId, "dials");
-            }
-            else
-            {
-                _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, editorDlg.Button, "dials");
-            }
-
-            _profileStore.Save();
-            _profileStore.NotifyChanged();
-            RebuildDialRow();
-        }
+        var allApps = AppDiscovery.DiscoverApps();
+        PropertyPanel.LoadButton(dialModel, isNew, isDial: true, allApps);
     }
 
     /// <summary>Closed-grid preview for a multi-action button with no custom icon set — one cell
@@ -1079,10 +1032,9 @@ public partial class EditorWindow : Window
             .ToList();
         var buttonModel = index < scopeButtons.Count ? scopeButtons[index] : null;
 
-        bool isNew = false;
-        if (buttonModel == null)
+        bool isNew = buttonModel == null;
+        if (isNew)
         {
-            isNew = true;
             buttonModel = new ButtonModel
             {
                 ButtonId = $"b_{Guid.NewGuid().ToString().Substring(0, 8)}",
@@ -1091,53 +1043,97 @@ public partial class EditorWindow : Window
             };
         }
 
-        // Open ButtonEditorWindow modally
-        var editorDlg = new ButtonEditorWindow(buttonModel);
-        editorDlg.Owner = this;
+        _selectedModel = buttonModel;
+        _selectedIsNew = isNew;
+        _selectedIsDial = false;
+        _preEditSnapshot = isNew ? null : JsonSerializer.Deserialize<ButtonModel>(JsonSerializer.Serialize(buttonModel));
+        _snapshotShownThisSelection = false;
 
-        // Hide delete button if it's a new cell
-        if (isNew)
-        {
-            editorDlg.DeleteBtn.Visibility = Visibility.Collapsed;
-        }
+        var allApps = AppDiscovery.DiscoverApps();
+        PropertyPanel.LoadButton(buttonModel, isNew, isDial: false, allApps);
+    }
 
-        if (editorDlg.ShowDialog() == true)
+    private void OnPropertyPanelApplied(ButtonModel updated)
+    {
+        if (_selectedIsDial)
         {
-            if (editorDlg.IsDeleted)
+            if (_selectedIsNew)
             {
-                if (!isNew)
-                {
-                    // Snapshot for undo before deleting
-                    SnapshotForUndo(buttonModel, isDelete: true);
-                    _profileStore.DeleteButton(_profileStore.Set.ActiveProfileId, buttonModel.ButtonId);
-                }
+                _profileStore.Current.Dials.Add(updated);
+                _selectedIsNew = false;
             }
             else
             {
-                if (isNew)
-                {
-                    _profileStore.Current.Buttons.Add(editorDlg.Button);
-                }
-                else
-                {
-                    // Snapshot for undo before overwriting
-                    SnapshotForUndo(buttonModel, isDelete: false);
-                    _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, editorDlg.Button);
-                }
-
-                // If user clicked "Enter Folder", automatically descend into it
-                if (editorDlg.EnterFolderRequested && editorDlg.Button.Action.Type == "open_folder" && !string.IsNullOrEmpty(editorDlg.Button.Action.TargetFolderId))
-                {
-                    _currentFolderId = editorDlg.Button.Action.TargetFolderId;
-                    _folderHistory.Push((editorDlg.Button.Action.TargetFolderId, editorDlg.Button.Label));
-                }
+                _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, updated, "dials");
             }
+            _profileStore.Save();
+            _profileStore.NotifyChanged();
+            RebuildDialRow();
+            return;
+        }
 
+        if (_selectedIsNew)
+        {
+            _profileStore.Current.Buttons.Add(updated);
+            _selectedIsNew = false;
+        }
+        else
+        {
+            if (!_snapshotShownThisSelection && _preEditSnapshot != null)
+            {
+                _lastUndoSnapshot = _preEditSnapshot;
+                _isUndoDelete = false;
+                ShowUndoToast($"Edited \"{_preEditSnapshot.Label}\"");
+                _snapshotShownThisSelection = true;
+            }
+            _profileStore.UpdateButton(_profileStore.Set.ActiveProfileId, updated);
+        }
+
+        _profileStore.Save();
+        _profileStore.NotifyChanged();
+        RefreshGrid();
+        RefreshProfileSelector();
+    }
+
+    private void OnPropertyPanelDeleteRequested()
+    {
+        if (_selectedModel == null || _selectedIsNew) return;
+
+        var result = System.Windows.MessageBox.Show(this,
+            $"Delete this {(_selectedIsDial ? "dial" : "button")}? This can't be undone.", "Delete",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+        if (result != MessageBoxResult.Yes) return;
+
+        if (_selectedIsDial)
+        {
+            _profileStore.DeleteButton(_profileStore.Set.ActiveProfileId, _selectedModel.ButtonId, "dials");
+            _profileStore.Save();
+            _profileStore.NotifyChanged();
+            RebuildDialRow();
+        }
+        else
+        {
+            SnapshotForUndo(_selectedModel, isDelete: true);
+            _profileStore.DeleteButton(_profileStore.Set.ActiveProfileId, _selectedModel.ButtonId);
             _profileStore.Save();
             _profileStore.NotifyChanged();
             RefreshGrid();
             RefreshProfileSelector();
-            RefreshProfileTabStrip();
+        }
+
+        _selectedModel = null;
+        PropertyPanel.Clear();
+    }
+
+    private void OnPropertyPanelEnterFolderRequested()
+    {
+        if (_selectedModel?.Action.Type == "open_folder" && !string.IsNullOrEmpty(_selectedModel.Action.TargetFolderId))
+        {
+            _currentFolderId = _selectedModel.Action.TargetFolderId;
+            _folderHistory.Push((_selectedModel.Action.TargetFolderId, _selectedModel.Label));
+            _selectedModel = null;
+            PropertyPanel.Clear();
+            RefreshGrid();
         }
     }
 
@@ -1186,7 +1182,6 @@ public partial class EditorWindow : Window
         _profileStore.NotifyChanged();
         RefreshGrid();
         RefreshProfileSelector();
-        RefreshProfileTabStrip();
 
         _lastUndoSnapshot = null;
         UndoToastCard.Visibility = Visibility.Collapsed;
@@ -1340,7 +1335,6 @@ public partial class EditorWindow : Window
                 _profileStore.ReorderButtons(_profileStore.Set.ActiveProfileId, _currentFolderId, scopeButtons.Select(b => b.ButtonId).ToList());
                 RefreshGrid();
                 RefreshProfileSelector();
-                RefreshProfileTabStrip();
             }
         }
     }
@@ -1365,13 +1359,13 @@ public partial class EditorWindow : Window
 
         bool isConnected = _server != null && _server.IsClientConnected;
         DeviceNameText.Text = isConnected ? (_server!.ConnectedDeviceName ?? "Android Client") : "Offline";
-        ConnectionDetailsText.Text = isConnected ? $"IP: {_server!.LocalIpAddress}:{_server!.Port}" : "Waiting for client...";
         ConnectionDot.Fill = ThemeManager.Brush(isConnected ? "Brush.Go" : "Brush.Alarm");
 
         // Inline pairing details replace the old separate PairingWindow — shown only while
         // no phone is connected.
         bool showPairing = !isConnected && _pairing != null && _server != null;
         PairingPanel.Visibility = showPairing ? Visibility.Visible : Visibility.Collapsed;
+        if (!showPairing) PairingPopup.IsOpen = false;
         if (showPairing)
         {
             PairingAddressText.Text = $"{_server!.LocalIpAddress}:{_server.Port}";
@@ -1384,6 +1378,12 @@ public partial class EditorWindow : Window
     {
         _pairing?.GenerateNewPin();
         UpdateConnectionStatusCard();
+    }
+
+    private void ConnectionChip_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (PairingPanel.Children.Count == 0) return; // nothing to show (e.g. already connected)
+        PairingPopup.IsOpen = !PairingPopup.IsOpen;
     }
 
     private string? _lastQrContent;
@@ -1460,6 +1460,8 @@ public partial class EditorWindow : Window
 
     private void BackButton_Click(object sender, RoutedEventArgs e)
     {
+        PropertyPanel.Clear();
+        _selectedModel = null;
         if (_folderHistory.Count > 0)
         {
             _folderHistory.Pop();
@@ -1469,32 +1471,128 @@ public partial class EditorWindow : Window
         }
     }
 
-    private void AccentCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void SettingsGearButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is System.Windows.Controls.ComboBox combo && combo.SelectedItem is System.Windows.Controls.ComboBoxItem item)
+        var dialog = new Window
         {
-            var newColor = item.Tag?.ToString();
-            if (!string.IsNullOrEmpty(newColor))
+            Title = "Settings",
+            Width = 320,
+            SizeToContent = SizeToContent.Height,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = this,
+            ResizeMode = ResizeMode.NoResize
+        };
+        dialog.Loaded += (s, e) => ThemeManager.ApplyTheme(dialog);
+
+        var stack = new StackPanel { Margin = new Thickness(16) };
+
+        stack.Children.Add(new TextBlock { Text = "Theme", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 6) });
+        var accentCombo = new System.Windows.Controls.ComboBox { Height = 28, FontSize = 11, Margin = new Thickness(0, 0, 0, 16) };
+        var accentOptions = new (string Name, string Hex)[]
+        {
+            ("Neon Cyan", "#00E5FF"), ("Neon Purple", "#8b5cf6"), ("Cyberpunk Yellow", "#ffb703"),
+            ("Toxic Green", "#39FF14"), ("Crimson Red", "#e63946")
+        };
+        foreach (var (name, hex) in accentOptions)
+        {
+            var item = new System.Windows.Controls.ComboBoxItem { Content = name, Tag = hex };
+            accentCombo.Items.Add(item);
+            if (string.Equals(hex, _profileStore.Set.AccentColor, StringComparison.OrdinalIgnoreCase))
+                accentCombo.SelectedItem = item;
+        }
+        accentCombo.SelectionChanged += (s, e) =>
+        {
+            if (accentCombo.SelectedItem is System.Windows.Controls.ComboBoxItem item && item.Tag is string hex)
             {
-                _profileStore.Set.AccentColor = newColor;
+                _profileStore.Set.AccentColor = hex;
                 _profileStore.Save();
-                ThemeManager.AccentColor = newColor;
-                foreach (Window win in System.Windows.Application.Current.Windows)
-                {
-                    ThemeManager.ApplyTheme(win);
-                }
-                
-                // Refresh grid and sidebar to paint active accent color
+                ThemeManager.AccentColor = hex;
+                foreach (Window win in System.Windows.Application.Current.Windows) ThemeManager.ApplyTheme(win);
                 RefreshGrid();
                 RefreshProfileSelector();
-                RefreshProfileTabStrip();
             }
+        };
+        stack.Children.Add(accentCombo);
+
+        var runOnBootCheck = new System.Windows.Controls.CheckBox
+        {
+            Content = "Start CrossDeck on PC startup",
+            FontSize = 11,
+            IsChecked = _profileStore.Set.RunOnBoot,
+            Margin = new Thickness(0, 0, 0, 16)
+        };
+        runOnBootCheck.Checked += RunOnBootCheck_Changed;
+        runOnBootCheck.Unchecked += RunOnBootCheck_Changed;
+        stack.Children.Add(runOnBootCheck);
+
+        bool isConnected = _server != null && _server.IsClientConnected;
+        if (!isConnected && _pairing != null && _server != null)
+        {
+            stack.Children.Add(new TextBlock { Text = "Pairing", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 6) });
+            var qrImage = new System.Windows.Controls.Image { Width = 120, Height = 120, Stretch = Stretch.Uniform, Source = QrImage.Source };
+            stack.Children.Add(new Border
+            {
+                Background = System.Windows.Media.Brushes.White, CornerRadius = new CornerRadius(8), Padding = new Thickness(6),
+                HorizontalAlignment = System.Windows.HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 10),
+                Child = qrImage
+            });
+            var addrRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+            addrRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            addrRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            addrRow.Children.Add(new TextBlock { Text = "ADDRESS", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11, FontWeight = FontWeights.Bold });
+            var addrValue = new TextBlock { Text = PairingAddressText.Text, Foreground = ThemeManager.Brush("Brush.Accent"), FontSize = 12, HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+            Grid.SetColumn(addrValue, 1);
+            addrRow.Children.Add(addrValue);
+            stack.Children.Add(addrRow);
+
+            var pinRow = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+            pinRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            pinRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            pinRow.Children.Add(new TextBlock { Text = "PIN", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11, FontWeight = FontWeights.Bold });
+            var pinValue = new TextBlock { Text = PairingPinText.Text, Foreground = ThemeManager.Brush("Brush.VoltViolet"), FontSize = 16, FontWeight = FontWeights.Bold, HorizontalAlignment = System.Windows.HorizontalAlignment.Right };
+            Grid.SetColumn(pinValue, 1);
+            pinRow.Children.Add(pinValue);
+            stack.Children.Add(pinRow);
+
+            stack.Children.Add(new TextBlock
+            {
+                Text = "Scan the QR in the phone app, or enter the address + PIN. Same WiFi required.",
+                Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 8)
+            });
+            var regenBtn = new System.Windows.Controls.Button { Content = "🔄 New PIN", Margin = new Thickness(0, 0, 0, 16) };
+            regenBtn.Click += (s, e) =>
+            {
+                _pairing?.GenerateNewPin();
+                UpdateConnectionStatusCard();
+                qrImage.Source = QrImage.Source;
+                addrValue.Text = PairingAddressText.Text;
+                pinValue.Text = PairingPinText.Text;
+            };
+            stack.Children.Add(regenBtn);
         }
+
+        var aboutRow = new Grid();
+        aboutRow.Children.Add(new TextBlock
+        {
+            Text = "About", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11,
+            Cursor = System.Windows.Input.Cursors.Hand, TextDecorations = TextDecorations.Underline,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Left
+        });
+        ((TextBlock)aboutRow.Children[0]).MouseLeftButtonDown += AboutLink_Click;
+        aboutRow.Children.Add(new TextBlock
+        {
+            Text = "v0.3.5-beta", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right
+        });
+        stack.Children.Add(aboutRow);
+
+        dialog.Content = stack;
+        dialog.ShowDialog();
     }
 
     private void RunOnBootCheck_Changed(object sender, RoutedEventArgs e)
     {
-        bool runOnBoot = RunOnBootCheck.IsChecked == true;
+        bool runOnBoot = sender is System.Windows.Controls.CheckBox cb && cb.IsChecked == true;
         _profileStore.Set.RunOnBoot = runOnBoot;
         _profileStore.Save();
 
