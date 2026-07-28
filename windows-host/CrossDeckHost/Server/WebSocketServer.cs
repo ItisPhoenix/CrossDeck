@@ -415,8 +415,8 @@ public class WebSocketServer
             _ => button.Action
         };
 
-        // A tap on one tile inside the multi-action popup runs just that sub-action, not the chain.
-        if (stepIndex is int idx && action.Type == "multi_action" && action.Actions != null && idx >= 0 && idx < action.Actions.Count)
+        // A tap on one tile inside the multi-action or button-group popup runs just that sub-action.
+        if (stepIndex is int idx && (action.Type == "multi_action" || action.Type == "button_group") && action.Actions != null && idx >= 0 && idx < action.Actions.Count)
             action = action.Actions[idx];
 
         _ = Task.Run(async () =>
