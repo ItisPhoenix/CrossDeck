@@ -32,8 +32,28 @@ public partial class ActionStepListControl : System.Windows.Controls.UserControl
             ManualAddRow.Visibility = value ? Visibility.Collapsed : Visibility.Visible;
             RecordMacroButton.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
             RecordMacroHint.Visibility = value && _macroRecorder.IsRecording ? Visibility.Visible : Visibility.Collapsed;
+            MacroSpeedRow.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
         }
     }
+
+    /// <summary>Raised when the playback speed changes, so the docked panel's auto-apply picks it up.</summary>
+    public event Action? ActionChanged;
+
+    public double MacroSpeed
+    {
+        get => double.TryParse((MacroSpeedCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString(), System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 1.0;
+        set
+        {
+            var target = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            foreach (ComboBoxItem item in MacroSpeedCombo.Items)
+            {
+                if (item.Tag?.ToString() == target) { MacroSpeedCombo.SelectedItem = item; return; }
+            }
+            MacroSpeedCombo.SelectedIndex = 0;
+        }
+    }
+
+    private void MacroSpeedCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) => ActionChanged?.Invoke();
 
     private readonly MacroRecorder _macroRecorder = new();
     private MacroRecordingOverlayWindow? _overlay;

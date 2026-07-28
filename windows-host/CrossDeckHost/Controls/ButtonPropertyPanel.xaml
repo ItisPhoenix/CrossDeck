@@ -80,7 +80,7 @@
                            Text="Tapping this button runs every step above, in order, with any delays you've set."
                            Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap" Visibility="Collapsed"/>
 
-                <StackPanel x:Name="LongPressSection">
+                <StackPanel x:Name="LongPressSection" Visibility="Collapsed">
                     <TextBlock Text="Tap Action" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource Brush.Paper}" Margin="0,0,0,4"/>
                     <TextBlock Text="Fires when this dial is tapped (dragging it adjusts the level). Same options as the main action above."
                                Foreground="{StaticResource Brush.Mist}" FontSize="11" Margin="0,0,0,6" TextWrapping="Wrap"/>

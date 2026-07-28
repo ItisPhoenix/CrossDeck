@@ -35,7 +35,10 @@
                     </Grid.ColumnDefinitions>
                     <Border Width="36" Height="36" CornerRadius="8" Background="{StaticResource Brush.Void}"
                             BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" Margin="0,0,8,0">
-                        <Image x:Name="ActionIconThumbnail" Stretch="Uniform" Margin="5"/>
+                        <Grid>
+                            <Image x:Name="ActionIconThumbnail" Stretch="Uniform" Margin="5"/>
+                            <TextBlock x:Name="ActionIconGlyphFallback" FontSize="16" Foreground="{StaticResource Brush.Paper}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
                     </Border>
                     <TextBox x:Name="ActionIconText" Grid.Column="1" Padding="6,4" FontSize="13" IsReadOnly="True" Margin="0,0,8,0"
                              ToolTip="What kind of icon is set — Browse or Built-in to change it"/>

@@ -46,5 +46,16 @@
         </Button>
         <TextBlock x:Name="RecordMacroHint" Text="Recording… perform keystrokes or clicks anywhere, then click Stop." Visibility="Collapsed"
                    Foreground="{StaticResource Brush.Mist}" FontSize="12" Margin="0,6,0,0" TextWrapping="Wrap"/>
+        <StackPanel x:Name="MacroSpeedRow" Orientation="Horizontal" Margin="0,10,0,0" Visibility="Collapsed">
+            <TextBlock Text="Playback Speed" FontSize="12" Foreground="{StaticResource Brush.Mist}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <ComboBox x:Name="MacroSpeedCombo" Width="130" Height="32" FontSize="12" SelectedIndex="0" SelectionChanged="MacroSpeedCombo_SelectionChanged"
+                      ToolTip="Scales down the real pauses recorded between steps — 1x replays exactly as recorded">
+                <ComboBoxItem Content="1x (real-time)" Tag="1"/>
+                <ComboBoxItem Content="2x" Tag="2"/>
+                <ComboBoxItem Content="3x" Tag="3"/>
+                <ComboBoxItem Content="5x" Tag="5"/>
+                <ComboBoxItem Content="10x" Tag="10"/>
+            </ComboBox>
+        </StackPanel>
     </StackPanel>
 </UserControl>

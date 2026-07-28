@@ -109,6 +109,11 @@ public class ActionModel
     [JsonPropertyName("delays")]
     public List<int>? Delays { get; set; }
 
+    /// <summary>Used when Type == "macro" — scales every recorded delay at playback (2.0 = twice
+    /// as fast). Null or 1.0 = replay exactly as recorded.</summary>
+    [JsonPropertyName("macroSpeed")]
+    public double? MacroSpeed { get; set; }
+
     [JsonPropertyName("dialTarget")]
     public string? DialTarget { get; set; }
 

@@ -84,9 +84,11 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
                         _suppressLabelEdit = false;
                     }
                 }
-                TryApply();
+                // Stack toggling doesn't change the type ("dial" throughout), so ActionTypeChanged
+                // never refires for it — re-check the icon/label visibility on every change instead.
+                if (_isDialButton) UpdateSecondaryActionSectionsForMainType(MainActionConfig.GetAction().Type);
+                else TryApply();
             };
-            LongPressActionConfig.ActionChanged += TryApply;
             MainActionConfig.ActionTypeChanged += UpdateSecondaryActionSectionsForMainType;
             LongPressActionConfig.ActionTypeChanged += UpdateLongPressButton1Chrome;
         }
@@ -178,8 +180,9 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
         _button.Label = LabelInput.Text;
         _button.Icon = string.IsNullOrEmpty(_iconRef) ? null : _iconRef;
         _button.Action = mainAction;
-        _button.LongPressAction = (_isDialButton && LongPressEnabledCheck.IsChecked == true)
-            ? LongPressActionConfig.GetAction() : null;
+        // Tap Action removed for dials — stacking is the only way to get multiple behaviors now;
+        // this also clears it for any dial saved before this change.
+        _button.LongPressAction = null;
 
         Applied?.Invoke(_button);
     }
@@ -215,9 +218,11 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
     private void UpdateSecondaryActionSectionsForMainType(string mainType)
     {
         bool isChainType = mainType == "multi_action" || mainType == "macro";
-        LongPressSection.Visibility = _isDialButton ? Visibility.Visible : Visibility.Collapsed;
         MultiActionLongPressNote.Visibility = (!_isDialButton && isChainType) ? Visibility.Visible : Visibility.Collapsed;
-        MainIconSection.Visibility = mainType == "multi_action" ? Visibility.Collapsed : Visibility.Visible;
+        // A stacked dial's own icon/label are dead — each layer shows its own instead.
+        bool isStackedDial = _isDialButton && MainActionConfig.IsDialStack;
+        MainIconSection.Visibility = (mainType == "multi_action" || mainType == "button_group" || isStackedDial) ? Visibility.Collapsed : Visibility.Visible;
+        LabelInput.Visibility = isStackedDial ? Visibility.Collapsed : Visibility.Visible;
         TryApply();
     }
 

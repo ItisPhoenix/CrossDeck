@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
@@ -214,6 +215,9 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         // this, Save's enabled state and its hint text go stale the moment a chain's step count
         // changes (confirmed: hint kept saying "add at least one step" with 3 steps already listed).
         MultiActionStepList.Steps.CollectionChanged += (s, e) => ActionChanged?.Invoke();
+        MultiActionStepList.ActionChanged += () => ActionChanged?.Invoke();
+        // Was never wired — rich sub-button edits never reached the docked panel's auto-apply.
+        RichStepList.ActionChanged += () => ActionChanged?.Invoke();
         ActionChanged += UpdateSuggestedLabel;
     }
 
@@ -304,6 +308,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                     });
                 }
             }
+            MultiActionStepList.MacroSpeed = action.MacroSpeed ?? 1.0;
         }
 
         string dialTgt = action.DialTarget ?? "volume";
@@ -388,6 +393,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             case "macro":
                 action.Actions = MultiActionStepList.Steps.Select(s => s.Action).ToList();
                 action.Delays = MultiActionStepList.Steps.Select(s => s.DelayAfterMs).ToList();
+                action.MacroSpeed = MultiActionStepList.MacroSpeed;
                 break;
             case "dial":
                 if (StackDialCheck.IsChecked == true && _dialStackLayers.Count > 0)
@@ -454,6 +460,10 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         ActionChanged?.Invoke();
     }
 
+    /// <summary>Whether this instance's own dial is currently stacked — used by the docked panel
+    /// to hide the separate Tap Action section, since a stacked dial's tap always cycles layers.</summary>
+    public bool IsDialStack => StackDialCheck.IsChecked == true;
+
     private void UpdateDialStackVisibility(bool isStack)
     {
         DialSingleTargetPanel.Visibility = isStack ? Visibility.Collapsed : Visibility.Visible;
@@ -500,8 +510,44 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         };
 
         var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var iconPanel = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 0) };
+
+        var iconBtn = new Button { Width = 32, Height = 32, Padding = new Thickness(2), Background = ThemeManager.Brush("Brush.Void"), Margin = new Thickness(0, 0, 4, 0), ToolTip = "Choose a built-in icon for this layer" };
+        void SetLayerIconContent()
+        {
+            var path = ProfileStoreService.ResolveIconFilePath(layer.Icon);
+            if (path != null) { iconBtn.Content = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Source = new BitmapImage(new Uri(path)) }; return; }
+            iconBtn.Content = new TextBlock { Text = "+", FontSize = 14, Foreground = ThemeManager.Brush("Brush.Mist"), HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
+        }
+        SetLayerIconContent();
+        iconBtn.Click += (s, e) => ShowLayerIconPopup(iconBtn, name => { layer.Icon = "builtin:" + name; SetLayerIconContent(); ActionChanged?.Invoke(); });
+        iconPanel.Children.Add(iconBtn);
+
+        var browseIconBtn = new Button { Content = "📂", Width = 32, Height = 32, Padding = new Thickness(2), Style = System.Windows.Application.Current.Resources["StandardButton"] as Style, ToolTip = "Upload a custom image for this layer" };
+        browseIconBtn.Click += (s, e) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Image Files (*.png;*.jpg;*.jpeg;*.ico)|*.png;*.jpg;*.jpeg;*.ico" };
+            if (dlg.ShowDialog() != true) return;
+            try
+            {
+                layer.Icon = ProfileStoreService.SaveIconFromBytes(File.ReadAllBytes(dlg.FileName));
+                SetLayerIconContent();
+                ActionChanged?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                System.Windows.MessageBox.Show($"Couldn't load that image: {ex.Message}", "Icon Upload Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        };
+        iconPanel.Children.Add(browseIconBtn);
+
+        Grid.SetColumn(iconPanel, 0);
+        header.Children.Add(iconPanel);
+
         var headerText = new TextBlock
         {
             Text = $"Layer {index + 1}",
@@ -509,28 +555,38 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             Foreground = ThemeManager.Brush("Brush.Paper"),
             VerticalAlignment = VerticalAlignment.Center
         };
-        Grid.SetColumn(headerText, 0);
+        Grid.SetColumn(headerText, 1);
         header.Children.Add(headerText);
 
         var removeBtn = new Button { Content = "✕", Style = System.Windows.Application.Current.Resources["StandardButton"] as Style, Padding = new Thickness(6, 3, 6, 3) };
-        Grid.SetColumn(removeBtn, 1);
+        Grid.SetColumn(removeBtn, 2);
         removeBtn.Click += (s, e) => { _dialStackLayers.RemoveAt(index); RebuildDialStackUi(); ActionChanged?.Invoke(); };
         header.Children.Add(removeBtn);
         stack.Children.Add(header);
+
+        var labelHint = new TextBlock { Text = "Label shown while this layer is active", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
+        var labelBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.Label ?? "" };
+        labelBox.TextChanged += (s, e) => { layer.Label = string.IsNullOrWhiteSpace(labelBox.Text) ? null : labelBox.Text; ActionChanged?.Invoke(); };
+        stack.Children.Add(labelHint);
+        stack.Children.Add(labelBox);
 
         var targetCombo = new ComboBox { Margin = new Thickness(0, 6, 0, 0), Padding = new Thickness(6, 4, 6, 4) };
         foreach (var (tag, label) in DialLayerTargets) targetCombo.Items.Add(new ComboBoxItem { Content = label, Tag = tag });
         targetCombo.SelectedItem = targetCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string?)i.Tag == (layer.DialTarget ?? "volume"));
         stack.Children.Add(targetCombo);
 
-        var processHint = new TextBlock { Text = "App process name (blank = live mixer)", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
-        var processBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.DialProcess ?? "" };
+        var processHint = new TextBlock { Text = "App process — pick one currently playing audio, or type a name (blank = live mixer)", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
+        var processBox = new ComboBox
+        {
+            Padding = new Thickness(6, 4, 6, 4),
+            IsEditable = true,
+            Text = layer.DialProcess ?? "",
+            ItemsSource = DialController.GetAudioMixerSnapshot().Select(a => a.ProcessName).ToList()
+        };
         var upHint = new TextBlock { Text = "Step up keys", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
         var upKeysBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.DialStepUpKeys != null ? string.Join(",", layer.DialStepUpKeys) : "" };
         var downHint = new TextBlock { Text = "Step down keys", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
         var downKeysBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.DialStepDownKeys != null ? string.Join(",", layer.DialStepDownKeys) : "" };
-        var labelHint = new TextBlock { Text = "Label shown while this layer is active", FontSize = 11, Foreground = ThemeManager.Brush("Brush.Mist"), Margin = new Thickness(0, 6, 0, 3) };
-        var labelBox = new TextBox { Padding = new Thickness(6, 4, 6, 4), Text = layer.Label ?? "" };
 
         void UpdateFieldVisibility()
         {
@@ -546,10 +602,10 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             UpdateFieldVisibility();
             ActionChanged?.Invoke();
         };
-        processBox.TextChanged += (s, e) => { layer.DialProcess = string.IsNullOrWhiteSpace(processBox.Text) ? null : processBox.Text.Trim(); ActionChanged?.Invoke(); };
+        processBox.SelectionChanged += (s, e) => { layer.DialProcess = string.IsNullOrWhiteSpace(processBox.Text) ? null : processBox.Text.Trim(); ActionChanged?.Invoke(); };
+        processBox.LostFocus += (s, e) => { layer.DialProcess = string.IsNullOrWhiteSpace(processBox.Text) ? null : processBox.Text.Trim(); ActionChanged?.Invoke(); };
         upKeysBox.TextChanged += (s, e) => { layer.DialStepUpKeys = upKeysBox.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList(); ActionChanged?.Invoke(); };
         downKeysBox.TextChanged += (s, e) => { layer.DialStepDownKeys = downKeysBox.Text.Split(',').Select(k => k.Trim()).Where(k => k.Length > 0).ToList(); ActionChanged?.Invoke(); };
-        labelBox.TextChanged += (s, e) => { layer.Label = string.IsNullOrWhiteSpace(labelBox.Text) ? null : labelBox.Text; ActionChanged?.Invoke(); };
 
         stack.Children.Add(processHint);
         stack.Children.Add(processBox);
@@ -557,10 +613,53 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         stack.Children.Add(upKeysBox);
         stack.Children.Add(downHint);
         stack.Children.Add(downKeysBox);
-        stack.Children.Add(labelHint);
-        stack.Children.Add(labelBox);
 
         return card;
+    }
+
+    // A small popup anchored to a dial layer's icon button — same lightweight pattern as
+    // RichActionStepListControl's per-step icon picker, for this class's own layer cards.
+    private void ShowLayerIconPopup(Button anchor, Action<string> onSelect)
+    {
+        var dir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Builtin");
+        if (!Directory.Exists(dir)) return;
+
+        var popup = new Popup { PlacementTarget = anchor, Placement = PlacementMode.Bottom, StaysOpen = false };
+        var border = new Border
+        {
+            Background = ThemeManager.Brush("Brush.Panel"),
+            BorderBrush = ThemeManager.Brush("Brush.Hairline"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(8)
+        };
+        var scroller = new ScrollViewer { Height = 160, Width = 220, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var wrap = new WrapPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+
+        foreach (var file in Directory.GetFiles(dir, "*.png").OrderBy(f => f))
+        {
+            var name = Path.GetFileNameWithoutExtension(file);
+            var img = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Source = new BitmapImage(new Uri(file)) };
+            var swatch = new Button
+            {
+                Width = 32,
+                Height = 32,
+                Padding = new Thickness(3),
+                Margin = new Thickness(2),
+                Content = img,
+                Background = ThemeManager.Brush("Brush.Void"),
+                BorderBrush = ThemeManager.Brush("Brush.Hairline"),
+                BorderThickness = new Thickness(1),
+                ToolTip = name
+            };
+            swatch.Click += (s, e) => { onSelect(name); popup.IsOpen = false; };
+            wrap.Children.Add(swatch);
+        }
+
+        scroller.Content = wrap;
+        border.Child = scroller;
+        popup.Child = border;
+        popup.IsOpen = true;
     }
 
     private void BrowseActionIcon_Click(object sender, RoutedEventArgs e)
@@ -587,10 +686,28 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         var iconPath = ProfileStoreService.ResolveIconFilePath(_actionIconRef);
         if (iconPath != null && File.Exists(iconPath))
         {
-            try { ActionIconThumbnail.Source = new BitmapImage(new Uri(iconPath)); return; }
+            try
+            {
+                ActionIconThumbnail.Source = new BitmapImage(new Uri(iconPath));
+                ActionIconThumbnail.Visibility = Visibility.Visible;
+                ActionIconGlyphFallback.Visibility = Visibility.Collapsed;
+                return;
+            }
             catch { /* fall through to blank */ }
         }
         ActionIconThumbnail.Source = null;
+        ActionIconThumbnail.Visibility = Visibility.Collapsed;
+        ActionIconGlyphFallback.Visibility = Visibility.Visible;
+        UpdateActionIconGlyphFallback();
+    }
+
+    /// <summary>Shows a type-based glyph in the icon box instead of leaving it blank when no icon is set.</summary>
+    private void UpdateActionIconGlyphFallback()
+    {
+        var activeItem = ActionTypeCombo.SelectedItem as ComboBoxItem;
+        var actionType = _forcedType ?? activeItem?.Tag?.ToString() ?? "hotkey";
+        var mediaCmd = (MediaCommandCombo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "PlayPause";
+        ActionIconGlyphFallback.Text = EditorWindow.GetActionGlyph(new ActionModel { Type = actionType, MediaCommand = mediaCmd });
     }
 
     private void ToggleActionBuiltinIcons_Click(object sender, RoutedEventArgs e) =>
@@ -676,6 +793,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             }
             var tag = selectedItem.Tag?.ToString() ?? "";
             ActionIconOnlySection.Visibility = (tag == "multi_action" || tag == "macro" || tag == "button_group") ? Visibility.Collapsed : Visibility.Visible;
+            if (ActionIconThumbnail.Source == null) UpdateActionIconGlyphFallback();
             ActionTypeChanged?.Invoke(tag);
         }
         ActionChanged?.Invoke();

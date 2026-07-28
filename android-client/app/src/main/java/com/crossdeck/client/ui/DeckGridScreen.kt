@@ -2655,15 +2655,21 @@ private fun ButtonGroupPopup(
                             .padding(6.dp),
                         verticalArrangement = Arrangement.Center
                     ) {
-                        // Same IconPreview used everywhere else a step/button shows its icon
-                        // (e.g. the main button's own icon section) — falls back to a blank/
-                        // placeholder bitmap if step.icon is null, same as those call sites.
-                        IconPreview(
-                            icon = step.icon,
-                            connectedHostUrl = connectedHostUrl,
-                            authToken = authToken,
-                            modifier = Modifier.size(24.dp)
-                        )
+                        // Same resolve-with-glyph-fallback pattern as MosaicStepGrid — IconPreview
+                        // shows nothing at all when a step has no icon set, which reads as broken.
+                        val context = LocalContext.current
+                        val bmp by produceState<ImageBitmap?>(initialValue = null, step.icon, connectedHostUrl) {
+                            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                resolveIconBitmap(context, step.icon, connectedHostUrl, authToken)
+                            }
+                        }
+                        Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                            if (bmp != null) {
+                                Image(bitmap = bmp!!, contentDescription = null, modifier = Modifier.fillMaxSize(0.75f))
+                            } else {
+                                Text(text = actionTypeGlyph(step), fontSize = 16.sp)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = step.label?.takeIf { it.isNotBlank() } ?: describeActionForMenu(step).take(14),
@@ -2824,8 +2830,6 @@ private fun EditButtonDialog(
     // never touched, and typing in the field permanently stops the autofill for this session.
     var labelUserEdited by remember(button.buttonId) { mutableStateOf(button.label.isNotBlank()) }
     val mainActionState = remember(button.buttonId) { ActionEditorState(button.action) }
-    var longPressEnabled by remember(button.buttonId) { mutableStateOf(button.longPressAction != null) }
-    val longPressState = remember(button.buttonId) { ActionEditorState(button.longPressAction, isLongPress = true) }
 
     // launch_app/open_url skip this — they get a REAL icon via extract_icon below instead.
     LaunchedEffect(
@@ -2899,11 +2903,7 @@ private fun EditButtonDialog(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            val saveHint = missingFieldHint(mainActionState) ?: run {
-                if (forceDialMode && longPressEnabled) {
-                    missingFieldHint(longPressState)?.let { "Tap action: $it" }
-                } else null
-            }
+            val saveHint = missingFieldHint(mainActionState)
             val canSave = saveHint == null
 
             // Header Bar
@@ -2928,8 +2928,8 @@ private fun EditButtonDialog(
                     enabled = canSave,
                     onClick = {
                         val act = mainActionState.toActionModel()
-                        val longPress = if (forceDialMode && longPressEnabled) longPressState.toActionModel() else null
-                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act, longPressAction = longPress))
+                        // Tap Action removed for dials — stacking is the only way to get multiple behaviors now.
+                        onSave(button.copy(label = label.trim(), icon = iconValue, action = act, longPressAction = null))
                     }
                 ) {
                     val saveColor = if (canSave) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
@@ -2953,6 +2953,7 @@ private fun EditButtonDialog(
                 }
             }
 
+            if (!(forceDialMode && mainActionState.isDialStack)) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
@@ -3001,6 +3002,7 @@ private fun EditButtonDialog(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
+            }
             Spacer(modifier = Modifier.height(16.dp))
             Text("What it does", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(8.dp))
@@ -3029,77 +3031,12 @@ private fun EditButtonDialog(
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)))
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (forceDialMode) {
-                Text("Tap Action", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(modifier = Modifier.height(2.dp))
+            if (forceDialMode && mainActionState.isDialStack) {
                 Text(
-                    text = "Fires when this dial is tapped (dragging it adjusts the level). Same options as the main action above.",
+                    "Tapping this dial cycles between its stacked layers.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { longPressEnabled = !longPressEnabled }) {
-                    Checkbox(checked = longPressEnabled, onCheckedChange = null)
-                    Text("Enable tap action", color = MaterialTheme.colorScheme.onSurface)
-                }
-                if (longPressEnabled) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    key(button.buttonId, "longpress") {
-                        // Slot 1 gets the exact same numbered card as slot 2+ once chained
-                        // (RichStepListEditor's own cards, rendered inside this same
-                        // ActionTypeEditor call when longPressState.type == "multi_action") — the
-                        // header/add-button below hide once that happens so numbering never shows twice.
-                        if (longPressState.type == "multi_action") {
-                            ActionTypeEditor(
-                                state = longPressState,
-                                appList = appList,
-                                onRequestAppList = onRequestAppList,
-                                onRequestExtractIcon = onRequestExtractIcon,
-                                accentColor = accentColor,
-                                connectedHostUrl = connectedHostUrl,
-                                authToken = authToken,
-                                iconHashCache = iconHashCache,
-                                showIconPicker = false,
-                                onIconUpload = onIconUpload,
-                                extractedIcon = extractedIcon,
-                            )
-                        } else {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 12.dp)
-                                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f), RoundedCornerShape(10.dp))
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(
-                                        "Tap Action 1",
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    ActionTypeEditor(
-                                        state = longPressState,
-                                        appList = appList,
-                                        onRequestAppList = onRequestAppList,
-                                        onRequestExtractIcon = onRequestExtractIcon,
-                                        accentColor = accentColor,
-                                        connectedHostUrl = connectedHostUrl,
-                                        authToken = authToken,
-                                        iconHashCache = iconHashCache,
-                                        showIconPicker = false,
-                                        onIconUpload = onIconUpload,
-                                        extractedIcon = extractedIcon,
-                                    )
-                                }
-                            }
-                            TextButton(onClick = { longPressState.convertToChain() }, modifier = Modifier.fillMaxWidth()) {
-                                Text("+ Add Another Action", color = accentColor)
-                            }
-                        }
-                    }
-                }
             } else if (mainActionState.type == "multi_action" || mainActionState.type == "macro") {
                 Text(
                     text = "Tapping this button runs every step below, in order, with any delays you've set.",
@@ -3381,7 +3318,7 @@ private fun MosaicStepGrid(steps: List<ActionModel>, connectedHostUrl: String?, 
                                 }
                             }
                             if (bmp != null) {
-                                Image(bitmap = bmp!!, contentDescription = null, modifier = Modifier.fillMaxSize(0.75f))
+                                Image(bitmap = bmp!!, contentDescription = null, modifier = Modifier.fillMaxSize(0.5f))
                             } else {
                                 Text(text = actionTypeGlyph(step), fontSize = 15.sp)
                             }
@@ -3449,6 +3386,8 @@ class ActionEditorState(action: ActionModel?, val isLongPress: Boolean = false) 
     var dialProcess by mutableStateOf(action?.dialProcess ?: "")
     var dialStepUpKeys by mutableStateOf(action?.dialStepUpKeys?.joinToString(",") ?: "")
     var dialStepDownKeys by mutableStateOf(action?.dialStepDownKeys?.joinToString(",") ?: "")
+    // Used when type == "macro" — scales every recorded delay at playback.
+    var macroSpeed by mutableStateOf(action?.macroSpeed ?: 1.0)
     // A dial stack: when true, dialStackLayers (not dialTarget/dialProcess/step keys above)
     // is what toActionModel() reads. Each layer is its own nested ActionEditorState (type "dial").
     var isDialStack by mutableStateOf(action?.type == "dial" && !action.actions.isNullOrEmpty())
@@ -3512,7 +3451,7 @@ class ActionEditorState(action: ActionModel?, val isLongPress: Boolean = false) 
         else
             ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs }, label = label.trim().ifBlank { null })
         "button_group" -> ActionModel(type = type, actions = richSteps.map { it.toActionModel() }, label = label.trim().ifBlank { null })
-        "macro" -> ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs }, label = label.trim().ifBlank { null })
+        "macro" -> ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs }, macroSpeed = macroSpeed, label = label.trim().ifBlank { null })
         "dial" -> if (isDialStack && dialStackLayers.isNotEmpty())
             // The stack container carries no single target — whichever layer is active resolves
             // it (ActionModel.resolveDialLayer), same on both host and client.
@@ -3576,6 +3515,7 @@ private fun ActionTypeEditor(
     var mediaDropdownExpanded by remember { mutableStateOf(false) }
     var dialDropdownExpanded by remember { mutableStateOf(false) }
     var pathDropdownExpanded by remember { mutableStateOf(false) }
+    var macroSpeedDropdownExpanded by remember { mutableStateOf(false) }
     var showBuiltinIconPicker by remember { mutableStateOf(false) }
     var isUploadingIcon by remember { mutableStateOf(false) }
     val iconScope = rememberCoroutineScope()
@@ -3705,7 +3645,13 @@ private fun ActionTypeEditor(
         if (state.type != "multi_action" && state.type != "macro") {
         Text("Icon", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)) {
-            IconPreview(icon = state.icon, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(36.dp))
+            if (state.icon != null) {
+                IconPreview(icon = state.icon, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(36.dp))
+            } else {
+                Box(modifier = Modifier.size(36.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
+                    Text(text = actionTypeGlyph(state.toActionModel()), fontSize = 18.sp)
+                }
+            }
             Spacer(modifier = Modifier.width(8.dp))
             TextButton(onClick = { showBuiltinIconPicker = true }) { Text("Built-in", color = accentColor) }
             TextButton(onClick = { iconUploadLauncher.launch("image/*") }, enabled = !isUploadingIcon) {
@@ -3931,6 +3877,26 @@ private fun ActionTypeEditor(
                         allowManualAdd = false,
                         emptyHint = "Record at least one step to build the macro.",
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    val macroSpeedLabels = mapOf(1.0 to "1x (real-time)", 2.0 to "2x", 3.0 to "3x", 5.0 to "5x", 10.0 to "10x")
+                    InlineDropdownField(
+                        label = "Playback Speed",
+                        selectedLabel = macroSpeedLabels[state.macroSpeed] ?: "1x (real-time)",
+                        expanded = macroSpeedDropdownExpanded,
+                        onExpandedChange = { macroSpeedDropdownExpanded = it },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        macroSpeedLabels.forEach { (speed, friendly) ->
+                            Text(
+                                text = friendly,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { state.macroSpeed = speed; macroSpeedDropdownExpanded = false }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                            )
+                        }
+                    }
                 }
                 "dial" -> {
                     Row(
@@ -3948,9 +3914,23 @@ private fun ActionTypeEditor(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     if (state.isDialStack) {
+                        val stackNeedsAppVolume = state.dialStackLayers.any { it.dialTarget == "app_volume" }
+                        DisposableEffect(stackNeedsAppVolume) {
+                            if (stackNeedsAppVolume) onAudioMixerSubscribe(true)
+                            onDispose { if (stackNeedsAppVolume) onAudioMixerSubscribe(false) }
+                        }
                         state.dialStackLayers.forEachIndexed { index, layer ->
                             key(index) {
-                                DialStackLayerCard(layer = layer, index = index, onRemove = { state.dialStackLayers.removeAt(index) })
+                                DialStackLayerCard(
+                                    layer = layer,
+                                    index = index,
+                                    accentColor = accentColor,
+                                    audioMixerApps = audioMixerApps,
+                                    connectedHostUrl = connectedHostUrl,
+                                    authToken = authToken,
+                                    onIconUpload = onIconUpload,
+                                    onRemove = { state.dialStackLayers.removeAt(index) }
+                                )
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                         }
@@ -4046,9 +4026,37 @@ private fun ActionTypeEditor(
 
 /** One dial-stack layer card — target picker + whichever param fields that target needs,
  * editing `layer` in place. Mirrors the host editor's per-layer card. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun DialStackLayerCard(layer: ActionEditorState, index: Int, onRemove: () -> Unit) {
+private fun DialStackLayerCard(
+    layer: ActionEditorState,
+    index: Int,
+    accentColor: Color,
+    audioMixerApps: List<com.crossdeck.client.model.AudioMixerApp>,
+    connectedHostUrl: String?,
+    authToken: String?,
+    onIconUpload: (suspend (ByteArray) -> String?)?,
+    onRemove: () -> Unit
+) {
     var dropdownExpanded by remember { mutableStateOf(false) }
+    var showBuiltinPicker by remember { mutableStateOf(false) }
+    var isUploadingIcon by remember { mutableStateOf(false) }
+    val uploadScope = rememberCoroutineScope()
+    val uploadContext = LocalContext.current
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        uploadScope.launch {
+            isUploadingIcon = true
+            try {
+                val bytes = uploadContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes != null) onIconUpload?.invoke(bytes)?.let { hash -> layer.icon = hash }
+            } finally {
+                isUploadingIcon = false
+            }
+        }
+    }
     Surface(
         shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
@@ -4064,6 +4072,26 @@ private fun DialStackLayerCard(layer: ActionEditorState, index: Int, onRemove: (
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
+            Text("Icon", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)) {
+                IconPreview(icon = layer.icon, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(32.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(onClick = { showBuiltinPicker = true }) { Text("Built-in", color = accentColor) }
+                TextButton(onClick = { imagePickerLauncher.launch("image/*") }, enabled = !isUploadingIcon) {
+                    Text(if (isUploadingIcon) "Uploading…" else "Upload", color = accentColor)
+                }
+                if (layer.icon != null) {
+                    TextButton(onClick = { layer.icon = null }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                }
+            }
+            if (showBuiltinPicker) {
+                BuiltinIconPickerDialog(
+                    onDismiss = { showBuiltinPicker = false },
+                    onSelect = { name -> layer.icon = "builtin:$name"; showBuiltinPicker = false }
+                )
+            }
+            CrossDeckTextField(value = layer.label, onValueChange = { layer.label = it }, label = "Label shown while active", modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(8.dp))
             InlineDropdownField(
                 label = "Target",
                 selectedLabel = dialTargetLabels[layer.dialTarget] ?: layer.dialTarget,
@@ -4084,7 +4112,49 @@ private fun DialStackLayerCard(layer: ActionEditorState, index: Int, onRemove: (
             }
             if (layer.dialTarget == "app_volume") {
                 Spacer(modifier = Modifier.height(8.dp))
-                CrossDeckTextField(value = layer.dialProcess, onValueChange = { layer.dialProcess = it }, label = "App process (blank = live mixer)", modifier = Modifier.fillMaxWidth())
+                Text(
+                    "Bind to one app — currently playing audio (leave unselected to open the live mixer instead)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                if (audioMixerApps.isEmpty()) {
+                    Text(
+                        "Waiting for audio to play…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                } else {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        audioMixerApps.forEach { app ->
+                            val isSelected = layer.dialProcess.equals(app.processName, ignoreCase = true)
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (isSelected) accentColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    if (isSelected) 1.5.dp else 1.dp,
+                                    if (isSelected) accentColor else MaterialTheme.colorScheme.outline
+                                ),
+                                modifier = Modifier.clickable {
+                                    if (isSelected) {
+                                        layer.dialProcess = ""
+                                    } else {
+                                        layer.dialProcess = app.processName
+                                        layer.label = app.processName.replaceFirstChar { it.uppercase() }
+                                        layer.icon = app.icon
+                                    }
+                                }
+                            ) {
+                                Text(
+                                    text = app.processName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (isSelected) accentColor else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
+                }
             }
             if (layer.dialTarget == "keystroke_step") {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -4092,8 +4162,6 @@ private fun DialStackLayerCard(layer: ActionEditorState, index: Int, onRemove: (
                 Spacer(modifier = Modifier.height(8.dp))
                 CrossDeckTextField(value = layer.dialStepDownKeys, onValueChange = { layer.dialStepDownKeys = it }, label = "Step down keys", modifier = Modifier.fillMaxWidth())
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            CrossDeckTextField(value = layer.label, onValueChange = { layer.label = it }, label = "Label shown while active", modifier = Modifier.fillMaxWidth())
         }
     }
 }

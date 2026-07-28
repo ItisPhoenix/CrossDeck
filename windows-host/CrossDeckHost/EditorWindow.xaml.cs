@@ -582,7 +582,7 @@ public partial class EditorWindow : Window
                     // step's real icon (falling back to a type glyph per-step if that step has
                     // none) — never a single static button-level icon, so the tile always reflects
                     // what the chain actually does.
-                    if (buttonModel.Action.Type == "multi_action" && buttonModel.Action.Actions?.Count > 0)
+                    if ((buttonModel.Action.Type == "multi_action" || buttonModel.Action.Type == "button_group") && buttonModel.Action.Actions?.Count > 0)
                     {
                         bool hasLabel = !string.IsNullOrWhiteSpace(buttonModel.Label);
                         var mosaic = BuildMultiActionMosaic(buttonModel.Action.Actions);
@@ -889,7 +889,7 @@ public partial class EditorWindow : Window
                 {
                     try
                     {
-                        content = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Margin = new Thickness(4), Source = new BitmapImage(new Uri(iconPath)) };
+                        content = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Margin = new Thickness(7), Source = new BitmapImage(new Uri(iconPath)) };
                     }
                     catch
                     {
@@ -921,7 +921,7 @@ public partial class EditorWindow : Window
         };
     }
 
-    private static string GetActionGlyph(ActionModel action) => action.Type switch
+    internal static string GetActionGlyph(ActionModel action) => action.Type switch
     {
         "hotkey" => "⌨",
         "launch_app" => "🚀",
@@ -940,6 +940,7 @@ public partial class EditorWindow : Window
         "text_snippet" => "📋",
         "open_folder" => "📁",
         "multi_action" => "🔗",
+        "button_group" => "▦",
         "macro" => "⏺",
         "dial" => "🎚",
         "mouse_click" => "🖱",
@@ -1010,6 +1011,7 @@ public partial class EditorWindow : Window
         "text_snippet" => "Text Snippet",
         "open_folder" => "Open Folder",
         "multi_action" => $"Multiple Actions ({action.Actions?.Count ?? 0} steps)",
+        "button_group" => $"Button Group ({action.Actions?.Count ?? 0} buttons)",
         "macro" => $"Macro ({action.Actions?.Count ?? 0} steps)",
         "dial" => $"Dial ({action.DialTarget})",
         "mouse_click" => "Mouse Click",
@@ -1457,7 +1459,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v0.3.5-beta\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v2.0.0\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

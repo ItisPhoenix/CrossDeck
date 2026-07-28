@@ -12,7 +12,7 @@ android {
         applicationId = "com.crossdeck.client"
         minSdk = 31 // Android 12+, per architecture spec decision #13
         targetSdk = 34
-        versionName = "v1.0.0"
+        versionName = "v2.0.0"
     }
 
     buildTypes {

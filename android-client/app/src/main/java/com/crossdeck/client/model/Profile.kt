@@ -54,6 +54,8 @@ data class ActionModel(
      * dialTarget/dialProcess/label) and tapping the dial cycles between them. */
     val actions: List<ActionModel>? = null,
     val delays: List<Int>? = null,
+    /** Used when type == "macro" — scales every recorded delay at playback (2.0 = twice as fast). */
+    val macroSpeed: Double? = null,
     val dialTarget: String? = null,
     /** Used when dialTarget == "app_volume" to bind the dial to one process's session.
      * Null means "open the live multi-app mixer" (existing behaviour). */

@@ -50,6 +50,8 @@ public class ActionExecutor
         if (action.Actions == null || action.Actions.Count == 0)
             return (false, "multi_action has no sub-actions");
 
+        double speed = action.Type == "macro" && action.MacroSpeed is > 0 ? action.MacroSpeed.Value : 1.0;
+
         for (int i = 0; i < action.Actions.Count; i++)
         {
             var subAction = action.Actions[i];
@@ -61,7 +63,7 @@ public class ActionExecutor
 
             if (action.Delays != null && i < action.Delays.Count)
             {
-                int delayMs = action.Delays[i];
+                int delayMs = speed == 1.0 ? action.Delays[i] : (int)(action.Delays[i] / speed);
                 if (delayMs > 0)
                 {
                     await Task.Delay(delayMs);
