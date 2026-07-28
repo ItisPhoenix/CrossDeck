@@ -233,6 +233,7 @@ fun DeckGridScreen(
     }
 
     var pendingRunCommand by remember { mutableStateOf<PendingRunCommand?>(null) }
+    var activeButtonGroup by remember { mutableStateOf<ButtonModel?>(null) }
 
     val accentColor = try {
         Color(android.graphics.Color.parseColor(accentColorHex))
@@ -675,6 +676,8 @@ fun DeckGridScreen(
                                                     activeDialButton = cellButton
                                                     activeDialSlot = "main"
                                                     onDialAdjust(cellButton.buttonId, "main", null) // fetch current level
+                                                } else if (cellButton.action.type == "button_group") {
+                                                    activeButtonGroup = cellButton
                                                 } else if (cellButton.action.type == "run_command" && settings.confirmRunCommand) {
                                                     pendingRunCommand = PendingRunCommand(cellButton, cellButton.action, "short", null)
                                                 } else {
@@ -1114,6 +1117,24 @@ fun DeckGridScreen(
                 )
             }
 
+            if (activeButtonGroup != null) {
+                val groupButton = activeButtonGroup!!
+                ButtonGroupPopup(
+                    button = groupButton,
+                    connectedHostUrl = connectedHostUrl,
+                    authToken = authToken,
+                    onTapStep = { index ->
+                        val subAction = groupButton.action.actions?.getOrNull(index)
+                        if (subAction != null && subAction.type == "run_command" && settings.confirmRunCommand) {
+                            pendingRunCommand = PendingRunCommand(groupButton, subAction, "short", index)
+                        } else if (subAction != null) {
+                            onButtonPress(groupButton, "short", index)
+                        }
+                    },
+                    onDismiss = { activeButtonGroup = null }
+                )
+            }
+
             // Confirm-before-Run-Command safety prompt
 
             if (pendingRunCommand != null) {
@@ -1531,7 +1552,7 @@ private fun DeckButton(
             // Multiple Actions always shows a live step mosaic — each segment its own step's real
             // icon (falling back to a type glyph per-step if that step has none) — never a single
             // static button-level icon, so the tile always reflects what the chain actually does.
-            val multiActionSteps = if (button.action.type == "multi_action") button.action.actions else null
+            val multiActionSteps = if (button.action.type == "multi_action" || button.action.type == "button_group") button.action.actions else null
             if (multiActionSteps != null && multiActionSteps.isNotEmpty()) {
                 // Closed-grid preview only — tapping still opens the same full-button popup
                 // regardless of which segment is hit (wiring is on the outer Surface's onTap).
@@ -2540,6 +2561,132 @@ fun ReconnectOverlay(onManualConnect: () -> Unit, modifier: Modifier = Modifier)
             }
         }
     }
+}
+
+/** Button Group's popup: a centered gradient-border card over a blurred/dimmed background,
+ * titled with the parent button's own label, a grid of the group's configured buttons. Tapping
+ * a tile fires it (flash confirms the tap) and the popup stays open for more taps — closes only
+ * via tap-outside or back. */
+@Composable
+private fun ButtonGroupPopup(
+    button: ButtonModel,
+    connectedHostUrl: String?,
+    authToken: String?,
+    onTapStep: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val accentColor = MaterialTheme.colorScheme.primary
+    val steps = button.action.actions ?: emptyList()
+    var flashedIndex by remember { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background.copy(alpha = 0.72f))
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onDismiss() },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.84f)
+                .clickable(enabled = false) {}
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                            MaterialTheme.colorScheme.background.copy(alpha = 0.95f)
+                        )
+                    ),
+                    RoundedCornerShape(20.dp)
+                )
+                .border(
+                    1.dp,
+                    Brush.verticalGradient(
+                        listOf(
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.16f),
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.02f)
+                        )
+                    ),
+                    RoundedCornerShape(20.dp)
+                )
+                .padding(18.dp)
+        ) {
+            Text(
+                text = button.label,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier.heightIn(max = 320.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(steps.size) { index ->
+                    val step = steps[index]
+                    val flashed = flashedIndex == index
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .height(68.dp)
+                            .fillMaxWidth()
+                            .background(
+                                if (flashed) accentColor.copy(alpha = 0.30f) else accentColor.copy(alpha = 0.10f),
+                                RoundedCornerShape(14.dp)
+                            )
+                            .border(
+                                1.2.dp,
+                                if (flashed) accentColor else accentColor.copy(alpha = 0.45f),
+                                RoundedCornerShape(14.dp)
+                            )
+                            .clickable {
+                                flashedIndex = index
+                                onTapStep(index)
+                                scope.launch {
+                                    kotlinx.coroutines.delay(220)
+                                    if (flashedIndex == index) flashedIndex = null
+                                }
+                            }
+                            .padding(6.dp),
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        // Same IconPreview used everywhere else a step/button shows its icon
+                        // (e.g. the main button's own icon section) — falls back to a blank/
+                        // placeholder bitmap if step.icon is null, same as those call sites.
+                        IconPreview(
+                            icon = step.icon,
+                            connectedHostUrl = connectedHostUrl,
+                            authToken = authToken,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = step.label?.takeIf { it.isNotBlank() } ?: describeActionForMenu(step).take(14),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 10.5.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "Tap outside or back to close",
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                fontSize = 10.5.sp,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+    }
+    BackHandler { onDismiss() }
 }
 
 // Raw stored values (protocol/persistence) -> friendly display labels. Dropdowns below store the
