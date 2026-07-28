@@ -143,6 +143,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
             bool hide = item.Tag?.ToString() switch
             {
                 "multi_action" => !_allowChaining || _isLongPress,
+                "button_group" => !_allowChaining || _isLongPress,
                 "macro" => !_allowChaining,
                 "open_folder" => _isLongPress || !_allowChaining,
                 _ => false
@@ -285,7 +286,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         TargetFolderIdInput.Text = action.TargetFolderId ?? "";
 
         MultiActionStepList.Steps.Clear();
-        if (action.Type == "multi_action" && IsLongPress)
+        if ((action.Type == "multi_action" && IsLongPress) || action.Type == "button_group")
         {
             RichStepList.SetSubActions(action.Actions ?? new System.Collections.Generic.List<ActionModel>());
         }
@@ -380,6 +381,9 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                     action.Actions = MultiActionStepList.Steps.Select(s => s.Action).ToList();
                     action.Delays = MultiActionStepList.Steps.Select(s => s.DelayAfterMs).ToList();
                 }
+                break;
+            case "button_group":
+                action.Actions = RichStepList.GetSubActions();
                 break;
             case "macro":
                 action.Actions = MultiActionStepList.Steps.Select(s => s.Action).ToList();
@@ -654,6 +658,13 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                     MultiActionStepList.Visibility = IsLongPress ? Visibility.Collapsed : Visibility.Visible;
                     MultiActionStepList.IsMacro = false;
                     RichStepList.Visibility = IsLongPress ? Visibility.Visible : Visibility.Collapsed;
+                    RichStepList.MaxSteps = null;
+                    break;
+                case "button_group":
+                    MultiActionPanel.Visibility = Visibility.Visible;
+                    MultiActionStepList.Visibility = Visibility.Collapsed;
+                    RichStepList.Visibility = Visibility.Visible;
+                    RichStepList.MaxSteps = 9;
                     break;
                 case "macro":
                     MultiActionPanel.Visibility = Visibility.Visible;
@@ -664,7 +675,7 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
                 case "dial": DialPanel.Visibility = Visibility.Visible; break;
             }
             var tag = selectedItem.Tag?.ToString() ?? "";
-            ActionIconOnlySection.Visibility = (tag == "multi_action" || tag == "macro") ? Visibility.Collapsed : Visibility.Visible;
+            ActionIconOnlySection.Visibility = (tag == "multi_action" || tag == "macro" || tag == "button_group") ? Visibility.Collapsed : Visibility.Visible;
             ActionTypeChanged?.Invoke(tag);
         }
         ActionChanged?.Invoke();

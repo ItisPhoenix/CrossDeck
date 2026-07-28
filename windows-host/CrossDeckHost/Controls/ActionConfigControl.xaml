@@ -13,6 +13,7 @@
             <ComboBoxItem Content="Text Snippet" Tag="text_snippet"/>
             <ComboBoxItem Content="Open Folder" Tag="open_folder"/>
             <ComboBoxItem Content="Multiple Actions" Tag="multi_action"/>
+            <ComboBoxItem Content="Button Group" Tag="button_group"/>
             <ComboBoxItem Content="Record Macro" Tag="macro"/>
             <!-- No "Dial / Slider" item here — dials live only in the dial strip below the grid now
                  (see DialStripEditorWindow / ForceDialMode), never as a pickable grid-button type. -->

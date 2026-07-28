@@ -22,6 +22,9 @@ public partial class RichActionStepListControl : System.Windows.Controls.UserCon
 
     public List<DiscoveredApp> AppList { get; set; } = new();
 
+    /// <summary>Null = uncapped (the dial long-press chain's usage). Set to 9 for Button Group.</summary>
+    public int? MaxSteps { get; set; }
+
     /// <summary>Raised whenever any sub-button's action or type changes, so Save's enabled state stays live.</summary>
     public event Action? ActionChanged;
 
@@ -68,7 +71,7 @@ public partial class RichActionStepListControl : System.Windows.Controls.UserCon
 
             var title = new TextBlock
             {
-                Text = $"Long-Press Button {index + 1}",
+                Text = $"Button {index + 1}",
                 FontWeight = FontWeights.Bold,
                 FontSize = 12,
                 Foreground = ThemeManager.Brush("Brush.Mist"),
@@ -121,7 +124,8 @@ public partial class RichActionStepListControl : System.Windows.Controls.UserCon
             Content = "+ Add Another Action",
             Style = (Style)FindResource("StandardButton"),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch,
-            Padding = new Thickness(10, 6, 10, 6)
+            Padding = new Thickness(10, 6, 10, 6),
+            IsEnabled = MaxSteps is not int max || _subEditors.Count < max
         };
         addBtn.Click += (s, e) => { AddSubEditor(); RebuildRows(); ActionChanged?.Invoke(); };
         StepsPanel.Children.Add(addBtn);
