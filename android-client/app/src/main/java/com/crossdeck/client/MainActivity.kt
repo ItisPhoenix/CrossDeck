@@ -209,7 +209,6 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 ReconnectOverlay(
-                                    accentColor = MaterialTheme.colorScheme.primary,
                                     onManualConnect = {
                                         connectionManager.disconnect()
                                         showManualPairing = true

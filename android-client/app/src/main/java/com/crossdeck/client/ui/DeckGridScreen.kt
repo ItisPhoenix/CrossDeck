@@ -1109,7 +1109,6 @@ fun DeckGridScreen(
                     filterProcess = mixerFilterProcess,
                     connectedHostUrl = connectedHostUrl,
                     authToken = authToken,
-                    accentColor = accentColor,
                     onAdjust = onAudioMixerAdjust,
                     onDismiss = { showAudioMixer = false; mixerFilterProcess = null }
                 )
@@ -1955,10 +1954,10 @@ private fun AudioMixerSheet(
     filterProcess: String? = null,
     connectedHostUrl: String?,
     authToken: String?,
-    accentColor: Color,
     onAdjust: (processName: String, value: Int?, muted: Boolean?) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val accentColor = MaterialTheme.colorScheme.primary
     val context = LocalContext.current
     val displayedApps = if (filterProcess != null) apps.filter { it.processName.equals(filterProcess, ignoreCase = true) } else apps
     BackHandler { onDismiss() }
@@ -2499,7 +2498,8 @@ private fun DialCell(
  * `profile != null && state != Connected` branch.
  */
 @Composable
-fun ReconnectOverlay(accentColor: Color, onManualConnect: () -> Unit, modifier: Modifier = Modifier) {
+fun ReconnectOverlay(onManualConnect: () -> Unit, modifier: Modifier = Modifier) {
+    val accentColor = MaterialTheme.colorScheme.primary
     val infiniteTransition = rememberInfiniteTransition(label = "reconnectPulse")
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.4f,
@@ -2976,7 +2976,6 @@ private fun EditButtonDialog(
 
     if (showBuiltinPicker) {
         BuiltinIconPickerDialog(
-            accentColor = accentColor,
             onDismiss = { showBuiltinPicker = false },
             onSelect = { name ->
                 iconValue = "builtin:$name"
@@ -3068,7 +3067,8 @@ private fun IconPreview(icon: String?, connectedHostUrl: String?, authToken: Str
 
 /** Grid picker for the bundled built-in icon pack, enumerated straight from Android assets. */
 @Composable
-private fun BuiltinIconPickerDialog(accentColor: Color, onDismiss: () -> Unit, onSelect: (String) -> Unit) {
+private fun BuiltinIconPickerDialog(onDismiss: () -> Unit, onSelect: (String) -> Unit) {
+    val accentColor = MaterialTheme.colorScheme.primary
     val context = LocalContext.current
     var names by remember { mutableStateOf<List<String>>(emptyList()) }
     var query by remember { mutableStateOf("") }
@@ -3554,7 +3554,6 @@ private fun ActionTypeEditor(
         }
         if (showBuiltinIconPicker) {
             BuiltinIconPickerDialog(
-                accentColor = accentColor,
                 onDismiss = { showBuiltinIconPicker = false },
                 onSelect = { name -> state.icon = "builtin:$name"; showBuiltinIconPicker = false }
             )
@@ -4004,7 +4003,6 @@ private fun ActionStepListEditor(
 
         iconPickerForIndex?.let { idx ->
             BuiltinIconPickerDialog(
-                accentColor = accentColor,
                 onDismiss = { iconPickerForIndex = null },
                 onSelect = { name -> steps[idx].icon = "builtin:$name"; iconPickerForIndex = null }
             )
