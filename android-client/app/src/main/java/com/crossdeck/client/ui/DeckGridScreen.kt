@@ -1710,6 +1710,7 @@ private fun missingFieldHint(state: ActionEditorState): String? = when (state.ty
         if (state.multiSteps.isEmpty()) "Add at least one step to the chain" else null
     }
     "macro" -> if (state.multiSteps.isEmpty()) "Record at least one step" else null
+    "button_group" -> if (state.richSteps.isEmpty()) "Add at least one button" else null
     else -> null
 }
 
@@ -1732,6 +1733,7 @@ private fun suggestedLabel(state: ActionEditorState): String? = when (state.type
     }
     "open_folder" -> "Open Folder"
     "macro" -> "Macro"
+    "button_group" -> "Button Group"
     else -> null
 }
 
@@ -1746,6 +1748,7 @@ private fun describeActionForMenu(action: ActionModel): String = action.label?.t
     "text_snippet" -> "Text: ${action.text?.take(20) ?: ""}"
     "open_folder" -> "Open Folder"
     "multi_action" -> "Multiple Actions (${action.actions?.size ?: 0} steps)"
+    "button_group" -> "Button Group (${action.actions?.size ?: 0} buttons)"
     "macro" -> "Macro (${action.actions?.size ?: 0} steps)"
     "dial" -> "Dial: ${action.dialTarget}" + (action.dialProcess?.let { " ($it)" } ?: "")
     else -> action.type
@@ -2555,7 +2558,8 @@ private val actionTypeLabels = mapOf(
     // delays) — the only difference is how you build the list. Naming both explicitly here so
     // a new user can tell they're the same kind of button, built two different ways.
     "multi_action" to "Multiple Actions (Add Steps Manually)",
-    "macro" to "Record Macro (Record Live)"
+    "macro" to "Record Macro (Record Live)",
+    "button_group" to "Button Group"
 )
 /** Mirrors the host's AutoAssignIcons() exactly, so the client-side preview never disagrees
  * with what the server would fill in anyway (ProfileStore.cs). */
@@ -2598,6 +2602,7 @@ private fun defaultBuiltinIconForAction(action: ActionModel): String? = when (ac
     "run_command" -> "terminal"
     "text_snippet" -> "file-text"
     "multi_action" -> "layers"
+    "button_group" -> "grid-3x3"
     "macro" -> "disc"
     "open_folder" -> "folder"
     "dial" -> if (!action.actions.isNullOrEmpty()) "layers"
@@ -2812,7 +2817,7 @@ private fun EditButtonDialog(
                     // distinct steps), so the button's own icon is dead there. Macro keeps it — it's
                     // one atomic action under the hood, so a real icon represents it more honestly
                     // than a mosaic.
-                    if (mainActionState.type != "multi_action") {
+                    if (mainActionState.type != "multi_action" && mainActionState.type != "button_group") {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             IconPreview(icon = iconValue, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(44.dp))
                             Spacer(modifier = Modifier.width(12.dp))
@@ -2951,6 +2956,12 @@ private fun EditButtonDialog(
             } else if (mainActionState.type == "multi_action" || mainActionState.type == "macro") {
                 Text(
                     text = "Tapping this button runs every step below, in order, with any delays you've set.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else if (mainActionState.type == "button_group") {
+                Text(
+                    text = "Tapping this button pops up the buttons below over a blurred background. Tapping one of them runs just that action — the popup stays open for more.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -3255,6 +3266,7 @@ private fun actionTypeGlyph(action: ActionModel): String = when (action.type) {
     "text_snippet" -> "📋"
     "open_folder" -> "📁"
     "multi_action" -> "🔗"
+    "button_group" -> "▦"
     "macro" -> "⏺"
     "dial" -> "🎚"
     "mouse_click" -> "🖱"
@@ -3326,6 +3338,9 @@ class ActionEditorState(action: ActionModel?, val isLongPress: Boolean = false) 
                     action.actions?.forEachIndexed { i, act -> multiSteps.add(StepUiState(act, action.delays?.getOrNull(i) ?: 0)) }
                 }
             }
+            action?.type == "button_group" -> {
+                action.actions?.forEach { act -> richSteps.add(ActionEditorState(act)) }
+            }
             action?.type == "dial" && !action.actions.isNullOrEmpty() -> {
                 action.actions.forEach { layer -> dialStackLayers.add(ActionEditorState(layer)) }
             }
@@ -3349,6 +3364,7 @@ class ActionEditorState(action: ActionModel?, val isLongPress: Boolean = false) 
             ActionModel(type = type, actions = richSteps.map { it.toActionModel() }, label = label.trim().ifBlank { null })
         else
             ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs }, label = label.trim().ifBlank { null })
+        "button_group" -> ActionModel(type = type, actions = richSteps.map { it.toActionModel() }, label = label.trim().ifBlank { null })
         "macro" -> ActionModel(type = type, actions = multiSteps.map { it.toActionModel() }, delays = multiSteps.map { it.delayAfterMs }, label = label.trim().ifBlank { null })
         "dial" -> if (isDialStack && dialStackLayers.isNotEmpty())
             // The stack container carries no single target — whichever layer is active resolves
@@ -3513,8 +3529,8 @@ private fun ActionTypeEditor(
         // sense as something you hold a button to run. Macro stays available at the top-level
         // long-press slot — only chain sub-buttons exclude it, same no-nesting rule as Multiple Actions.
         val availableTypes = when {
-            !allowChaining -> actionTypeLabels.filterKeys { it != "multi_action" && it != "macro" && it != "open_folder" }
-            state.isLongPress -> actionTypeLabels.filterKeys { it != "multi_action" && it != "open_folder" }
+            !allowChaining -> actionTypeLabels.filterKeys { it != "multi_action" && it != "macro" && it != "open_folder" && it != "button_group" }
+            state.isLongPress -> actionTypeLabels.filterKeys { it != "multi_action" && it != "open_folder" && it != "button_group" }
             else -> actionTypeLabels
         }
         availableTypes.forEach { (t, friendly) ->
@@ -3744,6 +3760,21 @@ private fun ActionTypeEditor(
                             authToken = authToken,
                         )
                     }
+                }
+                "button_group" -> {
+                    RichStepListEditor(
+                        steps = state.richSteps,
+                        appList = appList,
+                        onRequestAppList = onRequestAppList,
+                        onRequestExtractIcon = onRequestExtractIcon,
+                        accentColor = accentColor,
+                        connectedHostUrl = connectedHostUrl,
+                        authToken = authToken,
+                        iconHashCache = iconHashCache,
+                        onIconUpload = onIconUpload,
+                        extractedIcon = extractedIcon,
+                        maxSteps = 9,
+                    )
                 }
                 "macro" -> {
                     // Macro is captured by recording real input, not by hand-picking a type and
@@ -4147,6 +4178,8 @@ private fun RichStepListEditor(
     iconHashCache: Map<String, String>,
     onIconUpload: (suspend (ByteArray) -> String?)?,
     extractedIcon: Pair<String, String?>? = null,
+    /** Null = uncapped (the dial long-press chain's usage). Set to 9 for Button Group. */
+    maxSteps: Int? = null,
 ) {
     Column {
         steps.forEachIndexed { index, subState ->
@@ -4165,7 +4198,7 @@ private fun RichStepListEditor(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            "Long-Press Button ${index + 1}",
+                            "Button ${index + 1}",
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -4201,8 +4234,10 @@ private fun RichStepListEditor(
                 }
             }
         }
-        TextButton(onClick = { steps.add(ActionEditorState(null)) }, modifier = Modifier.fillMaxWidth()) {
-            Text("+ Add Another Action", color = accentColor)
+        if (maxSteps == null || steps.size < maxSteps) {
+            TextButton(onClick = { steps.add(ActionEditorState(null)) }, modifier = Modifier.fillMaxWidth()) {
+                Text("+ Add Another Action", color = accentColor)
+            }
         }
     }
 }
