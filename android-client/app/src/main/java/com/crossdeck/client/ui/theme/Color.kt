@@ -24,7 +24,6 @@ val MistLight = Color(0xFF6B7280)
 
 // Brand accents — identical hex to Windows' Resources/Colors.xaml, do not let these drift
 val SignalCyan = Color(0xFF00E5FF)
-val VoltViolet = Color(0xFF8B5CF6)
 
 // Semantic
 val Go = Color(0xFF22C55E)
