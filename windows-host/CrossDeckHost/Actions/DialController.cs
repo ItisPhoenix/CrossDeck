@@ -340,23 +340,36 @@ public static class DialController
         }
     }
 
-    private static IAudioSessionControl2? FindSessionControl(string processName) =>
-        EnumerateAudioSessions().FirstOrDefault(s => string.Equals(s.ProcessName, processName, StringComparison.OrdinalIgnoreCase)).Control;
+    // Apps like Discord (Electron/Chromium) run several child processes under the same exe
+    // name, each often holding its own WASAPI session (voice call audio, notification sound,
+    // etc). A single-session lookup can grab a session that isn't the one making sound, so
+    // Set/Mute must touch every session matching the process name — same as the native
+    // Volume Mixer, which groups and drives all of a process's sessions together.
+    private static List<IAudioSessionControl2> FindSessionControls(string processName) =>
+        EnumerateAudioSessions()
+            .Where(s => string.Equals(s.ProcessName, processName, StringComparison.OrdinalIgnoreCase))
+            .Select(s => s.Control)
+            .ToList();
 
     /// <summary>Returns the applied level 0-100, or -1 if the app has no active audio session.</summary>
     public static int SetAppVolume(string processName, int value)
     {
-        var control = FindSessionControl(processName);
-        if (control is not ISimpleAudioVolume vol) return -1;
+        var controls = FindSessionControls(processName);
+        if (controls.Count == 0) return -1;
         float target = Math.Clamp(value / 100f, 0f, 1f);
-        if (vol.SetMasterVolume(target, Guid.Empty) != 0) return -1;
-        return (int)Math.Round(target * 100f);
+        bool anySucceeded = false;
+        foreach (var control in controls)
+        {
+            if (control is ISimpleAudioVolume vol && vol.SetMasterVolume(target, Guid.Empty) == 0)
+                anySucceeded = true;
+        }
+        return anySucceeded ? (int)Math.Round(target * 100f) : -1;
     }
 
     /// <summary>Returns the current level 0-100, or -1 if the app has no active audio session.</summary>
     public static int GetAppVolume(string processName)
     {
-        var control = FindSessionControl(processName);
+        var control = FindSessionControls(processName).FirstOrDefault();
         if (control is not ISimpleAudioVolume vol) return -1;
         if (vol.GetMasterVolume(out float level) != 0) return -1;
         return (int)Math.Round(level * 100f);
@@ -365,10 +378,15 @@ public static class DialController
     /// <summary>Returns the applied mute state, or null if the app has no active audio session.</summary>
     public static bool? SetAppMuted(string processName, bool muted)
     {
-        var control = FindSessionControl(processName);
-        if (control is not ISimpleAudioVolume vol) return null;
-        if (vol.SetMute(muted, Guid.Empty) != 0) return null;
-        return muted;
+        var controls = FindSessionControls(processName);
+        if (controls.Count == 0) return null;
+        bool anySucceeded = false;
+        foreach (var control in controls)
+        {
+            if (control is ISimpleAudioVolume vol && vol.SetMute(muted, Guid.Empty) == 0)
+                anySucceeded = true;
+        }
+        return anySucceeded ? muted : null;
     }
 
     /// <summary>One row per distinct process currently holding a real audio session — the live
