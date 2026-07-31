@@ -173,7 +173,7 @@ fun DeckGridScreen(
     onIconUpload: suspend (ByteArray) -> String?,
     appList: List<com.crossdeck.client.model.DiscoveredApp>,
     onRequestAppList: () -> Unit,
-    extractedIcon: Pair<String, String?>?,
+    extractedIcon: Triple<String, String?, Long>?,
     onRequestExtractIcon: (String) -> Unit,
     onButtonDelete: (String) -> Unit,
     onProfileSwitch: (String) -> Unit,
@@ -2655,8 +2655,8 @@ private fun ButtonGroupPopup(
                             .padding(6.dp),
                         verticalArrangement = Arrangement.Center
                     ) {
-                        // Same resolve-with-glyph-fallback pattern as MosaicStepGrid — IconPreview
-                        // shows nothing at all when a step has no icon set, which reads as broken.
+                        // No fallback glyph — an unset step stays blank, matching a plain
+                        // button's own icon (blank until a real icon is set).
                         val context = LocalContext.current
                         val bmp by produceState<ImageBitmap?>(initialValue = null, step.icon, connectedHostUrl) {
                             value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -2666,8 +2666,6 @@ private fun ButtonGroupPopup(
                         Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
                             if (bmp != null) {
                                 Image(bitmap = bmp!!, contentDescription = null, modifier = Modifier.fillMaxSize(0.75f))
-                            } else {
-                                Text(text = actionTypeGlyph(step), fontSize = 16.sp)
                             }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
@@ -2787,7 +2785,7 @@ private fun EditButtonDialog(
     onIconUpload: suspend (ByteArray) -> String?,
     appList: List<com.crossdeck.client.model.DiscoveredApp>,
     onRequestAppList: () -> Unit,
-    extractedIcon: Pair<String, String?>?,
+    extractedIcon: Triple<String, String?, Long>?,
     onRequestExtractIcon: (String) -> Unit,
     onDismiss: () -> Unit,
     onSave: (ButtonModel) -> Unit,
@@ -2853,16 +2851,14 @@ private fun EditButtonDialog(
         }
     }
 
-    // Auto-icon-on-select (mirrors the PC editor): when the host responds to an extract_icon
-    // request for the path currently in the field, and no icon is set yet, use it. Only the main
-    // action drives this — long-press has no icon of its own to set.
+    // Auto-icon-on-select: applies an extract_icon response if the user hasn't manually picked
+    // their own icon. Doesn't set iconUserSet, so switching apps/sites keeps re-extracting.
     LaunchedEffect(extractedIcon) {
         val (extractedPath, extractedHash) = extractedIcon ?: return@LaunchedEffect
         val matchesMainAction = extractedPath == mainActionState.path ||
             (mainActionState.type == "open_url" && extractedPath == mainActionState.url)
         if (matchesMainAction && extractedHash != null && !iconUserSet) {
             iconValue = extractedHash
-            iconUserSet = true
         }
     }
 
@@ -3024,6 +3020,7 @@ private fun EditButtonDialog(
                     forceDialMode = forceDialMode,
                     audioMixerApps = audioMixerApps,
                     onAudioMixerSubscribe = onAudioMixerSubscribe,
+                    extractedIcon = extractedIcon,
                 )
             }
 
@@ -3317,10 +3314,10 @@ private fun MosaicStepGrid(steps: List<ActionModel>, connectedHostUrl: String?, 
                                     resolveIconBitmap(context, step.icon, connectedHostUrl, authToken)
                                 }
                             }
+                            // No fallback glyph — an unset slot stays blank, matching a plain
+                            // button's own icon (blank until a real icon is set).
                             if (bmp != null) {
                                 Image(bitmap = bmp!!, contentDescription = null, modifier = Modifier.fillMaxSize(0.5f))
-                            } else {
-                                Text(text = actionTypeGlyph(step), fontSize = 15.sp)
                             }
                         }
                     }
@@ -3394,6 +3391,9 @@ class ActionEditorState(action: ActionModel?, val isLongPress: Boolean = false) 
     val dialStackLayers = mutableStateListOf<ActionEditorState>()
     var searchQuery by mutableStateOf("")
     var icon by mutableStateOf(action?.icon)
+    // True once the user manually picks an icon (vs. an auto default) — mirrors EditButtonDialog's
+    // own iconUserSet for the main action.
+    var iconUserSet by mutableStateOf(action?.icon != null)
     var label by mutableStateOf(action?.label ?: "")
     // Only a brand-new (blank-label) instance gets live autofill from the action's own
     // parameters — an existing custom label is never touched once the user's typed into it.
@@ -3504,7 +3504,7 @@ private fun ActionTypeEditor(
     showIconPicker: Boolean = false,
     onIconUpload: (suspend (ByteArray) -> String?)? = null,
     allowChaining: Boolean = true,
-    extractedIcon: Pair<String, String?>? = null,
+    extractedIcon: Triple<String, String?, Long>? = null,
     /** Set by the dial-strip editor — dials have no Action Type dropdown (every dial IS type
      * "dial" implicitly), so this skips straight to the dial target/process card below. */
     forceDialMode: Boolean = false,
@@ -3528,7 +3528,7 @@ private fun ActionTypeEditor(
             isUploadingIcon = true
             try {
                 val bytes = iconContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                if (bytes != null) onIconUpload?.invoke(bytes)?.let { hash -> state.icon = hash }
+                if (bytes != null) onIconUpload?.invoke(bytes)?.let { hash -> state.icon = hash; state.iconUserSet = true }
             } finally {
                 isUploadingIcon = false
             }
@@ -3569,15 +3569,14 @@ private fun ActionTypeEditor(
             }
         }
     }
-    // Applies to this instance's OWN state.icon — every instance except the plain main action
-    // owns its own Action.icon (written even while it's not shown in the UI, e.g. the long-press
-    // top-level slot, since it still drives that popup tile's icon); the main action's icon lives
-    // on the button itself (EditButtonDialog's own iconValue + its own matching effect), not here.
+    // Every instance except the plain main action owns its own Action.icon directly (the main
+    // action's icon lives on the button itself via EditButtonDialog's own matching effect).
     if (state.isLongPress || !allowChaining) {
+        // Gated on iconUserSet, not icon == null, so path/url/type changes keep re-extracting.
         LaunchedEffect(extractedIcon) {
             val (extractedPath, extractedHash) = extractedIcon ?: return@LaunchedEffect
             val matches = extractedPath == state.path || (state.type == "open_url" && extractedPath == state.url)
-            if (matches && extractedHash != null && state.icon == null) {
+            if (matches && extractedHash != null && !state.iconUserSet) {
                 state.icon = extractedHash
             }
         }
@@ -3648,9 +3647,9 @@ private fun ActionTypeEditor(
             if (state.icon != null) {
                 IconPreview(icon = state.icon, connectedHostUrl = connectedHostUrl, authToken = authToken, modifier = Modifier.size(36.dp))
             } else {
-                Box(modifier = Modifier.size(36.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-                    Text(text = actionTypeGlyph(state.toActionModel()), fontSize = 18.sp)
-                }
+                // No fallback glyph — stays blank until a real icon is set, matching a plain
+                // button's own icon box.
+                Box(modifier = Modifier.size(36.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp)))
             }
             Spacer(modifier = Modifier.width(8.dp))
             TextButton(onClick = { showBuiltinIconPicker = true }) { Text("Built-in", color = accentColor) }
@@ -3658,13 +3657,13 @@ private fun ActionTypeEditor(
                 Text(if (isUploadingIcon) "Uploading…" else "Upload", color = accentColor)
             }
             if (state.icon != null) {
-                TextButton(onClick = { state.icon = null }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { state.icon = null; state.iconUserSet = false }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
             }
         }
         if (showBuiltinIconPicker) {
             BuiltinIconPickerDialog(
                 onDismiss = { showBuiltinIconPicker = false },
-                onSelect = { name -> state.icon = "builtin:$name"; showBuiltinIconPicker = false }
+                onSelect = { name -> state.icon = "builtin:$name"; state.iconUserSet = true; showBuiltinIconPicker = false }
             )
         }
         }
@@ -4392,7 +4391,7 @@ private fun RichStepListEditor(
     authToken: String?,
     iconHashCache: Map<String, String>,
     onIconUpload: (suspend (ByteArray) -> String?)?,
-    extractedIcon: Pair<String, String?>? = null,
+    extractedIcon: Triple<String, String?, Long>? = null,
     /** Null = uncapped (the dial long-press chain's usage). Set to 9 for Button Group. */
     maxSteps: Int? = null,
 ) {

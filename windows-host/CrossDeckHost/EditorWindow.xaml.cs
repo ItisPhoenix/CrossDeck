@@ -884,6 +884,9 @@ public partial class EditorWindow : Window
             }
             else
             {
+                // No fallback glyph here — an unset slot stays blank, matching a plain button's own
+                // icon box (blank until a real icon is set), instead of implying one was assigned.
+                content = new System.Windows.Controls.Grid();
                 var iconPath = ProfileStoreService.ResolveIconFilePath(action!.Icon);
                 if (iconPath != null)
                 {
@@ -891,14 +894,7 @@ public partial class EditorWindow : Window
                     {
                         content = new System.Windows.Controls.Image { Stretch = Stretch.Uniform, Margin = new Thickness(7), Source = new BitmapImage(new Uri(iconPath)) };
                     }
-                    catch
-                    {
-                        content = new TextBlock { Text = GetActionGlyph(action), FontSize = 15, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = System.Windows.VerticalAlignment.Center, Foreground = ThemeManager.Brush("Brush.Paper") };
-                    }
-                }
-                else
-                {
-                    content = new TextBlock { Text = GetActionGlyph(action), FontSize = 15, HorizontalAlignment = System.Windows.HorizontalAlignment.Center, VerticalAlignment = System.Windows.VerticalAlignment.Center, Foreground = ThemeManager.Brush("Brush.Paper") };
+                    catch { /* keep the blank Grid */ }
                 }
             }
 
@@ -1459,7 +1455,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v2.0.0\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v2.0.2\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -1519,6 +1515,7 @@ public partial class EditorWindow : Window
             {
                 _profileStore.Set.AccentColor = hex;
                 _profileStore.Save();
+                _profileStore.NotifyChanged();
                 ThemeManager.AccentColor = hex;
                 foreach (Window win in System.Windows.Application.Current.Windows) ThemeManager.ApplyTheme(win);
                 RefreshGrid();
@@ -1594,7 +1591,7 @@ public partial class EditorWindow : Window
         ((TextBlock)aboutRow.Children[0]).MouseLeftButtonDown += AboutLink_Click;
         aboutRow.Children.Add(new TextBlock
         {
-            Text = "v0.3.5-beta", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11,
+            Text = "v2.0.2", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Right
         });
         stack.Children.Add(aboutRow);

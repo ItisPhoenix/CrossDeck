@@ -62,6 +62,7 @@ It's fully open source, so every permission it asks for is auditable, not just p
   - `run_command` — Console shell command execution
   - `text_snippet` — Send raw text snippets via clipboard injection
   - `multi_action` — Sequenced combinations with custom delay intervals
+  - `button_group` — A popup of up to 9 independent full buttons, each its own type/params/icon
   - `macro` — Record real keystrokes/clicks and replay them with original timing
   - `open_folder` — Navigate into sub-folder button pages
 - **Dials / System Controls**: Tap a dial button to open a full-screen bottom-sheet touch-bar slider with haptic detent ticks to control:

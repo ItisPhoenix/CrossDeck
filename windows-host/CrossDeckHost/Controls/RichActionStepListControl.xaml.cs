@@ -44,7 +44,7 @@ public partial class RichActionStepListControl : System.Windows.Controls.UserCon
 
     private void AddSubEditor(ActionModel? initial = null)
     {
-        var editor = new ActionConfigControl { AllowChaining = false, ShowIconPicker = true, ExtractIconOnSelect = true, AppList = AppList };
+        var editor = new ActionConfigControl { AllowChaining = false, ShowIconPicker = true, ShowIconGlyphFallback = false, ExtractIconOnSelect = true, AppList = AppList };
         editor.ActionChanged += () => ActionChanged?.Invoke();
         // A brand-new card must land on a real selection immediately — ActionTypeCombo has no
         // XAML-declared SelectedIndex, so skipping this left it blank with every parameter panel

@@ -47,6 +47,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <Border Width="36" Height="36" CornerRadius="8" Background="{StaticResource Brush.Void}"
                                 BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" Margin="0,0,8,0">
@@ -56,8 +57,10 @@
                                  ToolTip="What kind of icon is set — Browse or Built-in to change it"/>
                         <Button Grid.Column="2" Style="{StaticResource StandardButton}" Padding="6,4" Margin="0,0,6,0"
                                 Click="BrowseIcon_Click" Content="📂" ToolTip="Upload a custom image from this PC"/>
-                        <Button Grid.Column="3" x:Name="BuiltinIconBtn" Style="{StaticResource StandardButton}" Padding="6,4"
+                        <Button Grid.Column="3" x:Name="BuiltinIconBtn" Style="{StaticResource StandardButton}" Padding="6,4" Margin="0,0,6,0"
                                 Click="ToggleBuiltinIcons_Click" Content="🎨" ToolTip="Choose from CrossDeck's bundled icon set"/>
+                        <Button Grid.Column="4" Style="{StaticResource StandardButton}" Padding="6,4"
+                                Click="ClearIcon_Click" Content="✕" ToolTip="Remove the icon"/>
                     </Grid>
                     <Border x:Name="BuiltinIconsDrawer" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}"
                             BorderThickness="1" CornerRadius="8" Padding="8" Margin="0,0,0,6" Visibility="Collapsed">

@@ -108,9 +108,10 @@ class ConnectionManager(context: Context) {
     private val _runningApps = MutableStateFlow<List<com.crossdeck.client.model.RunningApp>>(emptyList())
     val runningApps: StateFlow<List<com.crossdeck.client.model.RunningApp>> = _runningApps.asStateFlow()
 
-    /** Pair(path, iconHashOrNull) — the most recent response to sendExtractIconRequest(). */
-    private val _extractedIcon = MutableStateFlow<Pair<String, String?>?>(null)
-    val extractedIcon: StateFlow<Pair<String, String?>?> = _extractedIcon.asStateFlow()
+    /** Triple(path, iconHashOrNull, nonce) — the nonce forces every response to count as a
+     * distinct value, since StateFlow/Compose otherwise skip repeat-picked (path, hash) pairs. */
+    private val _extractedIcon = MutableStateFlow<Triple<String, String?, Long>?>(null)
+    val extractedIcon: StateFlow<Triple<String, String?, Long>?> = _extractedIcon.asStateFlow()
 
     private fun emitToast(message: String, success: Boolean) {
         _toastMessage.value = Pair(message, success)
@@ -430,7 +431,7 @@ class ConnectionManager(context: Context) {
                     val path = obj["path"]?.jsonPrimitive?.content
                     val icon = obj["icon"]?.let { if (it is kotlinx.serialization.json.JsonNull) null else it.jsonPrimitive.content }
                     if (path != null) {
-                        _extractedIcon.value = path to icon
+                        _extractedIcon.value = Triple(path, icon, System.nanoTime())
                     }
                 }
             }

@@ -153,6 +153,9 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         }
     }
 
+    /// <summary>False for rich sub-button cards — matches the main button's blank-until-set icon box.</summary>
+    public bool ShowIconGlyphFallback { get; set; } = true;
+
     /// <summary>Only the long-press instance offers its own icon — the main action's icon lives on the button itself.</summary>
     public bool ShowIconPicker
     {
@@ -697,8 +700,15 @@ public partial class ActionConfigControl : System.Windows.Controls.UserControl
         }
         ActionIconThumbnail.Source = null;
         ActionIconThumbnail.Visibility = Visibility.Collapsed;
+        if (!ShowIconGlyphFallback) { ActionIconGlyphFallback.Visibility = Visibility.Collapsed; return; }
         ActionIconGlyphFallback.Visibility = Visibility.Visible;
         UpdateActionIconGlyphFallback();
+    }
+
+    private void ClearActionIcon_Click(object sender, RoutedEventArgs e)
+    {
+        SetActionIconRef(null);
+        ActionChanged?.Invoke();
     }
 
     /// <summary>Shows a type-based glyph in the icon box instead of leaving it blank when no icon is set.</summary>

@@ -313,6 +313,8 @@ public partial class ButtonPropertyPanel : System.Windows.Controls.UserControl
         }
     }
 
+    private void ClearIcon_Click(object sender, RoutedEventArgs e) { SetIconRef(null); TryApply(); }
+
     private void DeleteIconBtn_Click(object sender, RoutedEventArgs e) => DeleteRequested?.Invoke();
 
     public void Dispose()

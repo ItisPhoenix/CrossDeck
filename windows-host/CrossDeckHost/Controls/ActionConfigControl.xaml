@@ -32,6 +32,7 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <Border Width="36" Height="36" CornerRadius="8" Background="{StaticResource Brush.Void}"
                             BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" Margin="0,0,8,0">
@@ -49,12 +50,16 @@
                             <TextBlock Text="Browse"/>
                         </StackPanel>
                     </Button>
-                    <Button Grid.Column="3" Style="{StaticResource StandardButton}" Padding="8,5" Click="ToggleActionBuiltinIcons_Click"
+                    <Button Grid.Column="3" Style="{StaticResource StandardButton}" Padding="8,5" Margin="0,0,8,0" Click="ToggleActionBuiltinIcons_Click"
                             ToolTip="Choose from CrossDeck's bundled icon set">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="🎨" FontSize="13" Margin="0,0,6,0"/>
                             <TextBlock Text="Built-in"/>
                         </StackPanel>
+                    </Button>
+                    <Button Grid.Column="4" Style="{StaticResource StandardButton}" Padding="8,5" Click="ClearActionIcon_Click"
+                            ToolTip="Remove the icon">
+                        <TextBlock Text="✕" FontSize="13"/>
                     </Button>
                 </Grid>
                 <Border x:Name="ActionBuiltinIconsDrawer" Background="{StaticResource Brush.Void}" BorderBrush="{StaticResource Brush.Hairline}" BorderThickness="1" CornerRadius="{StaticResource Radius.Control}" Padding="8" Visibility="Collapsed">
