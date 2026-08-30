@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,9 +34,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         connectionManager = ConnectionManager(applicationContext)
-        // If we've paired before, try to reconnect silently with the saved token.
-        // If this returns false (no saved pairing), the PairingScreen shows immediately.
-        connectionManager.reconnectWithSavedToken()
 
         setContent {
             val accentColorHex by connectionManager.accentColor.collectAsState()
@@ -66,22 +62,7 @@ class MainActivity : ComponentActivity() {
                     val audioMixerApps by connectionManager.audioMixerApps.collectAsState()
                     val extractedIcon by connectionManager.extractedIcon.collectAsState()
                     val isPcResponding by connectionManager.isPcResponding.collectAsState()
-                    val reconnectGaveUp by connectionManager.reconnectGaveUp.collectAsState()
-
-                    // "Manual Connection" in the reconnect overlay forces PairingScreen even though
-                    // we still have a last-known profile; reset once a fresh connection succeeds.
-                    var showManualPairing by remember { mutableStateOf(false) }
-                    LaunchedEffect(state) {
-                        if (state == ConnectionState.Connected) showManualPairing = false
-                    }
-                    // Don't leave the "Reconnecting…" spinner up forever once the 10s auto-retry
-                    // window gives up — jump to manual pairing the same as tapping the button.
-                    LaunchedEffect(reconnectGaveUp) {
-                        if (reconnectGaveUp) {
-                            connectionManager.disconnect()
-                            showManualPairing = true
-                        }
-                    }
+                    val hasSavedPairing by connectionManager.hasSavedPairing.collectAsState()
 
                     var appSettings by remember { mutableStateOf(connectionManager.loadSettings()) }
                     val savedIp = connectionManager.getLastSavedIp()
@@ -167,9 +148,10 @@ class MainActivity : ComponentActivity() {
                                 onAudioMixerAdjust = { processName, value, muted -> connectionManager.sendAudioMixerAdjust(processName, value, muted) }
                             )
                         }
-                        profile != null && !showManualPairing -> {
+                        hasSavedPairing && profile != null -> {
                             // Mid-session drop: show the last-known profile greyed out behind a
-                            // frosted reconnect overlay instead of dumping straight to pairing.
+                            // frosted reconnect overlay. Saved-token reconnect continues until it
+                            // succeeds; PIN/QR are not used for an already-paired device.
                             Box(Modifier.fillMaxSize()) {
                                 Box(Modifier.alpha(0.35f)) {
                                     DeckGridScreen(
@@ -209,12 +191,17 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 ReconnectOverlay(
-                                    onManualConnect = {
-                                        connectionManager.disconnect()
-                                        showManualPairing = true
-                                    }
+                                    onRetry = { connectionManager.reconnectWithSavedToken() }
                                 )
                             }
+                        }
+                        hasSavedPairing -> {
+                            // Cold start or process recreation before the first profile_sync. Keep
+                            // the saved pairing private and retry automatically instead of showing
+                            // PIN/QR controls again.
+                            ReconnectOverlay(
+                                onRetry = { connectionManager.reconnectWithSavedToken() }
+                            )
                         }
                         state == ConnectionState.Connecting -> {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -222,7 +209,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         else -> {
-                            // Never paired, or user forced Manual Connection — fall back to pairing.
+                            // First-time pairing, or a host that explicitly revoked/was forgotten.
                             PairingScreen(
                                 connecting = state == ConnectionState.Connecting,
                                 errorMessage = error,
@@ -231,7 +218,6 @@ class MainActivity : ComponentActivity() {
                                 defaultPin = connectionManager.getLastSavedPin(),
                                 accentColorHex = accentColorHex,
                                 onConnect = { ip, port, pin ->
-                                    showManualPairing = false
                                     connectionManager.connectWithPin(ip, port, pin)
                                 },
                                 onScan = { callback ->
@@ -248,5 +234,12 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         connectionManager.disconnect()
         super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Android may suspend or drop a LAN socket while another app is foreground. A resume is
+        // the reliable point to force an immediate token-authenticated reconnect.
+        connectionManager.reconnectWithSavedToken()
     }
 }

@@ -2517,12 +2517,12 @@ private fun DialCell(
 }
 
 /**
- * Frosted overlay shown when a previously-connected session drops. Meant to be stacked on top of
- * a dimmed, touch-blocked DeckGridScreen showing the last-known profile — see MainActivity's
- * `profile != null && state != Connected` branch.
+ * Frosted overlay shown when a saved-token session is connecting. It can be stacked on top of a
+ * dimmed, touch-blocked DeckGridScreen showing the last-known profile, or used alone during a
+ * cold start before the first profile_sync.
  */
 @Composable
-fun ReconnectOverlay(onManualConnect: () -> Unit, modifier: Modifier = Modifier) {
+fun ReconnectOverlay(onRetry: () -> Unit, modifier: Modifier = Modifier) {
     val accentColor = MaterialTheme.colorScheme.primary
     val infiniteTransition = rememberInfiniteTransition(label = "reconnectPulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -2552,12 +2552,12 @@ fun ReconnectOverlay(onManualConnect: () -> Unit, modifier: Modifier = Modifier)
             Text("Reconnecting…", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(24.dp))
             OutlinedButton(
-                onClick = onManualConnect,
+                onClick = onRetry,
                 border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.5f)),
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor)
             ) {
-                Text("Manual Connection", color = accentColor)
+                Text("Retry now", color = accentColor)
             }
         }
     }

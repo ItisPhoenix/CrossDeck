@@ -59,6 +59,9 @@ class ConnectionManager(context: Context) {
     private val prefs = context.getSharedPreferences("crossdeck_pairing", Context.MODE_PRIVATE)
     private val settingsPrefs = context.getSharedPreferences("crossdeck_settings", Context.MODE_PRIVATE)
 
+    private val _hasSavedPairing = MutableStateFlow(hasStoredPairing())
+    val hasSavedPairing: StateFlow<Boolean> = _hasSavedPairing.asStateFlow()
+
     private val _connectionState = MutableStateFlow(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
@@ -128,12 +131,16 @@ class ConnectionManager(context: Context) {
         openSocket(ip, port) { ws -> sendAuth(ws, pin = pin) }
     }
 
-    /** Returns false if there's no saved pairing to reconnect to. */
+    /** Returns false if there's no saved pairing to reconnect to. Existing connected sessions are kept. */
     fun reconnectWithSavedToken(): Boolean {
         val ip = prefs.getString(KEY_IP, null) ?: return false
         val port = prefs.getInt(KEY_PORT, -1)
         val token = prefs.getString(KEY_TOKEN, null) ?: return false
         if (port <= 0) return false
+        _hasSavedPairing.value = true
+        if (_connectionState.value == ConnectionState.Connected) return true
+        _lastError.value = null
+        cancelReconnect()
         openSocket(ip, port) { ws -> sendAuth(ws, token = token) }
         return true
     }
@@ -210,16 +217,10 @@ class ConnectionManager(context: Context) {
     }
 
     // ---- Reconnect backoff ----
-    // Only kicks in after we've synced a profile at least once this run (_currentProfile != null)
-    // — a bad PIN on first pairing should fall straight back to PairingScreen, not retry forever.
+    // A saved token is the pairing credential. Keep retrying while it exists; PairingScreen is
+    // reserved for first-time pairing or an explicitly revoked/forgotten token.
 
     private var reconnectJob: kotlinx.coroutines.Job? = null
-
-    /** Pulses true once the 10s auto-reconnect window gives up without success — the UI uses
-     * this to jump straight to manual pairing instead of leaving a "Reconnecting…" spinner up
-     * forever waiting for the user to notice and tap the manual-connect button themselves. */
-    private val _reconnectGaveUp = MutableStateFlow(false)
-    val reconnectGaveUp: StateFlow<Boolean> = _reconnectGaveUp.asStateFlow()
 
     private fun scheduleReconnect() {
         if (reconnectJob?.isActive == true) return
@@ -228,22 +229,16 @@ class ConnectionManager(context: Context) {
         val token = prefs.getString(KEY_TOKEN, null) ?: return
         if (port <= 0) return
 
-        _reconnectGaveUp.value = false
         reconnectJob = CoroutineScope(Dispatchers.IO).launch {
-            val deadline = System.currentTimeMillis() + 10_000L
             var delayMs = 1000L
             val maxDelayMs = 3_000L
-            while (System.currentTimeMillis() < deadline) {
+            while (_hasSavedPairing.value && _connectionState.value != ConnectionState.Connected) {
                 kotlinx.coroutines.delay(delayMs)
-                if (_connectionState.value == ConnectionState.Connected) break
+                if (!_hasSavedPairing.value || _connectionState.value == ConnectionState.Connected) break
                 openSocket(ip, port) { ws -> sendAuth(ws, token = token) }
                 kotlinx.coroutines.delay(2000) // give the attempt a moment to resolve
                 if (_connectionState.value == ConnectionState.Connected) break
                 delayMs = (delayMs * 2).coerceAtMost(maxDelayMs)
-            }
-            // Gives up after ~10s total instead of retrying forever.
-            if (_connectionState.value != ConnectionState.Connected) {
-                _reconnectGaveUp.value = true
             }
         }
     }
@@ -327,13 +322,15 @@ class ConnectionManager(context: Context) {
             when (obj["type"]?.jsonPrimitive?.content) {
                 "auth_ok" -> {
                     obj["token"]?.jsonPrimitive?.content?.let { saveToken(it) }
+                    // The PIN is only a first-pairing credential. Future connections use the token.
+                    prefs.edit().remove(KEY_PIN).apply()
                     _connectionState.value = ConnectionState.Connected
                 }
                 "auth_failed" -> {
-                    // Stop the backoff loop — a rejected token (e.g. host revoked this device)
-                    // won't start working on the next retry. User falls back to the overlay's
-                    // "Manual Connection" button (or PairingScreen if never connected).
+                    // A rejected saved token means the host revoked this pairing. Clear only the
+                    // token, preserve the last host address, and allow a deliberate new pairing.
                     cancelReconnect()
+                    clearSavedToken()
                     _connectionState.value = ConnectionState.AuthFailed
                     _lastError.value = obj["reason"]?.jsonPrimitive?.content
                 }
@@ -594,6 +591,9 @@ class ConnectionManager(context: Context) {
     fun forgetPairing() {
         disconnect()
         prefs.edit().remove(KEY_IP).remove(KEY_PORT).remove(KEY_PIN).remove(KEY_TOKEN).apply()
+        _hasSavedPairing.value = false
+        _currentProfile.value = null
+        _profilesList.value = emptyList()
     }
 
     fun loadSettings(): AppSettings = AppSettings(
@@ -648,6 +648,18 @@ class ConnectionManager(context: Context) {
 
     private fun saveToken(token: String) {
         prefs.edit().putString(KEY_TOKEN, token).apply()
+        _hasSavedPairing.value = hasStoredPairing()
+    }
+
+    private fun clearSavedToken() {
+        prefs.edit().remove(KEY_TOKEN).apply()
+        _hasSavedPairing.value = false
+    }
+
+    private fun hasStoredPairing(): Boolean {
+        val ip = prefs.getString(KEY_IP, null)
+        val token = prefs.getString(KEY_TOKEN, null)
+        return !ip.isNullOrBlank() && prefs.getInt(KEY_PORT, -1) > 0 && !token.isNullOrBlank()
     }
 
     companion object {

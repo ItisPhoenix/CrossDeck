@@ -64,16 +64,17 @@ pages. Jump to any section from the table of contents below.
    this is a local-network protocol, it does not work over the internet or over mobile data.
 4. Either scan the QR code, or manually enter the address (`IP:port`) and the 6-digit PIN.
 5. Once connected, the status chip turns green and shows your phone's name instead of "Offline".
-   The pairing popup automatically closes and stays hidden until you disconnect again.
-6. Need the PIN again later? Open **Settings → Pairing** (gear icon, bottom-left) any time you're
-   disconnected — it shows the same QR/address/PIN. Click **New PIN** if the old one expired or
-   you suspect someone else has it.
+   The pairing popup automatically closes. The phone saves its pairing token and uses it when the
+   app returns from another app or starts again, so it does not need the PIN or QR code each time.
+6. PIN/QR pairing is only needed for the first pairing, after the host revokes the device, or after
+   you choose **Forget This PC** on the phone. If the saved host is temporarily unavailable, use
+   **Retry now** on the reconnect overlay; do not clear the pairing unless you intend to pair again.
 
 **Security notes:**
 - The PIN locks out after 5 wrong attempts in a row (brute-force protection), with an escalating
   cooldown before you can try again.
 - There is no encryption/token-expiry layer beyond the PIN gate — this is designed for trusted
-  home WiFi, not a public or shared network.
+  home WiFi, not a public or shared network. Keep both devices on your private home LAN.
 
 ---
 
@@ -427,16 +428,20 @@ Click the gear icon, bottom-left of the editor (next to the connection status ch
 - Everything is **live**: any change you make in the Windows editor — a new button, an edited
   label, a deleted profile — reflects on the phone within moments. No manual refresh, no
   reconnect needed.
-- If the connection drops (PC sleeps, WiFi hiccups), the phone reconnects automatically once both
-  devices are back on the same network; the status chip on PC will show "Offline" in the meantime.
+- If the connection drops (PC sleeps, WiFi hiccups, or you switch to another Android app), the
+  phone reconnects automatically with its saved token once both devices are back on the same
+  network; the status chip on PC will show "Offline" in the meantime. PIN/QR is not needed for
+  normal reconnects.
 
 ---
 
 ## 13. Troubleshooting
 
 - **Phone won't connect** — confirm both devices are on the exact same WiFi network (not a guest
-  network that isolates devices from each other); check the PIN hasn't expired or hit its
-  lockout window; try **New PIN** from Settings.
+  network that isolates devices from each other). If the phone shows the reconnect overlay, tap
+  **Retry now** and wait for the host to return. If the host revoked the device or you used
+  **Forget This PC**, pair again with the new PIN/QR code; otherwise do not restart the app or
+  re-pair just to recover a normal reconnect.
 - **A hotkey does nothing** — double-check every key name against the [valid list](#valid-key-names)
   in §7; an unrecognized name is silently ignored rather than erroring loudly right now.
 - **An app's icon looks wrong, generic, or missing** — open the button and re-pick the app from
