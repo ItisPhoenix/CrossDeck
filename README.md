@@ -160,7 +160,7 @@ Camera is used only by the QR scanner during pairing — never afterward. Local 
 Almost always the router. Both devices need to be on the **same WiFi**, with **AP Isolation / Client Isolation disabled** — that setting silently blocks device-to-device discovery on a lot of routers. Corporate and public WiFi typically block the mDNS/multicast traffic discovery relies on, so test on a home network first, or pair manually with the PC's IP.
 
 **Can two phones control one PC, or one phone control two PCs?**
-Not yet — v1 is one phone ↔ one PC. Re-pairing swaps which device is authorized.
+Not yet
 
 ---
 
