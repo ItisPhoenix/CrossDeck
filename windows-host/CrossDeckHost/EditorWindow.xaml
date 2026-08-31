@@ -117,7 +117,16 @@
                                     <TextBlock x:Name="PairingPinText" Grid.Column="1" Foreground="{StaticResource Brush.VoltViolet}" FontSize="16" FontWeight="Bold"
                                                FontFamily="Cascadia Mono, Consolas" HorizontalAlignment="Right"/>
                                 </Grid>
-                                <TextBlock Text="Scan the QR in the phone app, or enter the address + PIN. Same WiFi required."
+                                <Grid Margin="0,4,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="SECURITY CODE" Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" FontWeight="Bold" VerticalAlignment="Top"/>
+                                    <TextBlock x:Name="PairingFingerprintText" Grid.Column="1" Foreground="{DynamicResource Brush.Accent}" FontSize="9"
+                                               FontFamily="Cascadia Mono, Consolas" TextWrapping="Wrap" MaxWidth="145" HorizontalAlignment="Right"/>
+                                </Grid>
+                                <TextBlock Text="Scan the QR in the phone app, or enter the address + PIN. Verify the security code first. Same WiFi required."
                                            Foreground="{StaticResource Brush.Mist}" FontSize="{StaticResource FontSize.Caption}" TextWrapping="Wrap" Margin="0,8,0,0"/>
                                 <Button x:Name="RegeneratePinButton" Style="{StaticResource StandardButton}" Content="🔄 New PIN" Click="RegeneratePinButton_Click" Margin="0,8,0,0"/>
                             </StackPanel>

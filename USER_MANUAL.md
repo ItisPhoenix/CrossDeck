@@ -17,9 +17,10 @@ up front.
 1. **Install and open CrossDeck Host** on your PC, and the **CrossDeck** app on your Android
    phone. Make sure both devices are connected to the **same WiFi network** — this is required.
 2. **Pair the phone to the PC.** In the Windows editor, click the status chip in the bottom-left
-   corner (it says "Offline"). A QR code, an address, and a 6-digit PIN appear. Scan the QR code
-   with the phone app, or type the address and PIN in by hand. Once it connects, the status chip
-   turns green and shows your phone's name. Full detail: [§1](#1-getting-connected-pairing).
+   corner (it says "Offline"). A QR code, an address, a security code, and a 6-digit PIN appear.
+   Scan the QR code for one-tap secure pairing, or use **Scan WiFi** and verify the short security
+   code before entering the PIN. Existing v2.1.0 pairings require one deliberate re-pair after the
+   v2.1.1 security upgrade. Full detail: [§1](#1-getting-connected-pairing).
 3. **Look at the editor window.** The middle of the screen is a grid of squares — this is your
    first page of buttons, currently empty. Full layout tour: [§2](#2-the-windows-editor-layout).
 4. **Click any empty square in the grid.** A panel opens on the right — this is where you set up
@@ -58,23 +59,28 @@ pages. Jump to any section from the table of contents below.
 ## 1. Getting Connected (Pairing)
 
 1. Launch **CrossDeck Host** on your PC.
-2. If no phone has ever paired, the status chip in the bottom-left of the editor (shows
-   "Offline") is clickable — click it to open the pairing popup: a QR code, an address, and a PIN.
+2. If no phone is currently paired, or you are migrating an older pairing, the status chip in the
+   bottom-left of the editor (shows "Offline") is clickable — click it to open the pairing popup:
+   a QR code, an address, a certificate fingerprint, and a PIN. If the popup says **Use New PIN**,
+   click **New PIN** before pairing.
 3. Open the CrossDeck app on your phone. **Your phone and PC must be on the same WiFi network** —
    this is a local-network protocol, it does not work over the internet or over mobile data.
-4. Either scan the QR code, or manually enter the address (`IP:port`) and the 6-digit PIN.
+4. Either scan the QR code, or manually enter the address (`IP:port`) and the 6-digit PIN. When
+   using WiFi discovery, verify the short PC security code matches the one shown in the Windows
+   Host pairing popup before tapping **Verify this PC** and **Connect**.
 5. Once connected, the status chip turns green and shows your phone's name instead of "Offline".
    The pairing popup automatically closes. The phone saves its pairing token and uses it when the
    app returns from another app or starts again, so it does not need the PIN or QR code each time.
-6. PIN/QR pairing is only needed for the first pairing, after the host revokes the device, or after
-   you choose **Forget This PC** on the phone. If the saved host is temporarily unavailable, use
+6. PIN/QR pairing is only needed for the first pairing, after the host revokes the device, after a
+   host certificate changes, or after you choose **Forget This PC** on the phone. If the saved host is temporarily unavailable, use
    **Retry now** on the reconnect overlay; do not clear the pairing unless you intend to pair again.
 
 **Security notes:**
 - The PIN locks out after 5 wrong attempts in a row (brute-force protection), with an escalating
   cooldown before you can try again.
-- There is no encryption/token-expiry layer beyond the PIN gate — this is designed for trusted
-  home WiFi, not a public or shared network. Keep both devices on your private home LAN.
+- The connection is encrypted with the PC's paired TLS certificate, but tokens remain valid until
+  revoked — this is designed for trusted home WiFi, not a public or shared network. Keep both
+  devices on your private home LAN.
 
 ---
 
@@ -413,8 +419,8 @@ Click the gear icon, bottom-left of the editor (next to the connection status ch
   Crimson Red. Applies instantly across the whole app (Windows editor and phone both).
 - **Start CrossDeck on PC startup** — adds or removes a Windows Run-key entry so the host launches
   automatically when you log in, running in the background until a phone connects.
-- **Pairing** — shown only while no phone is connected: the same QR/address/PIN as the sidebar
-  popup, plus a **New PIN** button.
+- **Pairing** — shown only while no phone is connected: the same QR/address/security code/PIN as
+  the sidebar popup, plus a **New PIN** button. The full certificate fingerprint is advanced-only.
 - **About** — version info.
 
 ---
@@ -440,7 +446,8 @@ Click the gear icon, bottom-left of the editor (next to the connection status ch
 - **Phone won't connect** — confirm both devices are on the exact same WiFi network (not a guest
   network that isolates devices from each other). If the phone shows the reconnect overlay, tap
   **Retry now** and wait for the host to return. If the host revoked the device or you used
-  **Forget This PC**, pair again with the new PIN/QR code; otherwise do not restart the app or
+  **Forget This PC**, or the host identity changed, pair again with the new PIN/QR code and verify
+  the security code; otherwise do not restart the app or
   re-pair just to recover a normal reconnect.
 - **A hotkey does nothing** — double-check every key name against the [valid list](#valid-key-names)
   in §7; an unrecognized name is silently ignored rather than erroring loudly right now.

@@ -3,8 +3,11 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Security;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using CrossDeckHost.Actions;
@@ -13,12 +16,12 @@ using CrossDeckHost.ProfileStore;
 namespace CrossDeckHost.Server;
 
 /// <summary>
-/// Deliberately built on raw TcpListener + a manual WebSocket handshake instead of
+/// Deliberately built on raw TcpListener + manual TLS/WebSocket handshakes instead of
 /// System.Net.HttpListener. HttpListener requires either Administrator privileges or a
 /// `netsh http add urlacl` reservation for any prefix other than exactly "http://localhost/",
 /// which is a dealbreaker for a consumer app users just double-click to run. TcpListener has
-/// no such restriction, so we do the HTTP Upgrade handshake by hand and then wrap the raw
-/// stream with WebSocket.CreateFromStream.
+/// no such restriction, so we do the TLS and HTTP Upgrade handshakes by hand and then wrap the
+/// secure stream with WebSocket.CreateFromStream.
 /// </summary>
 public class WebSocketServer
 {
@@ -29,6 +32,14 @@ public class WebSocketServer
     private readonly ProfileStoreService _profileStore;
     private readonly ActionExecutor _actionExecutor;
     private readonly LiveStateService _liveState;
+    private readonly LanBinding _lanBinding;
+    private readonly X509Certificate2 _hostCertificate;
+    private readonly SemaphoreSlim _connectionSlots = new(32, 32);
+    private readonly SemaphoreSlim _assetConnectionSlots = new(16, 16);
+    private static readonly TimeSpan ConnectionSetupTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan AssetRequestTimeout = TimeSpan.FromSeconds(30);
+    private const int MaxHttpHeaderBytes = 16 * 1024;
+    private const int MaxWebSocketMessageBytes = 1 * 1024 * 1024;
     private readonly List<WebSocket> _activeSockets = new();
     private readonly HashSet<WebSocket> _runningAppsSubs = new();
     private readonly HashSet<WebSocket> _runningAppsLoops = new(); // sockets with a push loop alive, so re-subscribe can't spawn a second
@@ -45,6 +56,8 @@ public class WebSocketServer
     public event Action? ClientAuthenticated;
     public event Action? ClientDisconnected;
     public string? ConnectedDeviceName { get; private set; }
+    public string CertificateFingerprint { get; }
+    public string SecurityCode { get; }
     public bool IsClientConnected
     {
         get
@@ -56,27 +69,36 @@ public class WebSocketServer
         }
     }
 
-    public WebSocketServer(int port, PairingManager pairing, ProfileStoreService profileStore, ActionExecutor actionExecutor, LiveStateService liveState)
+    public WebSocketServer(
+        int port,
+        PairingManager pairing,
+        ProfileStoreService profileStore,
+        ActionExecutor actionExecutor,
+        LiveStateService liveState,
+        HostCertificateService hostIdentity)
     {
         _port = port;
         _pairing = pairing;
         _profileStore = profileStore;
         _actionExecutor = actionExecutor;
         _liveState = liveState;
+        _lanBinding = LanBinding.Detect();
+        _hostCertificate = hostIdentity.Certificate;
+        CertificateFingerprint = hostIdentity.Fingerprint;
+        SecurityCode = hostIdentity.SecurityCode;
         _liveState.StateChanged += (buttonId, active, level, dialSlot) => Task.Run(() => BroadcastButtonStateAsync(buttonId, active, level, dialSlot));
-        LocalIpAddress = DetectLocalIpAddress();
+        LocalIpAddress = _lanBinding.Address.ToString();
 
         // Broadcast profile changes to all connected clients.
         // IMPORTANT: Use a single fused broadcast (profile_list + profile_sync together)
         // to avoid two concurrent Task.Run calls racing on the same WebSocket stream.
-        _profileStore.ProfileChanged  += (_) => Task.Run(() => BroadcastAllAsync());
         _profileStore.ProfileSetChanged += (_) => Task.Run(() => BroadcastAllAsync());
     }
 
     public void Start()
     {
         _cts = new CancellationTokenSource();
-        _listener = new TcpListener(IPAddress.Any, _port);
+        _listener = new TcpListener(_lanBinding.Address, _port);
         _listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         _listener.Start();
         _ = AcceptLoopAsync(_cts.Token);
@@ -84,7 +106,7 @@ public class WebSocketServer
         // Asset (icon) server on the next port up. Same manual-TCP approach as the
         // WebSocket listener above — see class doc comment for why HttpListener is
         // avoided project-wide (admin/urlacl requirement).
-        _assetListener = new TcpListener(IPAddress.Any, _port + 1);
+        _assetListener = new TcpListener(_lanBinding.Address, _port + 1);
         _assetListener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         _assetListener.Start();
         _ = AssetAcceptLoopAsync(_cts.Token);
@@ -115,194 +137,238 @@ public class WebSocketServer
                 break;
             }
 
+            if (!_lanBinding.IsAllowedPeer(GetRemoteAddress(client)) || !_connectionSlots.Wait(0))
+            {
+                client.Dispose();
+                continue;
+            }
+
             _ = HandleClientAsync(client, ct);
         }
     }
 
+    public bool IsAllowedPeer(IPAddress address) => _lanBinding.IsAllowedPeer(address);
+
+    private static IPAddress GetRemoteAddress(TcpClient client) =>
+        (client.Client.RemoteEndPoint as IPEndPoint)?.Address ?? IPAddress.None;
+
     private async Task HandleClientAsync(TcpClient tcpClient, CancellationToken ct)
     {
         using var _ = tcpClient;
-        var stream = tcpClient.GetStream();
-
-        WebSocket webSocket;
         try
         {
-            webSocket = await PerformHandshakeAsync(stream, ct);
-        }
-        catch
-        {
-            return; // Not a valid WS handshake request — drop the connection.
-        }
+            using var setupCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            setupCts.CancelAfter(ConnectionSetupTimeout);
+            using var stream = await AuthenticateTlsAsync(tcpClient, setupCts.Token);
+            var remoteAddress = GetRemoteAddress(tcpClient);
+            var webSocket = await PerformHandshakeAsync(stream, setupCts.Token);
 
-        string? authedToken = null;
-        CancellationTokenSource? heartbeatCts = null;
-        string? lastMsgType = null;
+            string? authedToken = null;
+            CancellationTokenSource? heartbeatCts = null;
+            string? lastMsgType = null;
 
-        try
-        {
-            // First message must be auth (see shared-schema/protocol.md).
-            var first = await ReceiveJsonAsync(webSocket, ct);
-            if (first is null || GetType_(first.Value) != "auth")
-            {
-                await CloseAsync(webSocket, "expected auth message first");
-                return;
-            }
-
-            authedToken = HandleAuth(first.Value, out var response);
-            await SendJsonAsync(webSocket, response, ct);
-
-            if (authedToken is null)
-            {
-                await CloseAsync(webSocket, "auth failed");
-                return;
-            }
-
-            RegisterSocket(webSocket);
-            ClientAuthenticated?.Invoke();
-
-            // Auth succeeded — immediately push current profile state in one atomic send.
-            await SendJsonAsync(webSocket, BuildProfileList(), ct);
-            await SendJsonAsync(webSocket, BuildProfileSync(), ct);
-
-            // Full live-state snapshot so buttons show correct state immediately instead of
-            // waiting for the next change event (mute/media/focus/dial could be stale otherwise).
-            // A failure here is a nice-to-have missing, not grounds for dropping an already
-            // -authenticated connection — never let it take the socket down with it.
             try
             {
-                var states = _liveState.GetSnapshot()
-                    .Select(s => new { buttonId = s.ButtonId, active = s.Active, level = s.Level, slot = s.DialSlot })
-                    .ToList();
-                await SendJsonAsync(webSocket, new { type = "button_states", states }, ct);
-            }
-            catch { }
+                // First message must be auth (see shared-schema/protocol.md).
+                var first = await ReceiveJsonAsync(webSocket, setupCts.Token, MaxWebSocketMessageBytes);
+                if (first is null || GetType_(first.Value) != "auth")
+                {
+                    await CloseAsync(webSocket, "expected auth message first");
+                    return;
+                }
 
-            // Application-level heartbeat: send a lightweight message every 25 s.
-            // This keeps NAT/WiFi power-save from dropping the connection without
-            // touching the WebSocket ping/pong protocol (which races with sends).
-            heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var heartbeatTask = Task.Run(async () =>
-            {
+                authedToken = HandleAuth(first.Value, remoteAddress, out var response);
+                await SendJsonAsync(webSocket, response, setupCts.Token);
+
+                if (authedToken is null)
+                {
+                    await CloseAsync(webSocket, "auth failed");
+                    return;
+                }
+
+                // Only the TLS handshake, WebSocket upgrade, and first auth message need a short
+                // setup deadline. An authenticated socket is kept alive by the app heartbeat.
+                setupCts.CancelAfter(Timeout.InfiniteTimeSpan);
+
+                RegisterSocket(webSocket);
+                ClientAuthenticated?.Invoke();
+
+                // Auth succeeded — immediately push current profile state in one atomic send.
+                await SendJsonAsync(webSocket, BuildProfileList(), ct);
+                await SendJsonAsync(webSocket, BuildProfileSync(), ct);
+
+                // Full live-state snapshot so buttons show correct state immediately instead of
+                // waiting for the next change event (mute/media/focus/dial could be stale otherwise).
+                // A failure here is a nice-to-have missing, not grounds for dropping an already
+                // -authenticated connection — never let it take the socket down with it.
                 try
                 {
-                    while (!heartbeatCts.Token.IsCancellationRequested &&
-                           webSocket.State == WebSocketState.Open)
+                    var states = _liveState.GetSnapshot()
+                        .Select(s => new { buttonId = s.ButtonId, active = s.Active, level = s.Level, slot = s.DialSlot })
+                        .ToList();
+                    await SendJsonAsync(webSocket, new { type = "button_states", states }, ct);
+                }
+                catch { }
+
+                // Application-level heartbeat: send a lightweight message every 25 s.
+                // This keeps NAT/WiFi power-save from dropping the connection without
+                // touching the WebSocket ping/pong protocol (which races with sends).
+                heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var heartbeatTask = Task.Run(async () =>
+                {
+                    try
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(25), heartbeatCts.Token);
-                        if (webSocket.State == WebSocketState.Open)
-                            await SendJsonAsync(webSocket, new { type = "heartbeat" }, CancellationToken.None);
+                        while (!heartbeatCts.Token.IsCancellationRequested &&
+                               webSocket.State == WebSocketState.Open)
+                        {
+                            await Task.Delay(TimeSpan.FromSeconds(25), heartbeatCts.Token);
+                            if (webSocket.State == WebSocketState.Open)
+                                await SendJsonAsync(webSocket, new { type = "heartbeat" }, CancellationToken.None);
+                        }
+                    }
+                    catch { /* connection closed — normal */ }
+                }, heartbeatCts.Token);
+
+                // Main receive loop.
+                while (webSocket.State == WebSocketState.Open && !ct.IsCancellationRequested)
+                {
+                    var msg = await ReceiveJsonAsync(webSocket, ct, MaxWebSocketMessageBytes);
+                    if (msg is null) break;
+
+                    lastMsgType = GetType_(msg.Value);
+                    switch (lastMsgType)
+                    {
+                        case "button_press":
+                            await HandleButtonPress(webSocket, msg.Value, ct);
+                            break;
+                        case "style_change":
+                            var newColor = msg.Value.TryGetProperty("accentColor", out var colVal) ? colVal.GetString() : null;
+                            if (newColor != null)
+                            {
+                                _profileStore.Set.AccentColor = newColor;
+                                _profileStore.Save();
+                                System.Windows.Application.Current.Dispatcher.Invoke(() =>
+                                {
+                                    ThemeManager.AccentColor = newColor;
+                                    foreach (System.Windows.Window win in System.Windows.Application.Current.Windows)
+                                    {
+                                        ThemeManager.ApplyTheme(win);
+                                    }
+                                });
+                                // Route remote edits through the same notification path as the
+                                // Windows editor. This refreshes direct-brush controls and sends
+                                // the canonical profile_sync to every connected client.
+                                _profileStore.NotifyChanged();
+                            }
+                            break;
+                        case "profile_edit":
+                            await HandleProfileEdit(webSocket, msg.Value, ct);
+                            break;
+                        case "profile_switch":
+                            var switchId = msg.Value.TryGetProperty("profileId", out var sId) ? sId.GetString() : null;
+                            if (switchId != null) _profileStore.SwitchProfile(switchId);
+                            break;
+                        case "profile_create":
+                            var createName = msg.Value.TryGetProperty("name", out var cName) ? cName.GetString() : null;
+                            if (createName != null) _profileStore.CreateProfile(createName);
+                            break;
+                        case "profile_delete":
+                            var deleteId = msg.Value.TryGetProperty("profileId", out var dId) ? dId.GetString() : null;
+                            if (deleteId != null) _profileStore.DeleteProfile(deleteId);
+                            break;
+                        case "profile_rename":
+                            var renameId = msg.Value.TryGetProperty("profileId", out var rId) ? rId.GetString() : null;
+                            var renameName = msg.Value.TryGetProperty("name", out var rName) ? rName.GetString() : null;
+                            if (renameId != null && renameName != null) _profileStore.RenameProfile(renameId, renameName);
+                            break;
+                        case "dial_adjust":
+                            await HandleDialAdjust(webSocket, msg.Value, ct);
+                            break;
+                        case "buttons_reorder":
+                            HandleButtonsReorder(msg.Value);
+                            break;
+                        case "list_apps":
+                            await HandleListApps(webSocket, ct);
+                            break;
+                        case "audio_mixer_subscribe":
+                            bool startMixerLoop;
+                            lock (_lock)
+                            {
+                                _audioMixerSubs.Add(webSocket);
+                                startMixerLoop = _audioMixerLoops.Add(webSocket);
+                            }
+                            if (startMixerLoop)
+                            {
+                                var mixerPushLoop = Task.Run(() => AudioMixerPushLoopAsync(webSocket, ct), ct);
+                            }
+                            break;
+                        case "audio_mixer_unsubscribe":
+                            lock (_lock) { _audioMixerSubs.Remove(webSocket); }
+                            break;
+                        case "audio_mixer_adjust":
+                            HandleAudioMixerAdjust(msg.Value);
+                            break;
+                        case "running_apps_subscribe":
+                            bool startLoop;
+                            lock (_lock)
+                            {
+                                _runningAppsSubs.Add(webSocket);
+                                startLoop = _runningAppsLoops.Add(webSocket);
+                            }
+                            if (startLoop)
+                            {
+                                var pushLoop = Task.Run(() => RunningAppsPushLoopAsync(webSocket, ct), ct);
+                            }
+                            break;
+                        case "running_apps_unsubscribe":
+                            lock (_lock) { _runningAppsSubs.Remove(webSocket); }
+                            break;
+                        case "window_focus":
+                            if (msg.Value.TryGetProperty("hwnd", out var fEl) && fEl.TryGetInt64(out var fHwnd))
+                            {
+                                var focusTask = Task.Run(() => ActionExecutor.FocusWindow(new IntPtr(fHwnd)));
+                            }
+                            break;
+                        case "window_close":
+                            if (msg.Value.TryGetProperty("hwnd", out var clEl) && clEl.TryGetInt64(out var clHwnd))
+                                RunningApps.CloseWindow(clHwnd);
+                            break;
+                        case "extract_icon":
+                            await HandleExtractIcon(webSocket, msg.Value, ct);
+                            break;
+                        default:
+                            // Ignore unknown message types
+                            break;
                     }
                 }
-                catch { /* connection closed — normal */ }
-            }, heartbeatCts.Token);
-
-            // Main receive loop.
-            while (webSocket.State == WebSocketState.Open && !ct.IsCancellationRequested)
+            }
+            catch (Exception ex) when
+                (ex is WebSocketException ||
+                 ex is IOException ||
+                 ex is OperationCanceledException ||
+                 ex is InvalidOperationException ||
+                 ex is InvalidDataException ||
+                 ex is AuthenticationException)
             {
-                var msg = await ReceiveJsonAsync(webSocket, ct);
-                if (msg is null) break;
+                LogWsError($"[{DateTime.Now:O}] filtered lastMsgType={lastMsgType} {ex.GetType().Name}: {ex.Message}\n\n");
+            }
+            catch (Exception ex)
+            {
+                LogWsError($"[{DateTime.Now:O}] lastMsgType={lastMsgType} {ex}\n\n");
+            }
+            finally
+            {
+                heartbeatCts?.Cancel();
+                heartbeatCts?.Dispose();
+                UnregisterSocket(webSocket);
+                // Remove the per-socket semaphore to prevent memory leak.
+                _semaphores.TryRemove(webSocket, out var removedSem);
+                removedSem?.Dispose();
 
-                lastMsgType = GetType_(msg.Value);
-                switch (lastMsgType)
+                if (webSocket.State == WebSocketState.Open)
                 {
-                    case "button_press":
-                        await HandleButtonPress(webSocket, msg.Value, ct);
-                        break;
-                    case "style_change":
-                        var newColor = msg.Value.TryGetProperty("accentColor", out var colVal) ? colVal.GetString() : null;
-                        if (newColor != null)
-                        {
-                            _profileStore.Set.AccentColor = newColor;
-                            _profileStore.Save();
-                            System.Windows.Application.Current.Dispatcher.Invoke(() =>
-                            {
-                                ThemeManager.AccentColor = newColor;
-                                foreach (System.Windows.Window win in System.Windows.Application.Current.Windows)
-                                {
-                                    ThemeManager.ApplyTheme(win);
-                                }
-                            });
-                            await BroadcastAllAsync();
-                        }
-                        break;
-                    case "profile_edit":
-                        await HandleProfileEdit(webSocket, msg.Value, ct);
-                        break;
-                    case "profile_switch":
-                        var switchId = msg.Value.TryGetProperty("profileId", out var sId) ? sId.GetString() : null;
-                        if (switchId != null) _profileStore.SwitchProfile(switchId);
-                        break;
-                    case "profile_create":
-                        var createName = msg.Value.TryGetProperty("name", out var cName) ? cName.GetString() : null;
-                        if (createName != null) _profileStore.CreateProfile(createName);
-                        break;
-                    case "profile_delete":
-                        var deleteId = msg.Value.TryGetProperty("profileId", out var dId) ? dId.GetString() : null;
-                        if (deleteId != null) _profileStore.DeleteProfile(deleteId);
-                        break;
-                    case "profile_rename":
-                        var renameId = msg.Value.TryGetProperty("profileId", out var rId) ? rId.GetString() : null;
-                        var renameName = msg.Value.TryGetProperty("name", out var rName) ? rName.GetString() : null;
-                        if (renameId != null && renameName != null) _profileStore.RenameProfile(renameId, renameName);
-                        break;
-                    case "dial_adjust":
-                        await HandleDialAdjust(webSocket, msg.Value, ct);
-                        break;
-                    case "buttons_reorder":
-                        HandleButtonsReorder(msg.Value);
-                        break;
-                    case "list_apps":
-                        await HandleListApps(webSocket, ct);
-                        break;
-                    case "audio_mixer_subscribe":
-                        bool startMixerLoop;
-                        lock (_lock)
-                        {
-                            _audioMixerSubs.Add(webSocket);
-                            startMixerLoop = _audioMixerLoops.Add(webSocket);
-                        }
-                        if (startMixerLoop)
-                        {
-                            var mixerPushLoop = Task.Run(() => AudioMixerPushLoopAsync(webSocket, ct), ct);
-                        }
-                        break;
-                    case "audio_mixer_unsubscribe":
-                        lock (_lock) { _audioMixerSubs.Remove(webSocket); }
-                        break;
-                    case "audio_mixer_adjust":
-                        HandleAudioMixerAdjust(msg.Value);
-                        break;
-                    case "running_apps_subscribe":
-                        bool startLoop;
-                        lock (_lock)
-                        {
-                            _runningAppsSubs.Add(webSocket);
-                            startLoop = _runningAppsLoops.Add(webSocket);
-                        }
-                        if (startLoop)
-                        {
-                            var pushLoop = Task.Run(() => RunningAppsPushLoopAsync(webSocket, ct), ct);
-                        }
-                        break;
-                    case "running_apps_unsubscribe":
-                        lock (_lock) { _runningAppsSubs.Remove(webSocket); }
-                        break;
-                    case "window_focus":
-                        if (msg.Value.TryGetProperty("hwnd", out var fEl) && fEl.TryGetInt64(out var fHwnd))
-                        {
-                            var focusTask = Task.Run(() => ActionExecutor.FocusWindow(new IntPtr(fHwnd)));
-                        }
-                        break;
-                    case "window_close":
-                        if (msg.Value.TryGetProperty("hwnd", out var clEl) && clEl.TryGetInt64(out var clHwnd))
-                            RunningApps.CloseWindow(clHwnd);
-                        break;
-                    case "extract_icon":
-                        await HandleExtractIcon(webSocket, msg.Value, ct);
-                        break;
-                    default:
-                        // Ignore unknown message types
-                        break;
+                    try { await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
+                    catch { /* best effort */ }
                 }
             }
         }
@@ -310,28 +376,18 @@ public class WebSocketServer
             (ex is WebSocketException ||
              ex is IOException ||
              ex is OperationCanceledException ||
-             ex is InvalidOperationException)
+             ex is AuthenticationException ||
+             ex is InvalidDataException)
         {
-            LogWsError($"[{DateTime.Now:O}] filtered lastMsgType={lastMsgType} {ex.GetType().Name}: {ex.Message}\n\n");
+            LogWsError($"[{DateTime.Now:O}] pre-auth {ex.GetType().Name}: {ex.Message}\n\n");
         }
         catch (Exception ex)
         {
-            LogWsError($"[{DateTime.Now:O}] lastMsgType={lastMsgType} {ex}\n\n");
+            LogWsError($"[{DateTime.Now:O}] pre-auth {ex}\n\n");
         }
         finally
         {
-            heartbeatCts?.Cancel();
-            heartbeatCts?.Dispose();
-            UnregisterSocket(webSocket);
-            // Remove the per-socket semaphore to prevent memory leak.
-            _semaphores.TryRemove(webSocket, out var removedSem);
-            removedSem?.Dispose();
-
-            if (webSocket.State == WebSocketState.Open)
-            {
-                try { await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None); }
-                catch { /* best effort */ }
-            }
+            _connectionSlots.Release();
         }
     }
 
@@ -354,7 +410,7 @@ public class WebSocketServer
         }
     }
 
-    private string? HandleAuth(JsonElement authMsg, out object response)
+    private string? HandleAuth(JsonElement authMsg, IPAddress remoteAddress, out object response)
     {
         string? deviceName = null;
         if (authMsg.TryGetProperty("deviceName", out var devEl))
@@ -368,7 +424,7 @@ public class WebSocketServer
             if (_pairing.ValidateToken(token))
             {
                 ConnectedDeviceName = deviceName ?? "Android Device";
-                response = new { type = "auth_ok", token, hostName = Environment.MachineName };
+                response = new { type = "auth_ok", token, hostName = Environment.MachineName, fingerprint = CertificateFingerprint };
                 return token;
             }
             response = new { type = "auth_failed", reason = "invalid_token" };
@@ -378,11 +434,10 @@ public class WebSocketServer
         if (authMsg.TryGetProperty("pin", out var pinEl))
         {
             var pin = pinEl.GetString() ?? "";
-            if (_pairing.ValidatePin(pin))
+            if (_pairing.TryIssueTokenForPin(pin, remoteAddress, out var newToken))
             {
-                var newToken = _pairing.IssueToken();
                 ConnectedDeviceName = deviceName ?? "Android Device";
-                response = new { type = "auth_ok", token = newToken, hostName = Environment.MachineName };
+                response = new { type = "auth_ok", token = newToken, hostName = Environment.MachineName, fingerprint = CertificateFingerprint };
                 return newToken;
             }
             response = new { type = "auth_failed", reason = "invalid_pin" };
@@ -860,7 +915,7 @@ public class WebSocketServer
 
     // ---- WebSocket framing helpers ----
 
-    private static async Task<JsonElement?> ReceiveJsonAsync(WebSocket ws, CancellationToken ct)
+    private static async Task<JsonElement?> ReceiveJsonAsync(WebSocket ws, CancellationToken ct, int maxMessageBytes)
     {
         var buffer = new byte[8192];
         using var ms = new MemoryStream();
@@ -872,6 +927,8 @@ public class WebSocketServer
             // Skip non-text frames (binary, ping surfaced by managed WS) —
             // writing them into the JSON parser causes JsonException —> RST.
             if (result.MessageType != WebSocketMessageType.Text) continue;
+            if (ms.Length + result.Count > maxMessageBytes)
+                throw new InvalidDataException("WebSocket message exceeds the configured limit");
             ms.Write(buffer, 0, result.Count);
         } while (!result.EndOfMessage);
 
@@ -913,11 +970,32 @@ public class WebSocketServer
         catch { /* best effort */ }
     }
 
+    private async Task<SslStream> AuthenticateTlsAsync(TcpClient tcpClient, CancellationToken ct)
+    {
+        var sslStream = new SslStream(tcpClient.GetStream(), leaveInnerStreamOpen: false);
+        try
+        {
+            await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+            {
+                ServerCertificate = _hostCertificate,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                ClientCertificateRequired = false,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+            }, ct);
+            return sslStream;
+        }
+        catch
+        {
+            sslStream.Dispose();
+            throw;
+        }
+    }
+
     // ---- Manual HTTP Upgrade handshake (see class doc comment for why) ----
 
-    private static async Task<WebSocket> PerformHandshakeAsync(NetworkStream stream, CancellationToken ct)
+    private static async Task<WebSocket> PerformHandshakeAsync(Stream stream, CancellationToken ct)
     {
-        var requestText = await ReadHttpHeadersAsync(stream, ct);
+        var requestText = await ReadHttpHeadersAsync(stream, ct, MaxHttpHeaderBytes);
         var key = ExtractHeader(requestText, "Sec-WebSocket-Key")
                   ?? throw new InvalidOperationException("missing Sec-WebSocket-Key");
 
@@ -940,7 +1018,7 @@ public class WebSocketServer
             keepAliveInterval: Timeout.InfiniteTimeSpan);
     }
 
-    private static async Task<string> ReadHttpHeadersAsync(NetworkStream stream, CancellationToken ct)
+    private static async Task<string> ReadHttpHeadersAsync(Stream stream, CancellationToken ct, int maxBytes)
     {
         var buffer = new List<byte>();
         var single = new byte[1];
@@ -951,10 +1029,14 @@ public class WebSocketServer
             int n = await stream.ReadAsync(single.AsMemory(0, 1), ct);
             if (n == 0) break;
             buffer.Add(single[0]);
+            if (buffer.Count > maxBytes)
+                throw new InvalidDataException("HTTP headers exceed the configured limit");
             if (buffer.Count >= 4 &&
                 buffer[^4] == '\r' && buffer[^3] == '\n' && buffer[^2] == '\r' && buffer[^1] == '\n')
                 break;
         }
+        if (buffer.Count < 4)
+            throw new InvalidDataException("Incomplete HTTP headers");
         return Encoding.ASCII.GetString(buffer.ToArray());
     }
 
@@ -968,22 +1050,6 @@ public class WebSocketServer
                 return line[(idx + 1)..].Trim();
         }
         return null;
-    }
-
-    private static string DetectLocalIpAddress()
-    {
-        try
-        {
-            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            // Doesn't actually send anything — just asks the OS which local interface would be
-            // used to reach an external address, which is a reliable way to find the "real" LAN IP.
-            socket.Connect("8.8.8.8", 65530);
-            return (socket.LocalEndPoint as IPEndPoint)?.Address.ToString() ?? "unknown";
-        }
-        catch
-        {
-            return "unknown";
-        }
     }
 
     // ---- Asset (icon) server: same manual-TCP-parsed-HTTP approach as the WS handshake ----
@@ -1000,6 +1066,12 @@ public class WebSocketServer
             catch (OperationCanceledException) { break; }
             catch (ObjectDisposedException) { break; }
 
+            if (!_lanBinding.IsAllowedPeer(GetRemoteAddress(client)) || !_assetConnectionSlots.Wait(0))
+            {
+                client.Dispose();
+                continue;
+            }
+
             _ = HandleAssetClientAsync(client, ct);
         }
     }
@@ -1007,31 +1079,35 @@ public class WebSocketServer
     private async Task HandleAssetClientAsync(TcpClient tcpClient, CancellationToken ct)
     {
         using var _ = tcpClient;
-        var stream = tcpClient.GetStream();
-
         try
         {
-            var headerText = await ReadHttpHeadersAsync(stream, ct);
+            using var requestCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            requestCts.CancelAfter(AssetRequestTimeout);
+            using var stream = await AuthenticateTlsAsync(tcpClient, requestCts.Token);
+            var headerText = await ReadHttpHeadersAsync(stream, requestCts.Token, MaxHttpHeaderBytes);
             var requestLine = headerText.Split("\r\n", 2)[0].Split(' ');
             if (requestLine.Length < 2)
             {
-                await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                await WriteHttpResponseAsync(stream, 400, "Bad Request", ct: requestCts.Token);
                 return;
             }
 
             var method = requestLine[0];
-            var (path, query) = SplitPathQuery(requestLine[1]);
+            var (path, _) = SplitPathQuery(requestLine[1]);
 
-            var token = ExtractHeader(headerText, "X-CrossDeck-Token") ?? ExtractQueryParam(query, "token");
+            // Tokens are accepted only in the authenticated TLS request header. Query strings
+            // are routinely logged by clients, proxies, and diagnostics, so never accept a token
+            // from that representation.
+            var token = ExtractHeader(headerText, "X-CrossDeck-Token");
             if (string.IsNullOrEmpty(token) || !_pairing.ValidateToken(token))
             {
-                await WriteHttpResponseAsync(stream, 401, "Unauthorized");
+                await WriteHttpResponseAsync(stream, 401, "Unauthorized", ct: requestCts.Token);
                 return;
             }
 
             if (!path.StartsWith("/assets/"))
             {
-                await WriteHttpResponseAsync(stream, 404, "Not Found");
+                await WriteHttpResponseAsync(stream, 404, "Not Found", ct: requestCts.Token);
                 return;
             }
 
@@ -1041,9 +1117,9 @@ public class WebSocketServer
                 // Icon hashes are always a bare SHA256 hex string (see SaveIconFromBytes) — reject
                 // anything else before it reaches Path.Combine, so "../" or extra path segments
                 // can't escape the Assets folder.
-                if (hash.Length == 0 || !hash.All(Uri.IsHexDigit))
+                if (hash.Length != 64 || !hash.All(Uri.IsHexDigit))
                 {
-                    await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                    await WriteHttpResponseAsync(stream, 400, "Bad Request", ct: requestCts.Token);
                     return;
                 }
                 var assetsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CrossDeckHost", "Assets");
@@ -1051,12 +1127,12 @@ public class WebSocketServer
 
                 if (!File.Exists(filePath))
                 {
-                    await WriteHttpResponseAsync(stream, 404, "Not Found");
+                    await WriteHttpResponseAsync(stream, 404, "Not Found", ct: requestCts.Token);
                     return;
                 }
 
-                var bytes = await File.ReadAllBytesAsync(filePath, ct);
-                await WriteHttpResponseAsync(stream, 200, "OK", "image/png", bytes);
+                var bytes = await File.ReadAllBytesAsync(filePath, requestCts.Token);
+                await WriteHttpResponseAsync(stream, 200, "OK", "image/png", bytes, requestCts.Token);
             }
             else if (method == "POST")
             {
@@ -1064,7 +1140,7 @@ public class WebSocketServer
                 var contentLengthStr = ExtractHeader(headerText, "Content-Length");
                 if (!int.TryParse(contentLengthStr, out var contentLength) || contentLength <= 0 || contentLength > maxUploadBytes)
                 {
-                    await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                    await WriteHttpResponseAsync(stream, 400, "Bad Request", ct: requestCts.Token);
                     return;
                 }
 
@@ -1072,13 +1148,13 @@ public class WebSocketServer
                 var read = 0;
                 while (read < contentLength)
                 {
-                    var n = await stream.ReadAsync(body.AsMemory(read, contentLength - read), ct);
+                    var n = await stream.ReadAsync(body.AsMemory(read, contentLength - read), requestCts.Token);
                     if (n == 0) break;
                     read += n;
                 }
                 if (read < contentLength)
                 {
-                    await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                    await WriteHttpResponseAsync(stream, 400, "Bad Request", ct: requestCts.Token);
                     return;
                 }
 
@@ -1089,16 +1165,16 @@ public class WebSocketServer
                 }
                 catch
                 {
-                    await WriteHttpResponseAsync(stream, 400, "Bad Request");
+                    await WriteHttpResponseAsync(stream, 400, "Bad Request", ct: requestCts.Token);
                     return;
                 }
 
                 var json = JsonSerializer.Serialize(new { icon = hash });
-                await WriteHttpResponseAsync(stream, 200, "OK", "application/json", Encoding.UTF8.GetBytes(json));
+                await WriteHttpResponseAsync(stream, 200, "OK", "application/json", Encoding.UTF8.GetBytes(json), requestCts.Token);
             }
             else
             {
-                await WriteHttpResponseAsync(stream, 405, "Method Not Allowed");
+                await WriteHttpResponseAsync(stream, 405, "Method Not Allowed", ct: requestCts.Token);
             }
         }
         catch
@@ -1106,9 +1182,13 @@ public class WebSocketServer
             // Best effort — client disconnected mid-request or sent garbage. Nothing to clean up
             // beyond the `using` on tcpClient above.
         }
+        finally
+        {
+            _assetConnectionSlots.Release();
+        }
     }
 
-    private static async Task WriteHttpResponseAsync(NetworkStream stream, int statusCode, string statusText, string? contentType = null, byte[]? body = null)
+    private static async Task WriteHttpResponseAsync(Stream stream, int statusCode, string statusText, string? contentType = null, byte[]? body = null, CancellationToken ct = default)
     {
         var header =
             $"HTTP/1.1 {statusCode} {statusText}\r\n" +
@@ -1116,8 +1196,8 @@ public class WebSocketServer
             (contentType != null ? $"Content-Type: {contentType}\r\n" : "") +
             $"Content-Length: {body?.Length ?? 0}\r\n\r\n";
 
-        await stream.WriteAsync(Encoding.ASCII.GetBytes(header));
-        if (body != null) await stream.WriteAsync(body);
+        await stream.WriteAsync(Encoding.ASCII.GetBytes(header), ct);
+        if (body != null) await stream.WriteAsync(body, ct);
     }
 
     private static (string path, string query) SplitPathQuery(string rawPath)
@@ -1126,13 +1206,4 @@ public class WebSocketServer
         return qIdx < 0 ? (rawPath, "") : (rawPath[..qIdx], rawPath[(qIdx + 1)..]);
     }
 
-    private static string? ExtractQueryParam(string query, string name)
-    {
-        foreach (var pair in query.Split('&'))
-        {
-            var kv = pair.Split('=', 2);
-            if (kv.Length == 2 && kv[0] == name) return Uri.UnescapeDataString(kv[1]);
-        }
-        return null;
-    }
 }

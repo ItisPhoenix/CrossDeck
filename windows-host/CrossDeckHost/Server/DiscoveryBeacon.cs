@@ -8,14 +8,22 @@ namespace CrossDeckHost.Server;
 public class DiscoveryBeacon
 {
     private readonly int _webSocketPort;
-    private readonly string _localIp;
+    private readonly IPAddress _localAddress;
+    private readonly string _certificateFingerprint;
+    private readonly Func<IPAddress, bool> _isAllowedPeer;
     private UdpClient? _udpClient;
     private CancellationTokenSource? _cts;
 
-    public DiscoveryBeacon(string localIp, int webSocketPort)
+    public DiscoveryBeacon(
+        string localIp,
+        int webSocketPort,
+        string certificateFingerprint,
+        Func<IPAddress, bool> isAllowedPeer)
     {
-        _localIp = localIp;
+        _localAddress = IPAddress.Parse(localIp);
         _webSocketPort = webSocketPort;
+        _certificateFingerprint = certificateFingerprint;
+        _isAllowedPeer = isAllowedPeer;
     }
 
     public void Start()
@@ -36,20 +44,23 @@ public class DiscoveryBeacon
         {
             _udpClient = new UdpClient();
             _udpClient.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-            _udpClient.Client.Bind(new IPEndPoint(IPAddress.Any, 7891));
+            _udpClient.Client.Bind(new IPEndPoint(_localAddress, 7891));
 
             while (!ct.IsCancellationRequested)
             {
                 var result = await _udpClient.ReceiveAsync(ct);
                 var requestText = Encoding.UTF8.GetString(result.Buffer);
 
-                if (requestText == "CROSSDECK_DISCOVER")
+                if (requestText == "CROSSDECK_DISCOVER" && _isAllowedPeer(result.RemoteEndPoint.Address))
                 {
                     var responseJson = JsonSerializer.Serialize(new
                     {
-                        ip = _localIp,
+                        v = 2,
+                        ip = _localAddress.ToString(),
                         port = _webSocketPort,
-                        hostName = Environment.MachineName
+                        hostName = Environment.MachineName,
+                        tls = true,
+                        fingerprint = _certificateFingerprint
                     });
                     var responseBytes = Encoding.UTF8.GetBytes(responseJson);
                     await _udpClient.SendAsync(responseBytes, responseBytes.Length, result.RemoteEndPoint);

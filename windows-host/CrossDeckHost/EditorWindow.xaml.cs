@@ -1371,22 +1371,34 @@ public partial class EditorWindow : Window
         ConnectionDot.Fill = ThemeManager.Brush(isConnected ? "Brush.Go" : "Brush.Alarm");
 
         // Inline pairing details replace the old separate PairingWindow — shown only while
-        // no phone is connected.
+        // no phone is connected. Once a token exists, the PIN stays unavailable until the user
+        // explicitly clicks New PIN or revokes the device.
         bool showPairing = !isConnected && _pairing != null && _server != null;
         PairingPanel.Visibility = showPairing ? Visibility.Visible : Visibility.Collapsed;
         if (!showPairing) PairingPopup.IsOpen = false;
         if (showPairing)
         {
             PairingAddressText.Text = $"{_server!.LocalIpAddress}:{_server.Port}";
-            PairingPinText.Text = _pairing!.CurrentPin;
-            GeneratePairingQr(_server.LocalIpAddress, _server.Port, _pairing.CurrentPin);
+            PairingFingerprintText.Text = _server.SecurityCode;
+            PairingFingerprintText.ToolTip = _server.CertificateFingerprint;
+            var currentPin = _pairing!.CurrentPin;
+            PairingPinText.Text = string.IsNullOrEmpty(currentPin) ? "Use New PIN" : currentPin;
+            if (!string.IsNullOrEmpty(currentPin))
+                GeneratePairingQr(_server.LocalIpAddress, _server.Port, currentPin, _server.CertificateFingerprint);
+            else
+            {
+                QrImage.Source = null;
+                _lastQrContent = null;
+            }
         }
     }
 
     private void RegeneratePinButton_Click(object sender, RoutedEventArgs e)
     {
-        _pairing?.GenerateNewPin();
-        UpdateConnectionStatusCard();
+        if (_pairing?.GenerateNewPin() == true)
+            UpdateConnectionStatusCard();
+        else
+            System.Windows.MessageBox.Show("CrossDeck could not persist the new pairing state. Try again after checking the host profile folder.", "CrossDeck", MessageBoxButton.OK, MessageBoxImage.Error);
     }
 
     private void ConnectionChip_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -1397,9 +1409,9 @@ public partial class EditorWindow : Window
 
     private string? _lastQrContent;
 
-    private void GeneratePairingQr(string ip, int port, string pin)
+    private void GeneratePairingQr(string ip, int port, string pin, string fingerprint)
     {
-        string content = $"{ip},{port},{pin}";
+        string content = JsonSerializer.Serialize(new { v = 2, ip, port, pin, fingerprint, tls = true });
         if (content == _lastQrContent) return;
         try
         {
@@ -1455,7 +1467,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v2.1.0\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v2.1.1\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -1564,19 +1576,32 @@ public partial class EditorWindow : Window
             pinRow.Children.Add(pinValue);
             stack.Children.Add(pinRow);
 
+            var fingerprintRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            fingerprintRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            fingerprintRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            fingerprintRow.Children.Add(new TextBlock { Text = "SECURITY CODE", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Top });
+            var fingerprintValue = new TextBlock { Text = _server.SecurityCode, Foreground = ThemeManager.Brush("Brush.Accent"), FontSize = 9, FontFamily = new System.Windows.Media.FontFamily("Cascadia Mono, Consolas"), TextWrapping = TextWrapping.Wrap, MaxWidth = 145, HorizontalAlignment = System.Windows.HorizontalAlignment.Right, ToolTip = _server.CertificateFingerprint };
+            Grid.SetColumn(fingerprintValue, 1);
+            fingerprintRow.Children.Add(fingerprintValue);
+            stack.Children.Add(fingerprintRow);
+
             stack.Children.Add(new TextBlock
             {
-                Text = "Scan the QR in the phone app, or enter the address + PIN. Same WiFi required.",
+                Text = "Scan the QR in the phone app, or enter the address + PIN. Verify the security code first. Same WiFi required.",
                 Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 8)
             });
             var regenBtn = new System.Windows.Controls.Button { Content = "🔄 New PIN", Margin = new Thickness(0, 0, 0, 10) };
             regenBtn.Click += (s, e) =>
             {
-                _pairing?.GenerateNewPin();
-                UpdateConnectionStatusCard();
-                qrImage.Source = QrImage.Source;
-                addrValue.Text = PairingAddressText.Text;
-                pinValue.Text = PairingPinText.Text;
+                if (_pairing?.GenerateNewPin() == true)
+                {
+                    UpdateConnectionStatusCard();
+                    qrImage.Source = QrImage.Source;
+                    addrValue.Text = PairingAddressText.Text;
+                    pinValue.Text = PairingPinText.Text;
+                }
+                else
+                    System.Windows.MessageBox.Show("CrossDeck could not persist the new pairing state. Try again after checking the host profile folder.", "CrossDeck", MessageBoxButton.OK, MessageBoxImage.Error);
             };
             stack.Children.Add(regenBtn);
         }
@@ -1591,7 +1616,7 @@ public partial class EditorWindow : Window
         ((TextBlock)aboutRow.Children[0]).MouseLeftButtonDown += AboutLink_Click;
         aboutRow.Children.Add(new TextBlock
         {
-            Text = "v2.1.0", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11,
+            Text = "v2.1.1", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Right
         });
         stack.Children.Add(aboutRow);

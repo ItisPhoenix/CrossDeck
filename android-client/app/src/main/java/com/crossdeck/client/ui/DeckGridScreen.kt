@@ -127,8 +127,10 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.asImageBitmap
 import java.io.File
-import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.security.MessageDigest
+import com.crossdeck.client.connection.PairingSecurity
+import com.crossdeck.client.connection.PinnedClientRegistry
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.ImageBitmap
@@ -1357,9 +1359,6 @@ fun DeckGridScreen(
     }
 }
 
-// Shared across all icon fetches instead of constructing a new OkHttpClient per call.
-private val iconHttpClient = OkHttpClient()
-
 /**
  * Resolves a ButtonModel.icon value to a displayable bitmap:
  * - "builtin:<name>" -> decoded straight from the bundled assets/builtin/ pack, no network.
@@ -1380,6 +1379,8 @@ private fun resolveIconBitmap(context: android.content.Context, icon: String?, c
         }
     }
 
+    if (!PairingSecurity.isValidSha256Hex(icon)) return null
+
     val assetsDir = File(context.cacheDir, "assets").apply { if (!exists()) mkdirs() }
     val file = File(assetsDir, "$icon.png")
     if (file.exists()) {
@@ -1392,18 +1393,34 @@ private fun resolveIconBitmap(context: android.content.Context, icon: String?, c
 
     if (connectedHostUrl == null) return null
     return try {
+        val iconHttpClient = PinnedClientRegistry.get() ?: return null
         val requestBuilder = Request.Builder().url("${connectedHostUrl}assets/$icon")
         authToken?.let { requestBuilder.header("X-CrossDeck-Token", it) }
         iconHttpClient.newCall(requestBuilder.build()).execute().use { response ->
             if (!response.isSuccessful) return@use null
-            val bytes = response.body?.bytes() ?: return@use null
-            file.writeBytes(bytes)
+            val body = response.body ?: return@use null
+            if (body.contentLength() > MAX_ICON_BYTES) return@use null
+            val bytes = body.byteStream().readNBytes(MAX_ICON_BYTES + 1)
+            if (bytes.size > MAX_ICON_BYTES) return@use null
+            val expectedHash = icon.uppercase()
+            val actualHash = MessageDigest.getInstance("SHA-256")
+                .digest(bytes)
+                .joinToString("") { "%02X".format(it.toInt() and 0xFF) }
+            if (actualHash != expectedHash) return@use null
+            val tempFile = File(assetsDir, ".${file.name}.${System.nanoTime()}.tmp")
+            tempFile.writeBytes(bytes)
+            if (!tempFile.renameTo(file)) {
+                tempFile.delete()
+                return@use null
+            }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
         }
     } catch (e: Exception) {
         null
     }
 }
+
+private const val MAX_ICON_BYTES = 5 * 1024 * 1024
 
 /** Looks up a chrome icon from the bundled builtin pack — same pack button icons use. Returns
  * null if not present so callers keep their current text/emoji fallback. */

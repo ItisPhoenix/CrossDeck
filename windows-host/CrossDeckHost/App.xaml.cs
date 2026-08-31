@@ -13,6 +13,7 @@ public partial class App : System.Windows.Application
     private WebSocketServer? _server;
     private TrayIconManager? _tray;
     private PairingManager? _pairing;
+    private HostCertificateService? _hostIdentity;
     private ProfileStoreService? _profileStore;
     private DiscoveryBeacon? _discoveryBeacon;
     private AutoProfileWatcher? _profileWatcher;
@@ -48,16 +49,29 @@ public partial class App : System.Windows.Application
         var actionExecutor = new ActionExecutor();
 
         _pairing = new PairingManager();
-        _pairing.GenerateNewPin();
+        if (!_pairing.HasValidTokens)
+            _pairing.GenerateNewPin();
+
+        _hostIdentity = new HostCertificateService();
 
         _liveState = new LiveStateService(_profileStore);
         _liveState.Start();
 
-        _server = new WebSocketServer(port: 7890, pairing: _pairing, profileStore: _profileStore, actionExecutor: actionExecutor, liveState: _liveState);
+        _server = new WebSocketServer(
+            port: 7890,
+            pairing: _pairing,
+            profileStore: _profileStore,
+            actionExecutor: actionExecutor,
+            liveState: _liveState,
+            hostIdentity: _hostIdentity);
         _server.ClientAuthenticated += OnClientAuthenticated;
         _server.Start();
 
-        _discoveryBeacon = new DiscoveryBeacon(_server.LocalIpAddress, _server.Port);
+        _discoveryBeacon = new DiscoveryBeacon(
+            _server.LocalIpAddress,
+            _server.Port,
+            _server.CertificateFingerprint,
+            _server.IsAllowedPeer);
         _discoveryBeacon.Start();
 
         _profileWatcher = new AutoProfileWatcher(_profileStore);
@@ -69,8 +83,11 @@ public partial class App : System.Windows.Application
             onShowEditor: ShowEditorWindow,
             onRevokeDevice: () =>
             {
-                _pairing.RevokeAllTokens();
-                _pairing.GenerateNewPin(); // before disconnect, so the editor's pairing card refreshes with the new PIN
+                if (!_pairing.GenerateNewPin())
+                {
+                    System.Windows.MessageBox.Show("CrossDeck could not persist the new pairing state. No new device was paired.", "CrossDeck", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
                 _server?.DisconnectAllClients();
                 ShowEditorWindow();
             },

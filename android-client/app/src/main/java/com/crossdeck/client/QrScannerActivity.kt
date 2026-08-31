@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import org.json.JSONObject
 import com.crossdeck.client.ui.theme.CrossDeckTheme
 import com.google.mlkit.vision.barcode.BarcodeScanner
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -173,12 +174,13 @@ class QrScannerActivity : ComponentActivity() {
     }
 
     private fun handleQrData(data: String) {
-        val parts = data.split(",")
-        if (parts.size == 3) {
+        val qr = runCatching { JSONObject(data.trim()) }.getOrNull() ?: return
+        if (qr.optInt("v", 0) == 2) {
             val intent = Intent().apply {
-                putExtra("ip", parts[0])
-                putExtra("port", parts[1])
-                putExtra("pin", parts[2])
+                putExtra("ip", qr.optString("ip"))
+                putExtra("port", qr.optString("port"))
+                putExtra("pin", qr.optString("pin"))
+                putExtra("fingerprint", qr.optString("fingerprint"))
             }
             setResult(RESULT_OK, intent)
             finish()

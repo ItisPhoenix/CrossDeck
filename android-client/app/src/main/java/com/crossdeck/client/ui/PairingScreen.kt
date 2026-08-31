@@ -26,6 +26,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,6 +37,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -52,6 +55,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
+import com.crossdeck.client.connection.PairingSecurity
 import com.crossdeck.client.ui.theme.SignalCyan
 
 @Composable
@@ -60,14 +64,17 @@ fun PairingScreen(
     errorMessage: String?,
     defaultIp: String,
     defaultPort: String,
-    defaultPin: String,
+    defaultFingerprint: String,
     accentColorHex: String,
-    onConnect: (ip: String, port: Int, pin: String) -> Unit,
-    onScan: ((ip: String, port: Int, hostName: String) -> Unit) -> Unit
+    onConnect: (ip: String, port: Int, pin: String, fingerprint: String) -> Unit,
+    onScan: ((ip: String, port: Int, hostName: String, fingerprint: String) -> Unit) -> Unit
 ) {
     var ip by remember { mutableStateOf(defaultIp) }
     var port by remember { mutableStateOf(defaultPort) }
-    var pin by remember { mutableStateOf(defaultPin) }
+    var pin by remember { mutableStateOf("") }
+    var fingerprint by remember { mutableStateOf(defaultFingerprint) }
+    var fingerprintVerified by remember { mutableStateOf(false) }
+    var showAdvancedIdentity by remember { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
     var scanStatus by remember { mutableStateOf<String?>(null) }
 
@@ -87,15 +94,19 @@ fun PairingScreen(
             val scannedIp = data?.getStringExtra("ip")
             val scannedPort = data?.getStringExtra("port")
             val scannedPin = data?.getStringExtra("pin")
+            val scannedFingerprint = data?.getStringExtra("fingerprint")
 
-            if (scannedIp != null && scannedPort != null && scannedPin != null) {
+            if (scannedIp != null && scannedPort != null && scannedPin != null && scannedFingerprint != null) {
                 ip = scannedIp
                 port = scannedPort
                 pin = scannedPin
+                fingerprint = scannedFingerprint
+                fingerprintVerified = true
+                showAdvancedIdentity = false
                 val portInt = scannedPort.toIntOrNull()
                 if (portInt != null) {
                     view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                    onConnect(scannedIp.trim(), portInt, scannedPin.trim())
+                    onConnect(scannedIp.trim(), portInt, scannedPin.trim(), scannedFingerprint.trim())
                 }
             }
         }
@@ -105,11 +116,13 @@ fun PairingScreen(
         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         scanning = true
         scanStatus = null
-        onScan { discoveredIp, discoveredPort, hostName ->
+        onScan { discoveredIp, discoveredPort, hostName, discoveredFingerprint ->
             ip = discoveredIp
             port = discoveredPort.toString()
+            fingerprint = discoveredFingerprint
+            fingerprintVerified = false
             scanning = false
-            scanStatus = "Found: $hostName"
+            scanStatus = "Found: $hostName — verify code"
         }
     }
 
@@ -236,7 +249,11 @@ fun PairingScreen(
 
             OutlinedTextField(
                 value = ip,
-                onValueChange = { ip = it },
+                onValueChange = {
+                    ip = it
+                    fingerprint = ""
+                    fingerprintVerified = false
+                },
                 label = { Text("PC IP Address") },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -256,7 +273,11 @@ fun PairingScreen(
 
             OutlinedTextField(
                 value = port,
-                onValueChange = { port = it },
+                onValueChange = {
+                    port = it
+                    fingerprint = ""
+                    fingerprintVerified = false
+                },
                 label = { Text("Port") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -273,6 +294,77 @@ fun PairingScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+            Spacer(Modifier.height(12.dp))
+
+            val securityCode = PairingSecurity.securityCode(fingerprint)
+            if (securityCode != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+                        .padding(12.dp)
+                ) {
+                    Text("PC security code", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        securityCode,
+                        color = accentColor,
+                        style = MaterialTheme.typography.titleMedium.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                    Text(
+                        if (fingerprintVerified) "PC verified — encrypted connection ready." else "Compare this code with the code shown on the PC.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    OutlinedButton(
+                        onClick = { fingerprintVerified = true },
+                        enabled = !connecting && !fingerprintVerified,
+                        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
+                        Text(if (fingerprintVerified) "PC verified" else "Verify this PC", color = accentColor)
+                    }
+                }
+            } else {
+                Text(
+                    "Scan WiFi or scan the PC QR code to identify it securely. Manual identity is available below.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            TextButton(
+                onClick = { showAdvancedIdentity = !showAdvancedIdentity },
+                enabled = !connecting
+            ) {
+                Text(if (showAdvancedIdentity) "Hide advanced identity" else "Enter fingerprint manually", color = accentColor)
+            }
+            if (showAdvancedIdentity) {
+                OutlinedTextField(
+                    value = fingerprint,
+                    onValueChange = {
+                        fingerprint = it
+                        fingerprintVerified = false
+                    },
+                    label = { Text("Advanced: full certificate fingerprint") },
+                    supportingText = { Text("Use only when you cannot scan WiFi or QR.") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedBorderColor = accentColor,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                        focusedLabelColor = accentColor,
+                        unfocusedLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedContainerColor = MaterialTheme.colorScheme.background,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.background
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+            }
             Spacer(Modifier.height(12.dp))
 
             OutlinedTextField(
@@ -307,9 +399,10 @@ fun PairingScreen(
                 onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
                     val portInt = port.toIntOrNull() ?: return@Button
-                    onConnect(ip.trim(), portInt, pin.trim())
+                    onConnect(ip.trim(), portInt, pin.trim(), fingerprint.trim())
                 },
-                enabled = !connecting && !scanning && ip.isNotBlank() && pin.isNotBlank(),
+                enabled = !connecting && !scanning && ip.isNotBlank() && pin.isNotBlank() &&
+                    fingerprint.isNotBlank() && fingerprintVerified,
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor, contentColor = MaterialTheme.colorScheme.background),
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier

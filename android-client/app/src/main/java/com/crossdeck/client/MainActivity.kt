@@ -215,10 +215,10 @@ class MainActivity : ComponentActivity() {
                                 errorMessage = error,
                                 defaultIp = connectionManager.getLastSavedIp(),
                                 defaultPort = connectionManager.getLastSavedPort().toString(),
-                                defaultPin = connectionManager.getLastSavedPin(),
+                                defaultFingerprint = connectionManager.getLastSavedFingerprint(),
                                 accentColorHex = accentColorHex,
-                                onConnect = { ip, port, pin ->
-                                    connectionManager.connectWithPin(ip, port, pin)
+                                onConnect = { ip, port, pin, fingerprint ->
+                                    connectionManager.connectWithPin(ip, port, pin, fingerprint)
                                 },
                                 onScan = { callback ->
                                     connectionManager.startDiscoveryScan(callback)

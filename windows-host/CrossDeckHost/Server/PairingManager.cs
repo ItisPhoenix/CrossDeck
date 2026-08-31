@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -8,23 +9,45 @@ public class PairingManager
 {
     private static readonly TimeSpan PinLifetime = TimeSpan.FromMinutes(5);
     private const int MaxFailedAttempts = 5;
+    private const int MaxPinAttemptEntries = 256;
+    private static readonly TimeSpan MaxPinLockout = TimeSpan.FromMinutes(5);
 
     private readonly string _tokensFilePath;
-    private string _currentPin = "000000";
+    private readonly string _tokenStateFilePath;
+    private string _tokenEpoch = Guid.NewGuid().ToString("N");
+    private string _currentPin = "";
     private DateTime _pinExpiresAt = DateTime.MinValue;
     private readonly HashSet<string> _validTokens = new();
-
-    // Brute-force guard: a static 6-digit PIN has only 1,000,000 combinations, so unlimited
-    // attempts over the network would make it guessable well within its 5-minute lifetime.
-    // Locked out under _tokensLock alongside the rest of pairing state.
-    private int _failedPinAttempts = 0;
-    private DateTime _pinLockedUntil = DateTime.MinValue;
-
-    // _validTokens is read from ValidateToken on every WebSocket connection and asset request
-    // (each on its own thread) while IssueToken/RevokeToken/RevokeAllTokens mutate it concurrently.
+    private readonly Dictionary<string, PinAttemptState> _pinAttempts = new(StringComparer.Ordinal);
     private readonly object _tokensLock = new();
+    private bool _persistenceFaulted;
 
-    public string CurrentPin => _currentPin;
+    public string CurrentPin
+    {
+        get
+        {
+            lock (_tokensLock)
+                return CanPairLocked() ? _currentPin : "";
+        }
+    }
+
+    public bool CanPair
+    {
+        get
+        {
+            lock (_tokensLock)
+                return CanPairLocked();
+        }
+    }
+
+    public bool HasValidTokens
+    {
+        get
+        {
+            lock (_tokensLock)
+                return !_persistenceFaulted && _validTokens.Count > 0;
+        }
+    }
 
     public PairingManager()
     {
@@ -33,84 +56,138 @@ public class PairingManager
             "CrossDeckHost");
         Directory.CreateDirectory(appDataDir);
         _tokensFilePath = Path.Combine(appDataDir, "tokens.json");
+        _tokenStateFilePath = Path.Combine(appDataDir, "token-state.json");
         LoadTokens();
     }
 
-    public void GenerateNewPin()
+    /// <summary>
+    /// Starts a new single-device pairing epoch. Existing tokens are revoked before the new PIN is
+    /// exposed. A failed persistence operation leaves pairing unavailable and returns false.
+    /// </summary>
+    public bool GenerateNewPin()
     {
         lock (_tokensLock)
         {
+            if (_persistenceFaulted) return false;
+
+            _validTokens.Clear();
+            _tokenEpoch = Guid.NewGuid().ToString("N");
+            if (!PersistTokenStateLocked())
+            {
+                _persistenceFaulted = true;
+                _currentPin = "";
+                _pinExpiresAt = DateTime.MinValue;
+                return false;
+            }
+
             _currentPin = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
             _pinExpiresAt = DateTime.UtcNow.Add(PinLifetime);
-            _failedPinAttempts = 0;
-            _pinLockedUntil = DateTime.MinValue;
+            _pinAttempts.Clear();
+            return true;
         }
     }
 
-    public bool ValidatePin(string pin)
+    /// <summary>
+    /// Validates and consumes bootstrap PIN in same lock as token issuance. PIN can mint exactly
+    /// one persistent token, even when two clients race concurrently.
+    /// </summary>
+    public bool TryIssueTokenForPin(string pin, IPAddress sourceAddress, out string token)
     {
         lock (_tokensLock)
         {
-            if (DateTime.UtcNow < _pinLockedUntil) return false;
-            if (DateTime.UtcNow > _pinExpiresAt) return false;
+            token = "";
+            if (_persistenceFaulted) return false;
+
+            var now = DateTime.UtcNow;
+            var sourceKey = sourceAddress.ToString();
+            if (_pinAttempts.TryGetValue(sourceKey, out var attempt) && now < attempt.LockedUntil)
+                return false;
+
+            if (!CanPairLocked()) return false;
 
             if (pin == _currentPin)
             {
-                _failedPinAttempts = 0;
+                var candidate = Guid.NewGuid().ToString("D");
+                _validTokens.Add(candidate);
+                if (!PersistTokenStateLocked())
+                {
+                    _validTokens.Remove(candidate);
+                    _persistenceFaulted = true;
+                    return false;
+                }
+
+                _currentPin = "";
+                _pinExpiresAt = DateTime.MinValue;
+                _pinAttempts.Remove(sourceKey);
+                token = candidate;
                 return true;
             }
 
-            _failedPinAttempts++;
-            if (_failedPinAttempts >= MaxFailedAttempts)
+            attempt ??= new PinAttemptState();
+            attempt.FailedAttempts++;
+            attempt.LastAttemptAt = now;
+            if (attempt.FailedAttempts >= MaxFailedAttempts)
             {
-                // Escalating lockout (30s, 60s, 90s, ...) rather than a fixed one, so sustained
-                // guessing keeps getting slower instead of just retrying every 30s forever.
-                _pinLockedUntil = DateTime.UtcNow.AddSeconds(30 * (_failedPinAttempts - MaxFailedAttempts + 1));
+                var lockoutSeconds = Math.Min(
+                    30 * (attempt.FailedAttempts - MaxFailedAttempts + 1),
+                    (int)MaxPinLockout.TotalSeconds);
+                attempt.LockedUntil = now.AddSeconds(lockoutSeconds);
             }
+            _pinAttempts[sourceKey] = attempt;
+            TrimPinAttemptsLocked(now);
             return false;
         }
-    }
-
-    public string IssueToken()
-    {
-        var token = Guid.NewGuid().ToString();
-        lock (_tokensLock)
-        {
-            _validTokens.Add(token);
-            SaveTokensLocked();
-        }
-        return token;
     }
 
     public bool ValidateToken(string token)
     {
         lock (_tokensLock)
-        {
-            return _validTokens.Contains(token);
-        }
+            return !_persistenceFaulted && _validTokens.Contains(token);
     }
 
-    /// <summary>Revokes a single token.</summary>
-    public void RevokeToken(string token)
+    /// <summary>Revokes a single token and restores it in memory if persistence fails.</summary>
+    public bool RevokeToken(string token)
     {
         lock (_tokensLock)
         {
-            _validTokens.Remove(token);
-            SaveTokensLocked();
+            if (!_validTokens.Remove(token)) return true;
+            if (PersistTokenStateLocked()) return true;
+            _validTokens.Add(token);
+            _persistenceFaulted = true;
+            return false;
         }
     }
 
-    /// <summary>
-    /// Revokes every paired device at once — CrossDeck is one-phone-per-PC in v1 (see
-    /// MASTER-PLAN.md locked decisions), so "revoke device" from the tray just clears every
-    /// token rather than needing per-device selection UI.
-    /// </summary>
-    public void RevokeAllTokens()
+    /// <summary>Revokes all tokens and starts a new invalidation epoch.</summary>
+    public bool RevokeAllTokens()
     {
         lock (_tokensLock)
         {
+            if (_persistenceFaulted) return false;
             _validTokens.Clear();
-            SaveTokensLocked();
+            _tokenEpoch = Guid.NewGuid().ToString("N");
+            _pinAttempts.Clear();
+            if (PersistTokenStateLocked()) return true;
+            _persistenceFaulted = true;
+            return false;
+        }
+    }
+
+    private bool CanPairLocked() =>
+        !_persistenceFaulted && !string.IsNullOrEmpty(_currentPin) && DateTime.UtcNow <= _pinExpiresAt;
+
+    private void TrimPinAttemptsLocked(DateTime now)
+    {
+        foreach (var staleKey in _pinAttempts
+                     .Where(pair => now - pair.Value.LastAttemptAt > TimeSpan.FromMinutes(15))
+                     .Select(pair => pair.Key)
+                     .ToList())
+            _pinAttempts.Remove(staleKey);
+
+        while (_pinAttempts.Count > MaxPinAttemptEntries)
+        {
+            var oldest = _pinAttempts.OrderBy(pair => pair.Value.LastAttemptAt).First().Key;
+            _pinAttempts.Remove(oldest);
         }
     }
 
@@ -119,25 +196,80 @@ public class PairingManager
         try
         {
             if (!File.Exists(_tokensFilePath)) return;
+
             var json = File.ReadAllText(_tokensFilePath);
-            var tokens = JsonSerializer.Deserialize<List<string>>(json);
-            if (tokens != null)
+            // v2.1.0 stored a bare token list with no revocation epoch. Do not trust that format
+            // after the security upgrade; users complete one deliberate TLS/fingerprint pairing.
+            if (json.TrimStart().StartsWith("[", StringComparison.Ordinal)) return;
+            var document = JsonSerializer.Deserialize<TokenStoreDocument>(json);
+
+            if (document is null || string.IsNullOrWhiteSpace(document.Epoch))
+                throw new InvalidDataException("Token store has no epoch");
+
+            if (!File.Exists(_tokenStateFilePath)) return;
+            var marker = File.ReadAllText(_tokenStateFilePath).Trim();
+            if (!string.Equals(marker, document.Epoch, StringComparison.Ordinal))
             {
-                lock (_tokensLock)
-                {
-                    foreach (var t in tokens) _validTokens.Add(t);
-                }
+                // A newer revocation marker invalidates an older token document.
+                return;
+            }
+
+            lock (_tokensLock)
+            {
+                _tokenEpoch = document.Epoch;
+                foreach (var token in document.Tokens.Where(t => !string.IsNullOrWhiteSpace(t)))
+                    _validTokens.Add(token);
+
             }
         }
-        catch { /* corrupt/missing file — start with no tokens, same as a fresh install */ }
+        catch
+        {
+            lock (_tokensLock)
+            {
+                _validTokens.Clear();
+                _persistenceFaulted = true;
+            }
+        }
     }
 
-    private void SaveTokensLocked()
+    private bool PersistTokenStateLocked()
     {
         try
         {
-            File.WriteAllText(_tokensFilePath, JsonSerializer.Serialize(_validTokens));
+            // Marker is written first. If token-document replacement fails, next startup sees
+            // the epoch mismatch and refuses to restore the stale token document.
+            WriteAtomic(_tokenStateFilePath, _tokenEpoch + Environment.NewLine);
+            var document = new TokenStoreDocument
+            {
+                Epoch = _tokenEpoch,
+                Tokens = _validTokens.OrderBy(token => token, StringComparer.Ordinal).ToList()
+            };
+            WriteAtomic(_tokensFilePath, JsonSerializer.Serialize(document));
+            return true;
         }
-        catch { /* best effort — a failed save just means tokens don't survive next restart */ }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void WriteAtomic(string path, string content)
+    {
+        var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        File.WriteAllText(tempPath, content);
+        File.Move(tempPath, path, true);
+    }
+
+    private sealed class TokenStoreDocument
+    {
+        public string Epoch { get; set; } = "";
+        public List<string> Tokens { get; set; } = new();
+    }
+
+    private sealed class PinAttemptState
+    {
+        public int FailedAttempts { get; set; }
+        public DateTime LockedUntil { get; set; }
+        public DateTime LastAttemptAt { get; set; } = DateTime.UtcNow;
     }
 }

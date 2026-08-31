@@ -31,7 +31,8 @@ Made by [ItisPhoenix](https://github.com/ItisPhoenix).
 
 A physical Stream Deck is $150+ hardware you have to buy, plug in, and find desk space for. CrossDeck turns the phone already in your pocket into the same thing: a grid of buttons that fires hotkeys, media controls, app launches, and volume/brightness dials on your PC — over your own WiFi, with nothing leaving your network.
 
-It's fully open source, so every permission it asks for is auditable, not just promised.
+It's fully open source, so every permission it asks for is auditable, not just promised. Control
+traffic stays on the private LAN and uses a pinned per-install host certificate.
 
 ## Repo Structure
 
@@ -72,7 +73,7 @@ It's fully open source, so every permission it asks for is auditable, not just p
 - **Haptic Feedback**: KEYBOARD_TAP, CONFIRM, and CLOCK_TICK haptics on the Android app for taps, connections, and slider steps.
 - **Custom Tray Menu**: Dark-styled Windows system tray context menu matching the Obsidian UI theme.
 - **Icon System**: 94-icon built-in pack (Lucide) or upload your own image, per button *and* per long-press action or individual chain step, synced over a token-authenticated asset server.
-  - **Resilient Reconnect**: Android reconnects with its saved pairing token when returning from another app or restarting, retries with backoff, and shows the last-known deck (greyed out) behind a reconnect overlay instead of dropping straight to the pairing screen. PIN/QR pairing is only needed for first pairing or after revocation/forgetting the PC.
+  - **Resilient Reconnect**: Android reconnects with its saved pairing token when returning from another app or restarting, retries with backoff, and shows the last-known deck (greyed out) behind a reconnect overlay instead of dropping straight to the pairing screen. PIN/QR pairing is only needed for first pairing, security migration, or after revocation/forgetting the PC.
 - **Revoke Device**: Kick the paired phone and issue a new PIN from the Windows tray menu.
 - **Live State Buttons**: Buttons reflect real PC state, pushed live — Mute glows when actually muted, Play/Pause when actually playing, a `launch_app` button when its app is the focused window, and dial buttons show the live volume/brightness level.
 - **Running Apps Switcher**: A live grid of every open PC window on the phone — tap to focus, long-press to close. Alt-Tab from your phone, including apps you never made a button for.
@@ -84,18 +85,21 @@ It's fully open source, so every permission it asks for is auditable, not just p
 ```
 ┌─────────────────────────────┐         WiFi (LAN, router)         ┌──────────────────────────────┐
 │   Android Client              │ <────────────────────────────────> │   Windows Host                 │
-│  - Jetpack Compose grid UI    │   WebSocket, JSON, token auth       │  - WPF tray app (borderless)   │
+│  - Jetpack Compose grid UI    │   WSS, JSON, token auth             │  - WPF tray app (borderless)   │
 │  - Profile editor              │   UDP broadcast discovery            │  - WS server (TcpListener)     │
 │  - Bottom-sheet dials/mixer    │   or manual IP / QR pairing          │  - Action execution engine     │
-└─────────────────────────────┘   HTTP /assets/ icon sync            │  - Profile store (JSON, auth)  │
+└─────────────────────────────┘   HTTPS /assets/ icon sync            │  - Profile store (JSON, auth)  │
                                                                        │  - Auto-profile watcher        │
                                                                        └──────────────────────────────┘
 ```
 
-- **Pairing**: phone finds the PC via UDP auto-discovery, QR scan, or manual IP entry, then authenticates with a 6-digit PIN shown in the Windows tray menu.
+- **Pairing**: phone finds the PC via UDP auto-discovery or QR scan, verifies a short host security code, then authenticates with a one-time 6-digit PIN shown in the Windows tray menu. Manual IP pairing stays behind advanced identity details. Full certificate fingerprint stays hidden during normal pairing.
 - **Sync**: the PC holds the one authoritative profile (JSON on disk). Any edit, from either side, sends a `profile_edit` message over the WebSocket; the PC applies it, persists it, and broadcasts the updated `profile_sync` back to every connected client. Last-write-wins per button — no merge step needed for the current one-phone-per-PC scope.
 - **Actions**: pressing a button sends its action id over the same socket; the Host's action engine runs it (`SendInput` for hotkeys/media, Win32 for launching apps/URLs, WASAPI/DDC-CI for volume/brightness, etc.) and pushes live state back so buttons reflect reality (mute glowing when actually muted, and so on).
-- **Icons**: custom icons sync over a small token-authenticated HTTP endpoint on the Host rather than living in the profile JSON, keeping sync messages small.
+- **Icons**: custom icons sync over a small token-authenticated HTTPS endpoint on the Host rather than living in the profile JSON, keeping sync messages small.
+
+CrossDeck uses a per-install host certificate and pins its fingerprint on Android. Keep both devices
+on a private home LAN; do not expose the host ports to a shared, guest, VPN, or public network.
 
 ---
 
@@ -121,7 +125,7 @@ dotnet build
 dotnet run --project CrossDeckHost
 ```
 
-On first run: a tray icon appears. Right-click → **Show Pairing Info** to get the IP, port, and 6-digit PIN. Accept the Windows Firewall prompt — the phone cannot connect without it.
+On first run: a tray icon appears. Right-click → **Show Pairing Info** to get the IP, port, short security code, and one-time 6-digit PIN. Verify the code on the phone before pairing. Accept the Windows Firewall prompt — the phone cannot connect without it. Existing v2.1.0 pairings require one deliberate QR re-pair after upgrading to v2.1.1.
 
 ---
 
@@ -137,8 +141,9 @@ On first run: a tray icon appears. Right-click → **Show Pairing Info** to get 
 Or open `android-client/` in Android Studio and run on your device.
 
 1. Tap **Scan WiFi** to auto-discover your PC, or tap **Scan QR** to pair via QR code.
-2. Enter PIN manually if preferred.
-3. Once connected, the deck grid renders. Tap ⚙ to change the accent color theme.
+2. Verify the short PC security code shown on the phone matches the Windows Host.
+3. Enter the one-time PIN manually if preferred.
+4. Once connected, the deck grid renders. Later resumes use the saved token and do not need PIN/QR.
 
 ---
 
@@ -154,7 +159,7 @@ It's not on the Play Store, so Android blocks it by default. Enable **Install un
 `SendInput` simulates hotkeys and media keys — the same API any macro tool uses. Foreground-window polling only reads the active process *name* (never window content) to power auto-profile-switch, so the deck can flip profiles when you focus OBS, Chrome, etc.
 
 **Why does the Android app need camera and local-network permissions?**
-Camera is used only by the QR scanner during pairing — never afterward. Local network access is only to reach the Windows Host's WebSocket server on your LAN; CrossDeck makes no external network connections.
+Camera is used only by the QR scanner during pairing — never afterward. Local network access is only to reach the Windows Host's secure WebSocket and asset servers on your LAN. The host may make an optional outbound favicon request when you choose a URL/domain as an icon source.
 
 **My phone can't find my PC — what's wrong?**
 Almost always the router. Both devices need to be on the **same WiFi**, with **AP Isolation / Client Isolation disabled** — that setting silently blocks device-to-device discovery on a lot of routers. Corporate and public WiFi typically block the mDNS/multicast traffic discovery relies on, so test on a home network first, or pair manually with the PC's IP.

@@ -34,6 +34,12 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.security.SecureRandom
+import java.util.concurrent.TimeUnit
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLPeerUnverifiedException
 
 enum class ConnectionState { Disconnected, Connecting, Connected, AuthFailed, Error }
 
@@ -42,7 +48,23 @@ enum class ConnectionState { Disconnected, Connecting, Connected, AuthFailed, Er
  */
 class ConnectionManager(context: Context) {
 
-    private val client = OkHttpClient.Builder()
+    private var client: OkHttpClient? = null
+
+    private fun buildPinnedClient(fingerprint: String): OkHttpClient {
+        val trustManager = PinnedCertificateTrustManager(fingerprint)
+        val sslContext = SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf(trustManager), SecureRandom())
+        }
+        val hostVerifier: HostnameVerifier = HostnameVerifier { _, session ->
+            // The host uses a self-signed certificate whose stable identity is the paired
+            // fingerprint, not a DNS name. The trust manager still rejects every other cert.
+            session.peerCertificates.firstOrNull()?.let(trustManager::matches) == true
+        }
+        return OkHttpClient.Builder()
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            .hostnameVerifier(hostVerifier)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
         // No pingInterval here — the server sends an application-level heartbeat every 25 s
         // which keeps NAT/WiFi alive without touching WebSocket ping/pong frames.
         // OkHttp's built-in ping races with application SendAsync calls on the server stream.
@@ -51,12 +73,13 @@ class ConnectionManager(context: Context) {
         // bytes. The server's 25s heartbeat is slower than that default, so any 10s+ gap in
         // traffic (i.e. whenever no button is being pressed) hit the read timeout and killed
         // the socket — this was the actual cause of "disconnects when idle/switching apps".
-        .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-        .build()
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
+    }
 
     private val json = Json { ignoreUnknownKeys = true }
     private var activeSocket: WebSocket? = null
-    private val prefs = context.getSharedPreferences("crossdeck_pairing", Context.MODE_PRIVATE)
+    private val pairingStore = SecurePairingStore(context)
     private val settingsPrefs = context.getSharedPreferences("crossdeck_settings", Context.MODE_PRIVATE)
 
     private val _hasSavedPairing = MutableStateFlow(hasStoredPairing())
@@ -124,24 +147,34 @@ class ConnectionManager(context: Context) {
         }
     }
 
-    fun connectWithPin(ip: String, port: Int, pin: String) {
+    fun connectWithPin(ip: String, port: Int, pin: String, fingerprint: String) {
+        val normalizedIp = PairingSecurity.normalizeIpv4(ip)
+        val normalizedFingerprint = PairingSecurity.normalizeFingerprint(fingerprint)
+        if (normalizedIp == null || !PairingSecurity.isValidPort(port) ||
+            !PairingSecurity.isValidPin(pin) || normalizedFingerprint == null) {
+            _lastError.value = "Enter a valid IPv4 address, port, PIN, and host fingerprint"
+            return
+        }
         cancelReconnect()
-        savePairing(ip, port)
-        prefs.edit().putString(KEY_PIN, pin).apply()
-        openSocket(ip, port) { ws -> sendAuth(ws, pin = pin) }
+        pairingStore.remove(KEY_TOKEN)
+        _hasSavedPairing.value = false
+        _lastError.value = null
+        savePairing(normalizedIp, port, normalizedFingerprint)
+        openSocket(normalizedIp, port, normalizedFingerprint) { ws -> sendAuth(ws, pin = pin) }
     }
 
     /** Returns false if there's no saved pairing to reconnect to. Existing connected sessions are kept. */
     fun reconnectWithSavedToken(): Boolean {
-        val ip = prefs.getString(KEY_IP, null) ?: return false
-        val port = prefs.getInt(KEY_PORT, -1)
-        val token = prefs.getString(KEY_TOKEN, null) ?: return false
-        if (port <= 0) return false
+        val ip = pairingStore.getString(KEY_IP) ?: return false
+        val port = pairingStore.getString(KEY_PORT)?.toIntOrNull() ?: return false
+        val token = pairingStore.getString(KEY_TOKEN) ?: return false
+        val fingerprint = pairingStore.getString(KEY_FINGERPRINT) ?: return false
+        if (!PairingSecurity.isValidPort(port)) return false
         _hasSavedPairing.value = true
         if (_connectionState.value == ConnectionState.Connected) return true
         _lastError.value = null
         cancelReconnect()
-        openSocket(ip, port) { ws -> sendAuth(ws, token = token) }
+        openSocket(ip, port, fingerprint) { ws -> sendAuth(ws, token = token) }
         return true
     }
 
@@ -224,10 +257,11 @@ class ConnectionManager(context: Context) {
 
     private fun scheduleReconnect() {
         if (reconnectJob?.isActive == true) return
-        val ip = prefs.getString(KEY_IP, null) ?: return
-        val port = prefs.getInt(KEY_PORT, -1)
-        val token = prefs.getString(KEY_TOKEN, null) ?: return
-        if (port <= 0) return
+        val ip = pairingStore.getString(KEY_IP) ?: return
+        val port = pairingStore.getString(KEY_PORT)?.toIntOrNull() ?: return
+        val token = pairingStore.getString(KEY_TOKEN) ?: return
+        val fingerprint = pairingStore.getString(KEY_FINGERPRINT) ?: return
+        if (!PairingSecurity.isValidPort(port)) return
 
         reconnectJob = CoroutineScope(Dispatchers.IO).launch {
             var delayMs = 1000L
@@ -235,7 +269,7 @@ class ConnectionManager(context: Context) {
             while (_hasSavedPairing.value && _connectionState.value != ConnectionState.Connected) {
                 kotlinx.coroutines.delay(delayMs)
                 if (!_hasSavedPairing.value || _connectionState.value == ConnectionState.Connected) break
-                openSocket(ip, port) { ws -> sendAuth(ws, token = token) }
+                openSocket(ip, port, fingerprint) { ws -> sendAuth(ws, token = token) }
                 kotlinx.coroutines.delay(2000) // give the attempt a moment to resolve
                 if (_connectionState.value == ConnectionState.Connected) break
                 delayMs = (delayMs * 2).coerceAtMost(maxDelayMs)
@@ -248,16 +282,25 @@ class ConnectionManager(context: Context) {
         reconnectJob = null
     }
 
-    private fun openSocket(ip: String, port: Int, onOpenSendAuth: (WebSocket) -> Unit) {
+    private fun openSocket(ip: String, port: Int, fingerprint: String, onOpenSendAuth: (WebSocket) -> Unit) {
         // Abandon any still-pending previous attempt first — otherwise a slow-to-fail connect
         // (e.g. a firewalled/dead IP) can leave two live sockets racing to set connectionState.
         activeSocket?.cancel()
+        val pinnedClient = try {
+            buildPinnedClient(fingerprint)
+        } catch (e: IllegalArgumentException) {
+            _connectionState.value = ConnectionState.AuthFailed
+            _lastError.value = "The PC host fingerprint is invalid"
+            return
+        }
+        client = pinnedClient
+        PinnedClientRegistry.set(pinnedClient)
         _connectionState.value = ConnectionState.Connecting
-        val request = Request.Builder().url("ws://$ip:$port/ws").build()
-        activeSocket = client.newWebSocket(request, object : WebSocketListener() {
+        val request = Request.Builder().url("wss://$ip:$port/ws").build()
+        activeSocket = pinnedClient.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (webSocket !== activeSocket) return // stale callback from a superseded attempt
-                _connectedHostUrl.value = "http://$ip:${port + 1}/"
+                _connectedHostUrl.value = "https://$ip:${port + 1}/"
                 onOpenSendAuth(webSocket)
                 lastMessageAtMs = android.os.SystemClock.elapsedRealtime()
                 _isPcResponding.value = true
@@ -275,7 +318,12 @@ class ConnectionManager(context: Context) {
                 if (webSocket !== activeSocket) return
                 staleWatchdogJob?.cancel()
                 _connectionState.value = ConnectionState.Error
-                _lastError.value = t.message
+                android.util.Log.e("ConnectionManager", "Secure host connection failed", t)
+                _lastError.value = when (t) {
+                    is SSLHandshakeException,
+                    is SSLPeerUnverifiedException -> "PC security check failed — rescan or verify the code"
+                    else -> "Couldn’t reach the PC — check WiFi and host"
+                }
                 _connectedHostUrl.value = null
                 _runningApps.value = emptyList()
                 _audioMixerApps.value = emptyList()
@@ -321,9 +369,32 @@ class ConnectionManager(context: Context) {
             val obj = json.parseToJsonElement(text).jsonObject
             when (obj["type"]?.jsonPrimitive?.content) {
                 "auth_ok" -> {
-                    obj["token"]?.jsonPrimitive?.content?.let { saveToken(it) }
+                    val expectedFingerprint = pairingStore.getString(KEY_FINGERPRINT)
+                        ?.let(PairingSecurity::normalizeFingerprint)
+                    val returnedFingerprint = obj["fingerprint"]?.jsonPrimitive?.contentOrNull
+                        ?.let(PairingSecurity::normalizeFingerprint)
+                    if (expectedFingerprint == null || returnedFingerprint != expectedFingerprint) {
+                        // Never accept a successful response from a host whose TLS identity was
+                        // not the one confirmed during pairing. Clear the token so reconnect
+                        // cannot keep sending it to a stale or replaced endpoint.
+                        cancelReconnect()
+                        clearSavedToken()
+                        activeSocket?.cancel()
+                        _connectionState.value = ConnectionState.AuthFailed
+                        _lastError.value = "The PC host identity changed; pair it again"
+                        return
+                    }
+                    val issuedToken = obj["token"]?.jsonPrimitive?.contentOrNull
+                    if (issuedToken.isNullOrBlank()) {
+                        cancelReconnect()
+                        clearSavedToken()
+                        activeSocket?.cancel()
+                        _connectionState.value = ConnectionState.AuthFailed
+                        _lastError.value = "The PC host returned an invalid authentication response"
+                        return
+                    }
+                    saveToken(issuedToken)
                     // The PIN is only a first-pairing credential. Future connections use the token.
-                    prefs.edit().remove(KEY_PIN).apply()
                     _connectionState.value = ConnectionState.Connected
                 }
                 "auth_failed" -> {
@@ -437,7 +508,7 @@ class ConnectionManager(context: Context) {
         }
     }
 
-    fun startDiscoveryScan(onDiscovered: (ip: String, port: Int, hostName: String) -> Unit) {
+    fun startDiscoveryScan(onDiscovered: (ip: String, port: Int, hostName: String, fingerprint: String) -> Unit) {
         CoroutineScope(Dispatchers.IO).launch {
             var socket: java.net.DatagramSocket? = null
             try {
@@ -464,12 +535,23 @@ class ConnectionManager(context: Context) {
                     try {
                         val responseText = String(responsePacket.data, 0, responsePacket.length)
                         val responseObj = json.parseToJsonElement(responseText).jsonObject
-                        val ip = responseObj["ip"]?.jsonPrimitive?.content ?: ""
+                        val version = responseObj["v"]?.jsonPrimitive?.int ?: 0
+                        val tlsEnabled = responseObj["tls"]?.jsonPrimitive?.boolean ?: false
+                        val ip = responseObj["ip"]?.jsonPrimitive?.content
+                            ?.let(PairingSecurity::normalizeIpv4) ?: ""
                         val port = responseObj["port"]?.jsonPrimitive?.content?.toIntOrNull() ?: 7890
                         val hostName = responseObj["hostName"]?.jsonPrimitive?.content ?: ""
+                        val fingerprint = responseObj["fingerprint"]?.jsonPrimitive?.content
+                            ?.let(PairingSecurity::normalizeFingerprint)
+                        val sourceIp = responsePacket.address?.hostAddress
+                            ?.let(PairingSecurity::normalizeIpv4)
 
-                        if (ip.isNotBlank()) {
-                            Handler(Looper.getMainLooper()).post { onDiscovered(ip, port, hostName) }
+                        if (version == 2 && tlsEnabled && ip.isNotBlank() &&
+                            PairingSecurity.isValidPort(port) && fingerprint != null && ip == sourceIp) {
+                            Handler(Looper.getMainLooper()).post {
+                                _lastError.value = null
+                                onDiscovered(ip, port, hostName, fingerprint)
+                            }
                         }
                     } catch (e: Exception) {
                         android.util.Log.w("ConnectionManager", "Malformed discovery response, ignoring", e)
@@ -582,15 +664,15 @@ class ConnectionManager(context: Context) {
         ws.send(obj.toString())
     }
 
-    fun getLastSavedIp(): String = prefs.getString(KEY_IP, "") ?: ""
-    fun getLastSavedPort(): Int = prefs.getInt(KEY_PORT, 7890)
-    fun getLastSavedPin(): String = prefs.getString(KEY_PIN, "") ?: ""
-    fun getToken(): String? = prefs.getString(KEY_TOKEN, null)
+    fun getLastSavedIp(): String = pairingStore.getString(KEY_IP) ?: ""
+    fun getLastSavedPort(): Int = pairingStore.getString(KEY_PORT)?.toIntOrNull() ?: 7890
+    fun getLastSavedFingerprint(): String = pairingStore.getString(KEY_FINGERPRINT) ?: ""
+    fun getToken(): String? = pairingStore.getString(KEY_TOKEN)
 
-    /** Clears the saved pairing (ip/port/pin/token) and disconnects — "Forget This PC" setting. */
+    /** Clears the saved pairing and disconnects — "Forget This PC" setting. */
     fun forgetPairing() {
         disconnect()
-        prefs.edit().remove(KEY_IP).remove(KEY_PORT).remove(KEY_PIN).remove(KEY_TOKEN).apply()
+        pairingStore.clear()
         _hasSavedPairing.value = false
         _currentProfile.value = null
         _profilesList.value = emptyList()
@@ -625,13 +707,14 @@ class ConnectionManager(context: Context) {
     suspend fun uploadIcon(bytes: ByteArray): String? = withContext(Dispatchers.IO) {
         val hostUrl = _connectedHostUrl.value ?: return@withContext null
         val token = getToken() ?: return@withContext null
+        val pinnedClient = client ?: return@withContext null
         try {
             val request = Request.Builder()
                 .url("${hostUrl}assets/")
                 .header("X-CrossDeck-Token", token)
                 .post(bytes.toRequestBody("application/octet-stream".toMediaType()))
                 .build()
-            client.newCall(request).execute().use { response ->
+            pinnedClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@withContext null
                 val body = response.body?.string() ?: return@withContext null
                 json.parseToJsonElement(body).jsonObject["icon"]?.jsonPrimitive?.content
@@ -642,30 +725,35 @@ class ConnectionManager(context: Context) {
         }
     }
 
-    private fun savePairing(ip: String, port: Int) {
-        prefs.edit().putString(KEY_IP, ip).putInt(KEY_PORT, port).apply()
+    private fun savePairing(ip: String, port: Int, fingerprint: String) {
+        pairingStore.putString(KEY_IP, ip)
+        pairingStore.putString(KEY_PORT, port.toString())
+        pairingStore.putString(KEY_FINGERPRINT, fingerprint)
     }
 
     private fun saveToken(token: String) {
-        prefs.edit().putString(KEY_TOKEN, token).apply()
+        pairingStore.putString(KEY_TOKEN, token)
         _hasSavedPairing.value = hasStoredPairing()
     }
 
     private fun clearSavedToken() {
-        prefs.edit().remove(KEY_TOKEN).apply()
+        pairingStore.remove(KEY_TOKEN)
         _hasSavedPairing.value = false
     }
 
     private fun hasStoredPairing(): Boolean {
-        val ip = prefs.getString(KEY_IP, null)
-        val token = prefs.getString(KEY_TOKEN, null)
-        return !ip.isNullOrBlank() && prefs.getInt(KEY_PORT, -1) > 0 && !token.isNullOrBlank()
+        val ip = pairingStore.getString(KEY_IP)
+        val port = pairingStore.getString(KEY_PORT)?.toIntOrNull()
+        val token = pairingStore.getString(KEY_TOKEN)
+        val fingerprint = pairingStore.getString(KEY_FINGERPRINT)
+        return !ip.isNullOrBlank() && port != null && PairingSecurity.isValidPort(port) &&
+            !token.isNullOrBlank() && !fingerprint.isNullOrBlank()
     }
 
     companion object {
         private const val KEY_IP = "ip"
         private const val KEY_PORT = "port"
-        private const val KEY_PIN = "pin"
         private const val KEY_TOKEN = "token"
+        private const val KEY_FINGERPRINT = "fingerprint"
     }
 }
