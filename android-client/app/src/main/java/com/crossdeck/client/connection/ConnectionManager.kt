@@ -171,7 +171,8 @@ class ConnectionManager(context: Context) {
         val fingerprint = pairingStore.getString(KEY_FINGERPRINT) ?: return false
         if (!PairingSecurity.isValidPort(port)) return false
         _hasSavedPairing.value = true
-        if (_connectionState.value == ConnectionState.Connected) return true
+        if (_connectionState.value == ConnectionState.Connected ||
+            _connectionState.value == ConnectionState.Connecting) return true
         _lastError.value = null
         cancelReconnect()
         openSocket(ip, port, fingerprint) { ws -> sendAuth(ws, token = token) }
@@ -244,6 +245,7 @@ class ConnectionManager(context: Context) {
 
     fun disconnect() {
         cancelReconnect()
+        cancelConnectionWatchdog()
         activeSocket?.close(1000, "user disconnect")
         activeSocket = null
         _connectionState.value = ConnectionState.Disconnected
@@ -254,6 +256,7 @@ class ConnectionManager(context: Context) {
     // reserved for first-time pairing or an explicitly revoked/forgotten token.
 
     private var reconnectJob: kotlinx.coroutines.Job? = null
+    private var connectionWatchdogJob: kotlinx.coroutines.Job? = null
 
     private fun scheduleReconnect() {
         if (reconnectJob?.isActive == true) return
@@ -282,9 +285,42 @@ class ConnectionManager(context: Context) {
         reconnectJob = null
     }
 
+    private fun cancelConnectionWatchdog() {
+        connectionWatchdogJob?.cancel()
+        connectionWatchdogJob = null
+    }
+
+    private fun startConnectionWatchdog(webSocket: WebSocket, waitingForAuth: Boolean) {
+        cancelConnectionWatchdog()
+        val timeoutMs = if (waitingForAuth) 10_000L else 8_000L
+        connectionWatchdogJob = CoroutineScope(Dispatchers.IO).launch {
+            kotlinx.coroutines.delay(timeoutMs)
+            if (webSocket !== activeSocket) return@launch
+            val stillWaiting = if (waitingForAuth) {
+                _connectionState.value == ConnectionState.Connecting
+            } else {
+                _connectionState.value == ConnectionState.Connected
+            }
+            if (!stillWaiting) return@launch
+
+            android.util.Log.w(
+                "ConnectionManager",
+                if (waitingForAuth) "Timed out waiting for host authentication" else "Timed out waiting for initial profile sync"
+            )
+            _lastError.value = if (waitingForAuth) {
+                "The PC did not finish connecting — retrying"
+            } else {
+                "The PC connected but did not send the deck — retrying"
+            }
+            webSocket.cancel()
+            scheduleReconnect()
+        }
+    }
+
     private fun openSocket(ip: String, port: Int, fingerprint: String, onOpenSendAuth: (WebSocket) -> Unit) {
         // Abandon any still-pending previous attempt first — otherwise a slow-to-fail connect
         // (e.g. a firewalled/dead IP) can leave two live sockets racing to set connectionState.
+        cancelConnectionWatchdog()
         activeSocket?.cancel()
         val pinnedClient = try {
             buildPinnedClient(fingerprint)
@@ -302,6 +338,7 @@ class ConnectionManager(context: Context) {
                 if (webSocket !== activeSocket) return // stale callback from a superseded attempt
                 _connectedHostUrl.value = "https://$ip:${port + 1}/"
                 onOpenSendAuth(webSocket)
+                startConnectionWatchdog(webSocket, waitingForAuth = true)
                 lastMessageAtMs = android.os.SystemClock.elapsedRealtime()
                 _isPcResponding.value = true
                 startStaleWatchdog()
@@ -316,6 +353,7 @@ class ConnectionManager(context: Context) {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 if (webSocket !== activeSocket) return
+                cancelConnectionWatchdog()
                 staleWatchdogJob?.cancel()
                 _connectionState.value = ConnectionState.Error
                 android.util.Log.e("ConnectionManager", "Secure host connection failed", t)
@@ -332,6 +370,7 @@ class ConnectionManager(context: Context) {
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 if (webSocket !== activeSocket) return
+                cancelConnectionWatchdog()
                 staleWatchdogJob?.cancel()
                 _connectionState.value = ConnectionState.Disconnected
                 _connectedHostUrl.value = null
@@ -396,10 +435,12 @@ class ConnectionManager(context: Context) {
                     saveToken(issuedToken)
                     // The PIN is only a first-pairing credential. Future connections use the token.
                     _connectionState.value = ConnectionState.Connected
+                    activeSocket?.let { startConnectionWatchdog(it, waitingForAuth = false) }
                 }
                 "auth_failed" -> {
                     // A rejected saved token means the host revoked this pairing. Clear only the
                     // token, preserve the last host address, and allow a deliberate new pairing.
+                    cancelConnectionWatchdog()
                     cancelReconnect()
                     clearSavedToken()
                     _connectionState.value = ConnectionState.AuthFailed
@@ -410,6 +451,7 @@ class ConnectionManager(context: Context) {
                         val newProfile = json.decodeFromJsonElement<Profile>(profileEl)
                         val prev = _currentProfile.value
                         _currentProfile.value = newProfile
+                        cancelConnectionWatchdog()
                         // Only show toast when the content actually changed (PC edited something)
                         if (prev != null && prev.buttons != newProfile.buttons) {
                             emitToast("Profile updated from PC", success = true)

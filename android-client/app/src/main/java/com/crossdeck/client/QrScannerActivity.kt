@@ -18,9 +18,11 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -76,8 +78,28 @@ class QrScannerActivity : ComponentActivity() {
                         CameraPreview(onBarcodeDetected = { data ->
                             handleQrData(data)
                         })
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .size(280.dp)
+                                .border(
+                                    width = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                                )
+                        )
                         Text(
-                            text = "Align QR Code inside camera view",
+                            text = "Scan PC QR code",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(top = 48.dp)
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f), shape = MaterialTheme.shapes.small)
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
+                        Text(
+                            text = "Fit the entire QR inside the frame",
                             color = MaterialTheme.colorScheme.onSurface,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier

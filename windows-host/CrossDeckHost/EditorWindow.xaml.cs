@@ -1467,7 +1467,7 @@ public partial class EditorWindow : Window
     // Footer links clicks
     private void AboutLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        System.Windows.MessageBox.Show("CrossDeck Host v2.1.1\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
+        System.Windows.MessageBox.Show("CrossDeck Host v2.1.2\nMade by ItisPhoenix — github.com/ItisPhoenix\nMIT License", "About CrossDeck", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void HelpLink_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -1551,7 +1551,7 @@ public partial class EditorWindow : Window
         if (!isConnected && _pairing != null && _server != null)
         {
             stack.Children.Add(new TextBlock { Text = "Pairing", FontWeight = FontWeights.Bold, Foreground = ThemeManager.Brush("Brush.Paper"), Margin = new Thickness(0, 0, 0, 5) });
-            var qrImage = new System.Windows.Controls.Image { Width = 110, Height = 110, Stretch = Stretch.Uniform, Source = QrImage.Source };
+            var qrImage = new System.Windows.Controls.Image { Width = 150, Height = 150, Stretch = Stretch.Uniform, Source = QrImage.Source };
             stack.Children.Add(new Border
             {
                 Background = System.Windows.Media.Brushes.White, CornerRadius = new CornerRadius(8), Padding = new Thickness(5),
@@ -1616,7 +1616,7 @@ public partial class EditorWindow : Window
         ((TextBlock)aboutRow.Children[0]).MouseLeftButtonDown += AboutLink_Click;
         aboutRow.Children.Add(new TextBlock
         {
-            Text = "v2.1.1", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11,
+            Text = "v2.1.2", Foreground = ThemeManager.Brush("Brush.Mist"), FontSize = 11,
             HorizontalAlignment = System.Windows.HorizontalAlignment.Right
         });
         stack.Children.Add(aboutRow);
