@@ -191,7 +191,9 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                                 ReconnectOverlay(
-                                    onRetry = { connectionManager.reconnectWithSavedToken() }
+                                    errorMessage = if (state == ConnectionState.Error) error else null,
+                                    onRetry = { connectionManager.retrySavedReconnect() },
+                                    onForgetHost = { connectionManager.forgetPairing() }
                                 )
                             }
                         }
@@ -200,7 +202,9 @@ class MainActivity : ComponentActivity() {
                             // the saved pairing private and retry automatically instead of showing
                             // PIN/QR controls again.
                             ReconnectOverlay(
-                                onRetry = { connectionManager.reconnectWithSavedToken() }
+                                errorMessage = if (state == ConnectionState.Error) error else null,
+                                onRetry = { connectionManager.retrySavedReconnect() },
+                                onForgetHost = { connectionManager.forgetPairing() }
                             )
                         }
                         state == ConnectionState.Connecting -> {

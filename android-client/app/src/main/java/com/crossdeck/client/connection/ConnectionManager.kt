@@ -156,8 +156,11 @@ class ConnectionManager(context: Context) {
             return
         }
         cancelReconnect()
+        cancelReconnectDeadline()
         pairingStore.remove(KEY_TOKEN)
         _hasSavedPairing.value = false
+        reconnectAttempts = 0
+        reconnectExhausted = false
         _lastError.value = null
         savePairing(normalizedIp, port, normalizedFingerprint)
         openSocket(normalizedIp, port, normalizedFingerprint) { ws -> sendAuth(ws, pin = pin) }
@@ -171,9 +174,11 @@ class ConnectionManager(context: Context) {
         val fingerprint = pairingStore.getString(KEY_FINGERPRINT) ?: return false
         if (!PairingSecurity.isValidPort(port)) return false
         _hasSavedPairing.value = true
+        if (reconnectExhausted) return true
         if (_connectionState.value == ConnectionState.Connected ||
             _connectionState.value == ConnectionState.Connecting) return true
         _lastError.value = null
+        startReconnectDeadline()
         cancelReconnect()
         openSocket(ip, port, fingerprint) { ws -> sendAuth(ws, token = token) }
         return true
@@ -245,7 +250,10 @@ class ConnectionManager(context: Context) {
 
     fun disconnect() {
         cancelReconnect()
+        cancelReconnectDeadline()
         cancelConnectionWatchdog()
+        reconnectAttempts = 0
+        reconnectExhausted = false
         activeSocket?.close(1000, "user disconnect")
         activeSocket = null
         _connectionState.value = ConnectionState.Disconnected
@@ -256,27 +264,74 @@ class ConnectionManager(context: Context) {
     // reserved for first-time pairing or an explicitly revoked/forgotten token.
 
     private var reconnectJob: kotlinx.coroutines.Job? = null
+    private var reconnectDeadlineJob: kotlinx.coroutines.Job? = null
     private var connectionWatchdogJob: kotlinx.coroutines.Job? = null
+    private var reconnectAttempts = 0
+    private var reconnectExhausted = false
+    private val maxReconnectAttempts = 5
 
     private fun scheduleReconnect() {
-        if (reconnectJob?.isActive == true) return
+        if (reconnectJob?.isActive == true) {
+            _connectionState.value = ConnectionState.Connecting
+            return
+        }
+        if (reconnectExhausted) return
         val ip = pairingStore.getString(KEY_IP) ?: return
         val port = pairingStore.getString(KEY_PORT)?.toIntOrNull() ?: return
         val token = pairingStore.getString(KEY_TOKEN) ?: return
         val fingerprint = pairingStore.getString(KEY_FINGERPRINT) ?: return
         if (!PairingSecurity.isValidPort(port)) return
 
+        _connectionState.value = ConnectionState.Connecting
         reconnectJob = CoroutineScope(Dispatchers.IO).launch {
             var delayMs = 1000L
             val maxDelayMs = 3_000L
-            while (_hasSavedPairing.value && _connectionState.value != ConnectionState.Connected) {
+            while (_hasSavedPairing.value && _connectionState.value != ConnectionState.Connected &&
+                reconnectAttempts < maxReconnectAttempts) {
                 kotlinx.coroutines.delay(delayMs)
                 if (!_hasSavedPairing.value || _connectionState.value == ConnectionState.Connected) break
+                reconnectAttempts++
                 openSocket(ip, port, fingerprint) { ws -> sendAuth(ws, token = token) }
                 kotlinx.coroutines.delay(2000) // give the attempt a moment to resolve
                 if (_connectionState.value == ConnectionState.Connected) break
                 delayMs = (delayMs * 2).coerceAtMost(maxDelayMs)
             }
+            if (_hasSavedPairing.value && _connectionState.value != ConnectionState.Connected) {
+                cancelReconnectDeadline()
+                reconnectExhausted = true
+                _connectionState.value = ConnectionState.Error
+                _lastError.value = "Couldn’t reconnect to this PC. Check that CrossDeck Host is running and both devices are on WiFi."
+            }
+            reconnectJob = null
+        }
+    }
+
+    fun retrySavedReconnect() {
+        cancelReconnectDeadline()
+        reconnectAttempts = 0
+        reconnectExhausted = false
+        _lastError.value = null
+        _connectionState.value = ConnectionState.Disconnected
+        reconnectWithSavedToken()
+    }
+
+    private fun cancelReconnectDeadline() {
+        reconnectDeadlineJob?.cancel()
+        reconnectDeadlineJob = null
+    }
+
+    private fun startReconnectDeadline() {
+        cancelReconnectDeadline()
+        reconnectDeadlineJob = CoroutineScope(Dispatchers.IO).launch {
+            kotlinx.coroutines.delay(10_000L)
+            if (!_hasSavedPairing.value || _connectionState.value == ConnectionState.Connected) return@launch
+
+            reconnectExhausted = true
+            cancelReconnect()
+            activeSocket?.cancel()
+            _connectionState.value = ConnectionState.Error
+            _lastError.value = "Couldn’t reconnect to this PC within 10 seconds. Check that CrossDeck Host is running and both devices are on WiFi."
+            reconnectDeadlineJob = null
         }
     }
 
@@ -417,6 +472,7 @@ class ConnectionManager(context: Context) {
                         // not the one confirmed during pairing. Clear the token so reconnect
                         // cannot keep sending it to a stale or replaced endpoint.
                         cancelReconnect()
+                        cancelReconnectDeadline()
                         clearSavedToken()
                         activeSocket?.cancel()
                         _connectionState.value = ConnectionState.AuthFailed
@@ -426,6 +482,7 @@ class ConnectionManager(context: Context) {
                     val issuedToken = obj["token"]?.jsonPrimitive?.contentOrNull
                     if (issuedToken.isNullOrBlank()) {
                         cancelReconnect()
+                        cancelReconnectDeadline()
                         clearSavedToken()
                         activeSocket?.cancel()
                         _connectionState.value = ConnectionState.AuthFailed
@@ -434,6 +491,9 @@ class ConnectionManager(context: Context) {
                     }
                     saveToken(issuedToken)
                     // The PIN is only a first-pairing credential. Future connections use the token.
+                    cancelReconnectDeadline()
+                    reconnectAttempts = 0
+                    reconnectExhausted = false
                     _connectionState.value = ConnectionState.Connected
                     activeSocket?.let { startConnectionWatchdog(it, waitingForAuth = false) }
                 }
@@ -442,6 +502,7 @@ class ConnectionManager(context: Context) {
                     // token, preserve the last host address, and allow a deliberate new pairing.
                     cancelConnectionWatchdog()
                     cancelReconnect()
+                    cancelReconnectDeadline()
                     clearSavedToken()
                     _connectionState.value = ConnectionState.AuthFailed
                     _lastError.value = obj["reason"]?.jsonPrimitive?.content

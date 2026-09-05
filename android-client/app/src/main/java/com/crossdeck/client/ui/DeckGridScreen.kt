@@ -2539,8 +2539,14 @@ private fun DialCell(
  * cold start before the first profile_sync.
  */
 @Composable
-fun ReconnectOverlay(onRetry: () -> Unit, modifier: Modifier = Modifier) {
+fun ReconnectOverlay(
+    onRetry: () -> Unit,
+    errorMessage: String? = null,
+    onForgetHost: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
     val accentColor = MaterialTheme.colorScheme.primary
+    val failed = !errorMessage.isNullOrBlank()
     val infiniteTransition = rememberInfiniteTransition(label = "reconnectPulse")
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 0.4f,
@@ -2561,12 +2567,22 @@ fun ReconnectOverlay(onRetry: () -> Unit, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            androidx.compose.material3.CircularProgressIndicator(
-                color = accentColor.copy(alpha = pulseAlpha),
-                modifier = Modifier.size(48.dp)
-            )
+            if (failed) {
+                Text("Connection failed", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleMedium)
+            } else {
+                androidx.compose.material3.CircularProgressIndicator(
+                    color = accentColor.copy(alpha = pulseAlpha),
+                    modifier = Modifier.size(48.dp)
+                )
+            }
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Reconnecting…", color = MaterialTheme.colorScheme.onBackground, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                if (failed) errorMessage!! else "Reconnecting…",
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
             Spacer(modifier = Modifier.height(24.dp))
             OutlinedButton(
                 onClick = onRetry,
@@ -2575,6 +2591,11 @@ fun ReconnectOverlay(onRetry: () -> Unit, modifier: Modifier = Modifier) {
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = accentColor)
             ) {
                 Text("Retry now", color = accentColor)
+            }
+            if (failed) {
+                TextButton(onClick = onForgetHost) {
+                    Text("Pair again", color = accentColor)
+                }
             }
         }
     }
